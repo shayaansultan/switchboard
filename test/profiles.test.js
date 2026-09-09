@@ -276,3 +276,32 @@ test('the store survives a round trip and never persists the load error', () => 
   expect(again.profiles.map((p) => p.name)).toContain('Client X');
   expect(Object.keys(JSON.parse(fs.readFileSync(path.join(profiles.ROOT, 'profiles.json'), 'utf8')))).not.toContain('loadError');
 });
+
+// ---- launch arguments ----
+// Regression guard: a non-default profile needs the Chromium flag AND the
+// config-home variable. The flag alone isolates the signed-in session but
+// leaves the app's embedded agent writing into the default home, which fails
+// silently rather than visibly.
+
+const launch = require('../src/launch');
+
+test('a non-default profile is launched with both isolations, for both apps', () => {
+  const data = profiles.load();
+  for (const vendor of ['claude', 'codex']) {
+    const p = profiles.add(data, { vendor, name: 'Second' }).profile;
+    const args = launch.launchArgs(p, false);
+    const d = profiles.dirs(p);
+
+    expect(args).toContain('--env');
+    expect(args).toContain(`${profiles.VENDORS[vendor].homeEnv}=${d.home}`);
+    expect(args).toContain(`--user-data-dir=${d.desktop}`);
+    expect(args).toContain('-n'); // never reuse the running instance
+  }
+});
+
+test('a Default profile is launched untouched, with no redirection', () => {
+  const args = launch.launchArgs(claudeSource(), false);
+  expect(args).toEqual(['-n', '-a', profiles.VENDORS.claude.appPath]);
+  // Already running: focus it rather than starting a second copy.
+  expect(launch.launchArgs(claudeSource(), true)).toEqual(['-a', profiles.VENDORS.claude.appPath]);
+});

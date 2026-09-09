@@ -20,10 +20,14 @@ directory and runs as a genuinely separate window with its own session. The
 command-line tools are separated the same way, with an environment variable per
 account.
 
-| App    | CLI and agent isolation      | Desktop app isolation                    |
-| ------ | ---------------------------- | ---------------------------------------- |
-| Claude | `CLAUDE_CONFIG_DIR=<…>/home` | `Claude.app --user-data-dir=<…>/desktop` |
-| Codex  | `CODEX_HOME=<…>/home`        | `ChatGPT.app --user-data-dir=<…>/desktop`, with `CODEX_HOME` in its environment |
+Each profile is isolated twice over, because the two halves hold different
+state. Both desktop apps embed an agent that reads the same config-home
+variable the command-line tool does, so the flag alone is not enough.
+
+| App    | Signed-in session          | Agent home: sessions, plugins, config |
+| ------ | -------------------------- | ------------------------------------- |
+| Claude | `--user-data-dir=<…>/desktop` | `CLAUDE_CONFIG_DIR=<…>/home`       |
+| Codex  | `--user-data-dir=<…>/desktop` | `CODEX_HOME=<…>/home`              |
 
 Every account is a profile owning an isolated directory tree under
 `~/.switchboard/<vendor>/<profile>/`. Profiles never share cookies, tokens,
@@ -54,8 +58,10 @@ You can read them in the menu bar without opening the window.
 
 ## Requirements
 
-- macOS 13 or later. Isolating a Codex profile uses `open --env`, which earlier
-  versions do not support.
+- A macOS whose `open` supports `--env`, which is how a profile's config home
+  reaches the app. Confirmed on macOS 26; I have not established the earliest
+  version that carries the flag, so check with `man open` if you are on
+  something older.
 - Claude Desktop, the ChatGPT app, or both, installed in `/Applications`.
   Other locations are not detected yet.
 - The `claude` or `codex` CLI for the usage bars. Switchboard asks your login
@@ -134,11 +140,13 @@ Slack, Notion and so on.
 - Neither vendor supports any of this. An update to either app could break the
   `--user-data-dir` flag or the usage endpoints. The Default profiles keep
   working regardless.
-- Claude Desktop does not read the profile from the environment; only the
-  `--user-data-dir` flag isolates it. Launch extra profiles from Switchboard
-  rather than from the Dock.
-- Codex desktop and ChatGPT share the `ChatGPT.app` bundle, so extra instances
-  auto-update, but the Dock shows one icon per instance.
+- Launch extra profiles from Switchboard rather than from the Dock. A Dock
+  launch carries neither the flag nor the variable, so it opens the Default
+  profile regardless of which window you meant.
+- Codex and ChatGPT are the same `ChatGPT.app` bundle, and every profile
+  launches that one bundle, so an update to it applies to all of them. macOS
+  registers each instance separately, which means one Dock icon per running
+  profile rather than one for the app.
 - If a profile's CLI token expires, run that profile's CLI once to refresh it.
 - `ANTHROPIC_API_KEY` in your shell makes Claude Code bill the API instead of
   your subscription. Switchboard never sets it; check your own shell config.

@@ -58,24 +58,32 @@ async function haveCommand(cmd) {
   }
 }
 
-// The `open --env` flag needs the whole `NAME=value` in one argv element.
+// Arguments for `open` that launch one profile's window.
+//
+// A non-default profile needs BOTH isolations and they cover different state:
+//   --user-data-dir  the Chromium profile: cookies, the signed-in session
+//   the env var      the embedded agent's home: sessions, plugins, config
+// Passing only the flag leaves the second app's agent writing into the default
+// home, which is a silent leak rather than a visible failure. `--env` takes the
+// whole `NAME=value` as one argv element.
+//
+// `alreadyRunning` is only consulted for the Default profile, where `open -a`
+// on its own would focus the existing window instead of starting a second one.
+function launchArgs(profile, alreadyRunning) {
+  const v = VENDORS[profile.vendor];
+  const d = dirs(profile);
+  if (d.isDefault) {
+    return [...(alreadyRunning ? [] : ['-n']), '-a', v.appPath];
+  }
+  return ['-n', '--env', `${v.homeEnv}=${d.home}`, '-a', v.appPath, '--args', `--user-data-dir=${d.desktop}`];
+}
+
 async function launchDesktop(profile) {
   const v = VENDORS[profile.vendor];
   if (!fs.existsSync(v.appPath)) throw new Error(`${v.appPath} is not installed`);
-  const d = ensureDirs(profile);
-  const args = [];
-  if (d.isDefault) {
-    // `open -a` alone would just focus whichever instance is already running,
-    // so force a new process unless the default instance itself is up.
-    const already = instanceFor(profile, await runningInstances());
-    if (!already) args.push('-n');
-    args.push('-a', v.appPath);
-  } else {
-    args.push('-n');
-    if (profile.vendor === 'codex') args.push('--env', `${v.homeEnv}=${d.home}`);
-    args.push('-a', v.appPath, '--args', `--user-data-dir=${d.desktop}`);
-  }
-  await run('open', args);
+  ensureDirs(profile);
+  const already = dirs(profile).isDefault ? !!instanceFor(profile, await runningInstances()) : false;
+  await run('open', launchArgs(profile, already));
 }
 
 // Snapshot of running desktop-app main processes: [{pid, vendor, userDataDir|null}]
@@ -252,6 +260,7 @@ function revealDir(profile) {
 
 module.exports = {
   run,
+  launchArgs,
   adoptLoginShellPath,
   haveCommand,
   installedTerminals,
