@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+  <title>Switchboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="titlebar">
+    <div class="brand">Switchboard</div>
+    <div class="actions">
+      <button id="refresh" title="Refresh usage">↻ Refresh</button>
+      <button id="add">+ Profile</button>
+      <button id="settings" title="Settings">⚙</button>
+    </div>
+  </header>
+
+  <main id="root"></main>
+
+  <dialog id="add-dialog">
+    <form method="dialog" id="add-form">
+      <h2 id="add-title">New profile</h2>
+      <div id="add-basics">
+        <label>App
+          <select name="vendor">
+            <option value="claude">Claude</option>
+            <option value="codex">Codex (ChatGPT app)</option>
+          </select>
+        </label>
+        <label>Name <input name="name" placeholder="Work, Personal, Client X…" autofocus /></label>
+      </div>
+      <label>Start from
+        <select name="source"></select>
+      </label>
+      <fieldset id="add-items">
+        <legend>Bring over</legend>
+        <div id="add-items-list" class="items"></div>
+        <div class="mode">
+          <label class="check"><input type="radio" name="mode" value="link" checked /> Keep in sync with the source (links, one edit applies to both)</label>
+          <label class="check"><input type="radio" name="mode" value="copy" /> Copy once (the two drift apart from here)</label>
+        </div>
+      </fieldset>
+      <p class="hint">Login, chat history, memories and session state are never brought over.</p>
+      <menu>
+        <button value="cancel" type="button" class="secondary" id="add-cancel">Cancel</button>
+        <button value="ok" class="primary" id="add-submit">Create</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="settings-dialog">
+    <form method="dialog" id="settings-form">
+      <h2>Settings</h2>
+      <label>Terminal
+        <select name="terminal"></select>
+      </label>
+      <label>Show usage as
+        <select name="usageMode">
+          <option value="used">How much is used</option>
+          <option value="remaining">How much is left</option>
+        </select>
+      </label>
+      <label>Usage refresh (minutes) <input name="pollMinutes" type="number" min="1" max="60" /></label>
+      <label class="check"><input type="checkbox" name="openAtLogin" /> Open at login (starts in the menu bar)</label>
+      <menu>
+        <button type="button" class="secondary" id="settings-cancel">Cancel</button>
+        <button value="ok" class="primary">Save</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

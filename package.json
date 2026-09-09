@@ -1,0 +1,47 @@
+{
+  "name": "switchboard",
+  "version": "0.1.0",
+  "description": "Run and monitor multiple Claude and Codex accounts side by side on macOS",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "icons": "electron build/render-icons.js",
+    "dist": "electron-builder --mac --dir",
+    "install-app": "bun run dist && APP=$(ls -d dist/mac*/Switchboard.app | head -1) && rm -rf /Applications/Switchboard.app && ditto \"$APP\" /Applications/Switchboard.app && codesign --force --deep --sign - /Applications/Switchboard.app && rm -rf dist && open /Applications/Switchboard.app",
+    "test": "bun test",
+    "demo": "bun demo/capture.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "playwright": "^1.49.0"
+  },
+  "build": {
+    "appId": "dev.shayaan.switchboard",
+    "productName": "Switchboard",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": "dir",
+      "identity": null,
+      "icon": "build/icon.icns"
+    },
+    "files": [
+      "src/**/*",
+      "build/trayTemplate.png",
+      "build/trayTemplate@2x.png",
+      "build/icon-1024.png",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    }
+  },
+  "trustedDependencies": [
+    "electron",
+    "electron-builder",
+    "@electron/rebuild"
+  ],
+  "author": "Shayaan Sultan"
+}

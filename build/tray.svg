@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">
+  <!-- menu bar template image: black shapes on transparent, macOS recolours it -->
+  <g fill="none" stroke="#000000" stroke-width="4" stroke-linecap="round">
+    <path d="M11 11 C11 24, 33 20, 33 33"/>
+    <path d="M11 33 C11 20, 33 24, 33 11"/>
+  </g>
+  <g fill="#000000">
+    <circle cx="11" cy="11" r="5"/>
+    <circle cx="33" cy="11" r="5"/>
+    <circle cx="11" cy="33" r="5"/>
+    <circle cx="33" cy="33" r="5"/>
+  </g>
+</svg>

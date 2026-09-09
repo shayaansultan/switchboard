@@ -1,0 +1,90 @@
+/* Light, quiet, native-Mac utility. Hairlines instead of shadows,
+   ink-coloured bars, colour only where it carries meaning. */
+:root {
+  --bg: #f1f1ee;
+  --panel: #ffffff;
+  --panel-2: #f5f5f2;
+  --line: #d9d9d4;
+  --text: #1d1d1b;
+  --muted: #6e6e69;
+  --ink: #1d1d1b;
+  --ok: #1d1d1b;
+  --warn: #b4741a;
+  --bad: #b3362a;
+  --run: #2e9e5b;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.45 -apple-system, "SF Pro Text", system-ui, sans-serif; }
+button { font: inherit; font-size: 12px; color: var(--text); background: #fff; border: 1px solid #c6c6c0; border-radius: 5px; padding: 4px 10px; cursor: pointer; }
+button:hover { background: #f3f3f0; }
+button.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
+button.primary:hover { background: #333; }
+button.secondary { background: transparent; }
+button.danger { color: var(--muted); }
+button.danger:hover { color: var(--bad); border-color: var(--bad); }
+button:disabled { opacity: .45; cursor: default; }
+
+.titlebar { -webkit-app-region: drag; display: flex; align-items: center; justify-content: space-between; padding: 11px 16px 11px 84px; border-bottom: 1px solid var(--line); background: var(--bg); position: sticky; top: 0; z-index: 2; }
+.titlebar .actions { -webkit-app-region: no-drag; display: flex; gap: 6px; }
+.brand { font-weight: 600; font-size: 13px; }
+
+main { padding: 18px 16px 24px; display: grid; gap: 26px; }
+section h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--text); display: flex; justify-content: space-between; align-items: baseline; }
+section h3 .na { font-weight: 400; color: var(--muted); font-size: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 10px; }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px 12px; display: grid; gap: 10px; }
+.card .head { display: flex; align-items: center; gap: 8px; }
+.card .head::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--card-color, var(--muted)); flex: none; }
+.card .name { font-weight: 600; font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .name input { font: inherit; background: transparent; border: 0; color: inherit; width: 100%; border-bottom: 1px dashed var(--line); }
+.dot { width: 7px; height: 7px; border-radius: 50%; border: 1px solid #b9b9b3; flex: none; order: 10; }
+.dot.on { background: var(--run); border-color: var(--run); }
+.badge { font-size: 12px; color: var(--muted); }
+.badge + .badge { margin-left: 4px; }
+.ident { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: -6px; }
+.ident.err { color: var(--warn); }
+
+.bars { display: grid; gap: 7px; }
+.bar { display: grid; grid-template-columns: 96px 1fr 40px; align-items: center; gap: 10px; font-size: 12px; }
+.bar .label { color: var(--muted); }
+.bar .track { height: 4px; background: #e6e6e1; border-radius: 2px; overflow: hidden; }
+.bar .fill { height: 100%; background: var(--ink); border-radius: 2px; transition: width .4s; }
+.bar .fill.warn { background: var(--warn); }
+.bar .fill.bad { background: var(--bad); }
+.bar .pct { text-align: right; font-variant-numeric: tabular-nums; }
+.bar .reset { grid-column: 2 / 4; color: var(--muted); font-size: 11px; margin-top: -5px; }
+
+.card .buttons { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 2px; }
+.card .buttons .spacer { flex: 1; }
+.cli { font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); background: var(--panel-2); border: 1px solid #ebebe7; padding: 5px 8px; border-radius: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.cli:hover { color: var(--text); }
+.note { font-size: 11px; color: var(--muted); line-height: 1.5; }
+.note b { color: var(--text); font-weight: 600; }
+.note a { color: var(--text); }
+
+dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; width: 420px; max-width: 90vw; box-shadow: 0 12px 40px rgba(0,0,0,.18); }
+dialog::backdrop { background: rgba(0,0,0,.25); }
+dialog h2 { margin: 0 0 12px; font-size: 14px; }
+dialog form { display: grid; gap: 10px; }
+dialog label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+dialog label.check { grid-template-columns: auto 1fr; align-items: start; }
+dialog input, dialog select { font: inherit; color: var(--text); background: #fff; border: 1px solid #c6c6c0; border-radius: 5px; padding: 5px 8px; }
+dialog menu { display: flex; justify-content: flex-end; gap: 8px; margin: 6px 0 0; padding: 0; }
+fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px 10px; margin: 0; display: grid; gap: 8px; }
+legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
+.items { display: grid; gap: 6px; }
+.items label.check { color: var(--text); grid-template-columns: auto 1fr; gap: 8px; align-items: baseline; }
+.items .hint { display: block; margin-top: 1px; }
+.items .warn .hint { color: var(--warn); }
+.mode { display: grid; gap: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
+.mode label.check { color: var(--text); }
+dialog[open] { max-height: 90vh; overflow: auto; }
+/* Placeholder blocks while the first refresh is running. */
+.skel { display: inline-block; height: 10px; border-radius: 3px; background: linear-gradient(90deg, #e6e6e1 0%, #efefeb 50%, #e6e6e1 100%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; vertical-align: middle; }
+.track.skel { height: 4px; width: 100%; }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+.hint { color: var(--muted); font-size: 12px; margin: 0; }
+.empty { color: var(--muted); padding: 24px; text-align: center; border: 1px dashed var(--line); border-radius: 6px; }
