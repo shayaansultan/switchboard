@@ -65,7 +65,8 @@ You can read them in the menu bar without opening the window.
 - Claude Desktop, the ChatGPT app, or both, installed in `/Applications`.
   Other locations are not detected yet.
 - The `claude` or `codex` CLI for the usage bars. Switchboard asks your login
-  shell where they are, so a version manager such as nvm, fnm or mise is fine.
+  shell for its environment, so a version manager such as nvm, fnm, volta or
+  mise is fine, and so is fish or bash rather than zsh.
 - Apple Silicon has been tested. Intel should build, but has not been tried.
 
 ## What it reads, and what leaves your Mac
@@ -74,15 +75,21 @@ Worth knowing before you run an unsigned app that touches your accounts.
 
 - **Your keychain.** To show Claude usage, Switchboard runs `security
   find-generic-password` for the entry the Claude Code CLI already created.
-  macOS will ask for your password the first time, and again after each rebuild,
-  because the ad-hoc signature changes. Codex tokens are read from a file
+  macOS will ask for your password the first time. It asks again after each
+  rebuild, because ad-hoc signing produces a new code hash and the keychain
+  entry's permission no longer recognises the app. Codex tokens are read from a file
   instead, so they produce no prompt.
-- **Two network calls per profile, on a timer.** The same endpoints the two
-  CLIs use for their own usage screens, authorised with that profile's existing
-  CLI token. Neither endpoint is documented by its vendor, so both can change
-  without notice and the bars can go blank. Nothing else is sent anywhere, there
-  is no telemetry, and tokens stay in the main process. The window only receives
-  percentages, reset times, an email address and a plan name.
+- **One network call per signed-in profile, on a timer.** The same endpoints
+  the two CLIs use for their own usage screens, authorised with that profile's
+  existing CLI token. Codex tries a second URL only if the first answers 404.
+  Neither endpoint is documented by its vendor, so both can change without
+  notice and the bars can go blank. Nothing else is sent anywhere and there is
+  no telemetry.
+- **Tokens never leave the main process.** They are read, used for that one
+  request, and dropped. What the window receives is the profile's own name and
+  colour, its directory paths and the CLI command to enter it, whether the app
+  is running, and from the account: the email address, plan name, organisation
+  name, and the usage percentages with their reset times.
 - **Never credentials.** Switchboard does not write logins, and it will not copy
   API keys or credential helpers between profiles.
 

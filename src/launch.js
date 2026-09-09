@@ -27,14 +27,18 @@ function run(cmd, args, opts = {}) {
 // is often installed by a Node version manager (nvm, fnm, volta, mise, asdf)
 // whose PATH only exists inside the user's shell. Ask the login shell once and
 // adopt its PATH, so we find the same binaries the user's terminal does.
-// A marker separates the answer from anything the shell's rc files print.
+//
+// This runs `env` rather than expanding $PATH in the shell, because the
+// expansion is not portable: in fish, PATH is a list and "$PATH" comes back
+// space-separated, which would produce a nonsense PATH. Every shell exports it
+// to a child process colon-separated, so reading it back from `env` works the
+// same everywhere. Taking the last match steps over anything the rc files echo.
 async function adoptLoginShellPath() {
-  const marker = '__switchboard_path__';
   try {
     const shell = process.env.SHELL || '/bin/zsh';
-    const { stdout } = await run(shell, ['-ilc', `printf '%s%s' '${marker}' "$PATH"`], { timeout: 8000 });
-    const i = stdout.lastIndexOf(marker);
-    const found = i < 0 ? '' : stdout.slice(i + marker.length).trim();
+    const { stdout } = await run(shell, ['-ilc', '/usr/bin/env'], { timeout: 8000 });
+    const line = stdout.split('\n').reverse().find((l) => l.startsWith('PATH='));
+    const found = line ? line.slice('PATH='.length).trim() : '';
     if (found) {
       const seen = new Set();
       process.env.PATH = [...found.split(':'), ...(process.env.PATH || '').split(':')]
