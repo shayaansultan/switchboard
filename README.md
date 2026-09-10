@@ -136,7 +136,10 @@ that write lands in the source profile too. Choose **Copy once** for anything yo
 want the two accounts to be able to change independently.
 
 Chat history is always copied, never linked, because two accounts writing into
-one session folder would corrupt each other's resume lists.
+one session folder would corrupt each other's resume lists. For Codex it also
+carries the sidebar's project list and which project each thread sits in, since
+the app keeps that separately from the sessions and would otherwise show the
+threads unplaced or, for ones run in worktrees, not at all.
 
 Logins, memories and session state are never brought over at all. Connectors and
 plugins are offered but off by default, because they reach the source account's

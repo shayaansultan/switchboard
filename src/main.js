@@ -258,8 +258,17 @@ ipcMain.handle('profiles:remove', async (_e, id, opts) => {
   broadcast();
   return true;
 });
-ipcMain.handle('profiles:bringOver', (_e, id, sourceId, opts) => {
-  const r = profiles.bringOver(data, byId(id), byId(sourceId), opts || {});
+ipcMain.handle('profiles:bringOver', async (_e, id, sourceId, opts) => {
+  const target = byId(id);
+  const o = opts || {};
+  // Chat history rewrites the app's own state file. A running window keeps
+  // that file in memory and writes it back whole, which would silently undo
+  // the change, so refuse rather than let it look like it worked.
+  const touchesAppState = (o.items || []).some((i) => (profiles.SETUP_ITEMS[target.vendor] || []).some((it) => it.id === i && it.projectState));
+  if (touchesAppState && launch.instanceFor(target, await launch.runningInstances().catch(() => []))) {
+    throw new Error(`Quit the ${profiles.VENDORS[target.vendor].label} window for "${target.name}" first: chat history changes a file that window keeps open.`);
+  }
+  const r = profiles.bringOver(data, target, byId(sourceId), o);
   broadcast();
   return r;
 });

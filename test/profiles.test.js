@@ -305,3 +305,148 @@ test('a Default profile is launched untouched, with no redirection', () => {
   // Already running: focus it rather than starting a second copy.
   expect(launch.launchArgs(claudeSource(), true)).toEqual(['-a', profiles.VENDORS.claude.appPath]);
 });
+
+// ---- Codex project grouping ----
+// The desktop app's sidebar state lives in .codex-global-state.json next to
+// the sessions. Only the keys that place threads may travel; the rest of that
+// file identifies this machine and this install.
+
+const GS = profiles.CODEX_GLOBAL_STATE;
+const ANSWER = { id: 'p-answer', name: 'answerThis', rootPaths: ['/w/answerThis'], createdAt: 1, updatedAt: 1 };
+const AGENTS = { id: 'p-agents', name: 'agentfiles', rootPaths: ['/w/agentfiles'], createdAt: 2, updatedAt: 2 };
+const SOURCE_STATE = {
+  'local-projects': { 'p-answer': ANSWER, 'p-agents': AGENTS },
+  'project-order': ['p-agents', 'p-answer'],
+  'thread-project-assignments': {
+    't-wt': { projectKind: 'local', projectId: 'p-answer' },
+    't-ag': { projectKind: 'local', projectId: 'p-agents' },
+    't-remote': { projectKind: 'remote', projectId: 'r-1' },
+    't-orphan': { projectKind: 'local', projectId: 'p-gone' },
+  },
+  'projectless-thread-ids': ['t-loose'],
+  'pinned-thread-ids': ['t-wt'],
+  'thread-workspace-root-hints': { 't-loose': '/w/Documents' },
+  'thread-projectless-output-directories': { 't-loose': '/w/Documents/outputs' },
+  'sidebar-project-thread-orders': { 'p-answer': ['t-wt'] },
+  'project-appearances': { 'p-answer': { color: 'blue' } },
+  // Must never travel.
+  'electron-main-window-bounds': { x: 1, y: 2, width: 3, height: 4 },
+  'electron-mac-push-deregistration-token': 'secret-token',
+  'electron-local-remote-control-installation-id': 'this-machine',
+  'app-server-projects-migration-by-host': { 'local:/src': { version: 1, projectsMigrated: true } },
+  'app-server-project-id-by-legacy-project-id-by-host': { 'local:/src': { 'p-answer': 'srv-1' } },
+  'thread-writable-roots': { 't-wt': ['/w/answerThis'] },
+};
+
+function writeSourceState(state = SOURCE_STATE) {
+  fs.mkdirSync(path.join(CODEX_HOME, 'sessions'), { recursive: true });
+  fs.writeFileSync(path.join(CODEX_HOME, GS), JSON.stringify(state));
+}
+
+test('Codex chat history carries the project grouping, and nothing that identifies the machine', () => {
+  writeSourceState();
+  const data = profiles.load();
+  const { profile, result } = profiles.add(data, { vendor: 'codex', name: 'Work', sourceId: 'codex-default', items: ['history'], mode: 'copy' });
+  const got = JSON.parse(fs.readFileSync(path.join(profiles.dirs(profile).home, GS), 'utf8'));
+  expect(got['local-projects']).toEqual(SOURCE_STATE['local-projects']);
+  expect(got['project-order']).toEqual(['p-agents', 'p-answer']);
+  expect(got['thread-project-assignments']).toEqual({
+    't-wt': { projectKind: 'local', projectId: 'p-answer' },
+    't-ag': { projectKind: 'local', projectId: 'p-agents' },
+  });
+  expect(got['projectless-thread-ids']).toEqual(['t-loose']);
+  expect(got['pinned-thread-ids']).toEqual(['t-wt']);
+  expect(got['thread-workspace-root-hints']).toEqual({ 't-loose': '/w/Documents' });
+  expect(got['thread-projectless-output-directories']).toEqual({ 't-loose': '/w/Documents/outputs' });
+  expect(got['sidebar-project-thread-orders']).toEqual({ 'p-answer': ['t-wt'] });
+  expect(got['project-appearances']).toEqual({ 'p-answer': { color: 'blue' } });
+  for (const k of Object.keys(SOURCE_STATE)) {
+    if (!profiles.CODEX_PROJECT_STATE_KEYS.includes(k)) expect(got).not.toHaveProperty(k);
+  }
+  expect(Object.keys(got).sort()).toEqual([...profiles.CODEX_PROJECT_STATE_KEYS].sort());
+  expect(result.done.some((d) => d.startsWith('project grouping'))).toBe(true);
+  // A hard copy of the source, not a link to it.
+  expect(fs.lstatSync(path.join(profiles.dirs(profile).home, GS)).isSymbolicLink()).toBe(false);
+});
+
+test('a project the profile re-added by hand keeps its id, and the source references are rewritten to it', () => {
+  writeSourceState();
+  const data = profiles.load();
+  const { profile } = profiles.add(data, { vendor: 'codex', name: 'Work' });
+  const home = profiles.dirs(profile).home;
+  const own = { id: 'p-mine', name: 'answerThis', rootPaths: ['/w/answerThis'], createdAt: 9, updatedAt: 9 };
+  fs.writeFileSync(path.join(home, GS), JSON.stringify({
+    'local-projects': { 'p-mine': own },
+    'project-order': ['p-mine'],
+    'thread-project-assignments': { 't-new': { projectKind: 'local', projectId: 'p-mine' } },
+    'projectless-thread-ids': ['t-here'],
+    'electron-main-window-bounds': { x: 5 },
+    'app-server-project-id-by-legacy-project-id-by-host': { 'local:/dst': { 'p-mine': 'srv-9' } },
+  }));
+  profiles.bringOver(data, profile, codexSource(), { items: ['history'], mode: 'copy' });
+  const got = JSON.parse(fs.readFileSync(path.join(home, GS), 'utf8'));
+  expect(Object.keys(got['local-projects']).sort()).toEqual(['p-agents', 'p-mine']);
+  expect(got['local-projects']['p-mine']).toEqual(own);
+  expect(got['project-order']).toEqual(['p-mine', 'p-agents']);
+  expect(got['thread-project-assignments']).toEqual({
+    't-new': { projectKind: 'local', projectId: 'p-mine' },
+    't-wt': { projectKind: 'local', projectId: 'p-mine' },
+    't-ag': { projectKind: 'local', projectId: 'p-agents' },
+  });
+  expect(got['sidebar-project-thread-orders']).toEqual({ 'p-mine': ['t-wt'] });
+  expect(got['project-appearances']).toEqual({ 'p-mine': { color: 'blue' } });
+  expect(got['projectless-thread-ids']).toEqual(['t-here', 't-loose']);
+  // The profile's own machine-specific keys are left exactly as they were.
+  expect(got['electron-main-window-bounds']).toEqual({ x: 5 });
+  expect(got['app-server-project-id-by-legacy-project-id-by-host']).toEqual({ 'local:/dst': { 'p-mine': 'srv-9' } });
+  expect(got).not.toHaveProperty('electron-mac-push-deregistration-token');
+});
+
+test('projects without root folders are never folded into each other', () => {
+  writeSourceState({ 'local-projects': { 'p-src-loose': { id: 'p-src-loose', name: 'Loose', createdAt: 1, updatedAt: 1 } }, 'project-order': ['p-src-loose'] });
+  const data = profiles.load();
+  const { profile } = profiles.add(data, { vendor: 'codex', name: 'Work' });
+  const home = profiles.dirs(profile).home;
+  fs.writeFileSync(path.join(home, GS), JSON.stringify({ 'local-projects': { 'p-dst-loose': { id: 'p-dst-loose', name: 'Other', createdAt: 2, updatedAt: 2 } }, 'project-order': ['p-dst-loose'] }));
+  profiles.bringOver(data, profile, codexSource(), { items: ['history'], mode: 'copy' });
+  const got = JSON.parse(fs.readFileSync(path.join(home, GS), 'utf8'));
+  expect(Object.keys(got['local-projects']).sort()).toEqual(['p-dst-loose', 'p-src-loose']);
+  expect(got['project-order']).toEqual(['p-dst-loose', 'p-src-loose']);
+});
+
+test('bringing the grouping over twice changes nothing the second time', () => {
+  writeSourceState();
+  const data = profiles.load();
+  const { profile } = profiles.add(data, { vendor: 'codex', name: 'Work', sourceId: 'codex-default', items: ['history'], mode: 'copy' });
+  const file = path.join(profiles.dirs(profile).home, GS);
+  const before = fs.readFileSync(file, 'utf8');
+  const r = profiles.bringOver(data, profile, codexSource(), { items: ['history'], mode: 'copy' });
+  expect(fs.readFileSync(file, 'utf8')).toBe(before);
+  expect(r.skipped).toContainEqual({ item: 'project grouping', reason: 'profile already has its own' });
+});
+
+test('the grouping travels only with chat history, and copes with a missing or broken source file', () => {
+  writeSourceState();
+  fs.writeFileSync(path.join(CODEX_HOME, 'AGENTS.md'), 'hi');
+  const data = profiles.load();
+  const a = profiles.add(data, { vendor: 'codex', name: 'A', sourceId: 'codex-default', items: ['instructions'], mode: 'copy' }).profile;
+  expect(fs.existsSync(path.join(profiles.dirs(a).home, GS))).toBe(false);
+
+  fs.rmSync(path.join(CODEX_HOME, GS));
+  const b = profiles.add(data, { vendor: 'codex', name: 'B', sourceId: 'codex-default', items: ['history'], mode: 'copy' });
+  expect(fs.existsSync(path.join(profiles.dirs(b.profile).home, GS))).toBe(false);
+  expect(b.result.skipped).toEqual([]);
+
+  fs.writeFileSync(path.join(CODEX_HOME, GS), '{not json');
+  const c = profiles.add(data, { vendor: 'codex', name: 'C', sourceId: 'codex-default', items: ['history'], mode: 'copy' });
+  expect(fs.existsSync(path.join(profiles.dirs(c.profile).home, GS))).toBe(false);
+  expect(c.result.skipped.some((s) => s.item === 'project grouping')).toBe(true);
+});
+
+test('the Default Codex home is never written to when it is the target of nothing', () => {
+  writeSourceState();
+  const before = fs.readFileSync(path.join(CODEX_HOME, GS), 'utf8');
+  const data = profiles.load();
+  profiles.add(data, { vendor: 'codex', name: 'Work', sourceId: 'codex-default', items: ['history'], mode: 'copy' });
+  expect(fs.readFileSync(path.join(CODEX_HOME, GS), 'utf8')).toBe(before);
+});

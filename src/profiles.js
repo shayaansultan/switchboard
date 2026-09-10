@@ -60,7 +60,7 @@ const SETUP_ITEMS = {
     { id: 'keybindings', label: 'Keybindings', kind: 'paths', paths: ['keybindings.json'], on: true },
     { id: 'plugins', label: 'Plugins and marketplaces', hint: 'Plugins can bundle connectors to the source account’s services.', kind: 'connectors', tables: ['plugins', 'marketplaces'], on: false, warn: true },
     { id: 'connectors', label: 'Connectors (MCP servers)', hint: 'These reach the source account’s Slack, Notion, and so on. Usually the new account wants its own.', kind: 'connectors', tables: ['mcp_servers'], on: false, warn: true },
-    { id: 'history', label: 'Chat history', hint: 'Past Codex sessions and the thread list. Always copied once, never linked.', kind: 'paths', paths: ['sessions', 'archived_sessions', 'history.jsonl', 'session_index.jsonl', 'thread_history_*'], copyOnly: true, on: false },
+    { id: 'history', label: 'Chat history', hint: 'Past Codex sessions, the thread list and which project each thread sits in. Always copied once, never linked.', kind: 'paths', paths: ['sessions', 'archived_sessions', 'history.jsonl', 'session_index.jsonl', 'thread_history_*'], copyOnly: true, projectState: true, on: false },
   ],
 };
 
@@ -322,6 +322,143 @@ function bringConnectors(vendor, item, srcHome, dstHome, out) {
   out.done.push(item.id);
 }
 
+// ---- Codex project grouping ----
+// The Codex desktop app keeps its sidebar in <CODEX_HOME>/.codex-global-state.json:
+// which folders are projects, which threads belong to which project, and where
+// the rest are listed. A thread's rollout does not record its project, and the
+// app only places a thread by itself when its working directory is exactly a
+// project root, so threads run in worktrees vanish from their project when the
+// sessions alone are copied.
+//
+// Only the keys below are brought over. The same file holds window bounds,
+// push tokens, installation ids and per-home migration records, which stay
+// with the source. Project ids are random: a project whose root folders the
+// target already has (one the user re-added by hand, say) keeps the target's
+// id and every reference to it is rewritten; any other project keeps its own.
+// The app's database of projects is never touched. Its migration runs per
+// home on launch and imports whatever is in `local-projects` but missing there.
+const CODEX_GLOBAL_STATE = '.codex-global-state.json';
+const CODEX_PROJECT_STATE_KEYS = [
+  'local-projects',
+  'project-order',
+  'project-appearances',
+  'sidebar-project-thread-orders',
+  'thread-project-assignments',
+  'projectless-thread-ids',
+  'pinned-thread-ids',
+  'thread-workspace-root-hints',
+  'thread-projectless-output-directories',
+];
+
+// Two projects are the same when they own the same folders. A project with
+// no folders matches nothing, so two of those are never folded together.
+function sameRoots(a, b) {
+  const x = [...(Array.isArray(a) ? a : [])].sort();
+  const y = [...(Array.isArray(b) ? b : [])].sort();
+  return x.length > 0 && x.length === y.length && x.every((v, i) => v === y[i]);
+}
+
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+function bringCodexProjectState(srcHome, dstHome, out) {
+  const label = 'project grouping';
+  const srcFile = path.join(srcHome, CODEX_GLOBAL_STATE);
+  const dstFile = path.join(dstHome, CODEX_GLOBAL_STATE);
+  if (!fs.existsSync(srcFile)) return;
+  let src;
+  let dst;
+  try {
+    src = readJson(srcFile);
+  } catch {
+    return out.skipped.push({ item: label, reason: `could not read the source ${CODEX_GLOBAL_STATE}` });
+  }
+  try {
+    dst = fs.existsSync(dstFile) ? readJson(dstFile) : {};
+  } catch {
+    return out.skipped.push({ item: label, reason: `the profile's ${CODEX_GLOBAL_STATE} is unreadable` });
+  }
+  if (!src || typeof src !== 'object' || !dst || typeof dst !== 'object') return;
+  const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  if (!CODEX_PROJECT_STATE_KEYS.some((k) => k in src)) return;
+
+  // Projects, and the map from source ids to the ids the target will use.
+  const projects = { ...obj(dst['local-projects']) };
+  const idMap = new Map();
+  let newProjects = 0;
+  for (const [id, p] of Object.entries(obj(src['local-projects']))) {
+    if (!p || typeof p !== 'object') continue;
+    const existing = Object.values(projects).find((q) => q && sameRoots(q.rootPaths, p.rootPaths));
+    if (existing) idMap.set(id, existing.id);
+    else if (projects[id]) idMap.set(id, id);
+    else {
+      projects[id] = { ...p, id };
+      idMap.set(id, id);
+      newProjects++;
+    }
+  }
+  const remap = (id) => idMap.get(id) || null;
+
+  const order = [...arr(dst['project-order'])];
+  for (const id of arr(src['project-order'])) {
+    const m = remap(id);
+    if (m && projects[m] && !order.includes(m)) order.push(m);
+  }
+
+  // Keyed by project id: keep whatever the target has, add the rest remapped.
+  const byProject = (key) => {
+    const o = { ...obj(dst[key]) };
+    for (const [id, v] of Object.entries(obj(src[key]))) {
+      const m = remap(id);
+      if (m && !(m in o)) o[m] = v;
+    }
+    return o;
+  };
+
+  // Keyed by thread id: an assignment points at a local project via its id.
+  const assignments = { ...obj(dst['thread-project-assignments']) };
+  let newAssignments = 0;
+  for (const [tid, a] of Object.entries(obj(src['thread-project-assignments']))) {
+    if (tid in assignments || !a || a.projectKind !== 'local') continue;
+    const m = remap(a.projectId);
+    if (!m) continue;
+    assignments[tid] = { ...a, projectId: m };
+    newAssignments++;
+  }
+  const byThread = (key) => {
+    const o = { ...obj(dst[key]) };
+    for (const [tid, v] of Object.entries(obj(src[key]))) if (!(tid in o)) o[tid] = v;
+    return o;
+  };
+  const union = (key) => [...new Set([...arr(dst[key]), ...arr(src[key])])];
+
+  const projectless = union('projectless-thread-ids');
+  const newProjectless = projectless.length - arr(dst['projectless-thread-ids']).length;
+  if (!newProjects && !newAssignments && !newProjectless) {
+    return out.skipped.push({ item: label, reason: 'profile already has its own' });
+  }
+  const next = {
+    ...dst,
+    'local-projects': projects,
+    'project-order': order,
+    'project-appearances': byProject('project-appearances'),
+    'sidebar-project-thread-orders': byProject('sidebar-project-thread-orders'),
+    'thread-project-assignments': assignments,
+    'projectless-thread-ids': projectless,
+    'pinned-thread-ids': union('pinned-thread-ids'),
+    'thread-workspace-root-hints': byThread('thread-workspace-root-hints'),
+    'thread-projectless-output-directories': byThread('thread-projectless-output-directories'),
+  };
+  // Through a temp file, as with the store: a partial write here would make
+  // the app discard its whole state file on launch.
+  const tmp = `${dstFile}.switchboard-tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
+  fs.renameSync(tmp, dstFile);
+  out.done.push(`${label} (${newProjects} projects, ${newAssignments + newProjectless} threads placed)`);
+}
+
 // Bring the chosen items from `source` into `profile`.
 //   items: array of SETUP_ITEMS ids; mode: 'link' | 'copy'
 function bringOver(data, profile, source, { items = [], mode = 'link' } = {}) {
@@ -335,7 +472,10 @@ function bringOver(data, profile, source, { items = [], mode = 'link' } = {}) {
     if (!items.includes(item.id)) continue;
     if (item.kind === 'preferences') bringPreferences(profile.vendor, srcHome, dstHome, out);
     else if (item.kind === 'connectors') bringConnectors(profile.vendor, item, srcHome, dstHome, out);
-    else for (const rel of expandPaths(item.paths, srcHome)) bringPath(path.join(srcHome, rel), path.join(dstHome, rel), item.copyOnly ? 'copy' : mode, rel, out);
+    else {
+      for (const rel of expandPaths(item.paths, srcHome)) bringPath(path.join(srcHome, rel), path.join(dstHome, rel), item.copyOnly ? 'copy' : mode, rel, out);
+      if (item.projectState) bringCodexProjectState(srcHome, dstHome, out);
+    }
   }
   profile.setup = { from: source.id, items, mode, at: new Date().toISOString() };
   save(data);
@@ -388,6 +528,8 @@ function update(data, id, patch) {
 
 module.exports = {
   CLAUDE_SECRET_KEYS,
+  CODEX_GLOBAL_STATE,
+  CODEX_PROJECT_STATE_KEYS,
   VENDORS,
   ROOT,
   SETUP_ITEMS,
