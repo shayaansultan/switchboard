@@ -140,7 +140,13 @@ async function claudeUsage(profile) {
   });
   if (res.status === 429) return { error: 'rate limited by the usage API', retryAfterMs: retryDelay(res) };
   if (!res.ok) return { error: `usage API ${res.status}` };
-  const j = await res.json();
+  const windows = parseClaudeUsage(await res.json());
+  return { windows, plan: planName(cred.subscriptionType), fetchedAt: new Date().toISOString() };
+}
+
+// The usage endpoint's JSON, as a list of windows for the bars. Pure, so the
+// shapes the endpoint has been seen to return can be pinned down in tests.
+function parseClaudeUsage(j) {
   const windows = [];
   if (Array.isArray(j.limits) && j.limits.length) {
     // `limits` is the complete list: the session window, the weekly window,
@@ -163,7 +169,7 @@ async function claudeUsage(profile) {
     push('5h', j.five_hour);
     push('7d', j.seven_day);
   }
-  return { windows, plan: planName(cred.subscriptionType), fetchedAt: new Date().toISOString() };
+  return windows;
 }
 
 function decodeJwt(t) {
@@ -225,39 +231,45 @@ async function codexUsage(profile) {
     if (res.status === 429) return { error: 'rate limited by the usage API', retryAfterMs: retryDelay(res) };
     if (!res.ok) return { error: `usage API ${res.status}` };
     const j = await res.json();
-    const windows = [];
-    const windowLabel = (w) => {
-      const secs = w.limit_window_seconds || (w.limit_window_minutes || 0) * 60;
-      if (!secs) return 'window';
-      return secs >= 86400 ? `${Math.round(secs / 86400)}d` : `${Math.round(secs / 3600)}h`;
-    };
-    const push = (w, prefix = '') => {
-      if (!w || w.used_percent == null) return;
-      const resetsAt =
-        w.reset_at != null
-          ? isoOrNull(w.reset_at)
-          : w.resets_at != null
-            ? isoOrNull(w.resets_at)
-            : w.reset_after_seconds != null
-              ? new Date(Date.now() + w.reset_after_seconds * 1000).toISOString()
-              : null;
-      windows.push({ label: (prefix + windowLabel(w)).trim(), pct: pct(w.used_percent), resetsAt });
-    };
-    const rl = j.rate_limit || {};
-    push(rl.primary_window);
-    push(rl.secondary_window);
-    // Model-specific limits (e.g. a separate pool for a fast model).
-    for (const extra of j.additional_rate_limits || []) {
-      const name = (extra.limit_name || '')
-        .replace(/^GPT-/, '')
-        .replace(/-?Codex-?/i, '-')
-        .replace(/^-|-$/g, '');
-      push(extra.rate_limit && extra.rate_limit.primary_window, name ? `${name} ` : '');
-      push(extra.rate_limit && extra.rate_limit.secondary_window, name ? `${name} ` : '');
-    }
-    return { windows, plan: planName(j.plan_type) || a.plan, fetchedAt: new Date().toISOString() };
+    return { windows: parseCodexUsage(j), plan: planName(j.plan_type) || a.plan, fetchedAt: new Date().toISOString() };
   }
   return { error: last || 'usage API unavailable' };
+}
+
+// The usage endpoint's JSON, as a list of windows for the bars. `now` is only
+// consulted when a window gives its reset as seconds from now.
+function parseCodexUsage(j, now = Date.now()) {
+  const windows = [];
+  const windowLabel = (w) => {
+    const secs = w.limit_window_seconds || (w.limit_window_minutes || 0) * 60;
+    if (!secs) return 'window';
+    return secs >= 86400 ? `${Math.round(secs / 86400)}d` : `${Math.round(secs / 3600)}h`;
+  };
+  const push = (w, prefix = '') => {
+    if (!w || w.used_percent == null) return;
+    const resetsAt =
+      w.reset_at != null
+        ? isoOrNull(w.reset_at)
+        : w.resets_at != null
+          ? isoOrNull(w.resets_at)
+          : w.reset_after_seconds != null
+            ? new Date(now + w.reset_after_seconds * 1000).toISOString()
+            : null;
+    windows.push({ label: (prefix + windowLabel(w)).trim(), pct: pct(w.used_percent), resetsAt });
+  };
+  const rl = j.rate_limit || {};
+  push(rl.primary_window);
+  push(rl.secondary_window);
+  // Model-specific limits (e.g. a separate pool for a fast model).
+  for (const extra of j.additional_rate_limits || []) {
+    const name = (extra.limit_name || '')
+      .replace(/^GPT-/, '')
+      .replace(/-?Codex-?/i, '-')
+      .replace(/^-|-$/g, '');
+    push(extra.rate_limit && extra.rate_limit.primary_window, name ? `${name} ` : '');
+    push(extra.rate_limit && extra.rate_limit.secondary_window, name ? `${name} ` : '');
+  }
+  return windows;
 }
 
 async function identity(profile) {
@@ -272,4 +284,4 @@ async function usage(profile) {
   }
 }
 
-module.exports = { identity, usage, keychainService };
+module.exports = { identity, usage, keychainService, parseClaudeUsage, parseCodexUsage, planName };
