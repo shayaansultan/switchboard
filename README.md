@@ -167,11 +167,16 @@ Slack, Notion and so on.
 
 ## Development
 
+The source is TypeScript, compiled by `tsc` alone into `out/`, which is what
+Electron runs. There is no bundler. Tests import the `.ts` files directly.
+
 ```bash
-bun test          # profile isolation and setup logic
-bun run lint      # oxlint; `bun run test` runs it before the tests
+bun test          # profile isolation, setup logic and the usage parsers
+bun run test      # the same, after oxlint and a type check
+bun run typecheck # tsc --noEmit
+bun run lint      # oxlint
 bun run fmt       # oxfmt, Prettier-compatible; the CSS and HTML are left alone
-bun start         # run without installing
+bun start         # build, then run without installing
 bun run demo      # regenerate the screenshot and social card from invented accounts
 bun run icons     # re-render the icon PNGs from build/icon.svg
 ```

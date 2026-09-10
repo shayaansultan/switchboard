@@ -5,18 +5,34 @@
 // isolated with an env var (CLAUDE_CONFIG_DIR / CODEX_HOME), which the Codex
 // desktop app also honours because it embeds the same agent.
 
-const { execFile } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-const { VENDORS, dirs, ensureDirs } = require('./profiles');
+import { execFile, type ExecFileOptions, type ExecFileOptionsWithStringEncoding } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { VENDORS, VENDOR_IDS, dirs, ensureDirs } from './store';
+import type { Instance, Profile, Settings } from './types';
 
-function run(cmd, args, opts = {}) {
+// What a failed command throws: the exec error plus whatever it printed.
+export interface RunError extends Error {
+  code?: number | string;
+  stdout?: string;
+  stderr?: string;
+}
+
+export function run(
+  cmd: string,
+  args: string[],
+  opts: ExecFileOptions = {},
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: 20000, ...opts }, (err, stdout, stderr) => {
+    const options = { timeout: 20000, ...opts, encoding: 'utf8' } as ExecFileOptionsWithStringEncoding;
+    execFile(cmd, args, options, (err, stdout, stderr) => {
       if (err) {
-        err.stdout = stdout;
-        err.stderr = stderr;
-        return reject(err);
+        const e = err as RunError;
+        e.stdout = stdout;
+        e.stderr = stderr;
+        reject(e);
+        return;
       }
       resolve({ stdout, stderr });
     });
@@ -33,7 +49,7 @@ function run(cmd, args, opts = {}) {
 // space-separated, which would produce a nonsense PATH. Every shell exports it
 // to a child process colon-separated, so reading it back from `env` works the
 // same everywhere. Taking the last match steps over anything the rc files echo.
-async function adoptLoginShellPath() {
+export async function adoptLoginShellPath(): Promise<boolean> {
   try {
     const shell = process.env.SHELL || '/bin/zsh';
     const { stdout } = await run(shell, ['-ilc', '/usr/bin/env'], { timeout: 8000 });
@@ -43,7 +59,7 @@ async function adoptLoginShellPath() {
       .find((l) => l.startsWith('PATH='));
     const found = line ? line.slice('PATH='.length).trim() : '';
     if (found) {
-      const seen = new Set();
+      const seen = new Set<string>();
       process.env.PATH = [...found.split(':'), ...(process.env.PATH || '').split(':')]
         .filter((p) => p && !seen.has(p) && seen.add(p))
         .join(':');
@@ -56,7 +72,7 @@ async function adoptLoginShellPath() {
 }
 
 // Is a command runnable with the PATH we ended up with?
-async function haveCommand(cmd) {
+export async function haveCommand(cmd: string): Promise<boolean> {
   try {
     const { stdout } = await run('/usr/bin/env', ['sh', '-c', `command -v ${cmd}`]);
     return !!stdout.trim();
@@ -76,7 +92,7 @@ async function haveCommand(cmd) {
 //
 // `alreadyRunning` is only consulted for the Default profile, where `open -a`
 // on its own would focus the existing window instead of starting a second one.
-function launchArgs(profile, alreadyRunning) {
+export function launchArgs(profile: Profile, alreadyRunning: boolean): string[] {
   const v = VENDORS[profile.vendor];
   const d = dirs(profile);
   if (d.isDefault) {
@@ -85,7 +101,7 @@ function launchArgs(profile, alreadyRunning) {
   return ['-n', '--env', `${v.homeEnv}=${d.home}`, '-a', v.appPath, '--args', `--user-data-dir=${d.desktop}`];
 }
 
-async function launchDesktop(profile) {
+export async function launchDesktop(profile: Profile): Promise<void> {
   const v = VENDORS[profile.vendor];
   if (!fs.existsSync(v.appPath)) throw new Error(`${v.appPath} is not installed`);
   ensureDirs(profile);
@@ -93,17 +109,17 @@ async function launchDesktop(profile) {
   await run('open', launchArgs(profile, already));
 }
 
-// Snapshot of running desktop-app main processes: [{pid, vendor, userDataDir|null}]
-async function runningInstances() {
+// Snapshot of running desktop-app main processes.
+export async function runningInstances(): Promise<Instance[]> {
   const { stdout } = await run('ps', ['-axo', 'pid=,command=']);
-  const out = [];
+  const out: Instance[] = [];
   for (const line of stdout.split('\n')) {
     const m = line.match(/^\s*(\d+)\s+(.*)$/);
     if (!m) continue;
     const pid = Number(m[1]);
     const cmd = m[2];
-    for (const [vendor, v] of Object.entries(VENDORS)) {
-      if (!cmd.startsWith(v.appBinary)) continue;
+    for (const vendor of VENDOR_IDS) {
+      if (!cmd.startsWith(VENDORS[vendor].appBinary)) continue;
       // Helper processes have --type=…; the browser/main process does not.
       if (/--type=/.test(cmd)) continue;
       const udm = cmd.match(/--user-data-dir=(\S+)/);
@@ -113,15 +129,19 @@ async function runningInstances() {
   return out;
 }
 
-function instanceFor(profile, instances) {
+// Is this running instance the given profile's window? The Default profile's
+// window is the one launched without a user-data-dir.
+function owns(profile: Profile, instance: Instance): boolean {
+  if (instance.vendor !== profile.vendor) return false;
   const d = dirs(profile);
-  return instances.find((i) => {
-    if (i.vendor !== profile.vendor) return false;
-    return d.isDefault ? i.userDataDir === null : i.userDataDir === d.desktop;
-  });
+  return d.isDefault ? instance.userDataDir === null : instance.userDataDir === d.desktop;
 }
 
-async function quitDesktop(profile) {
+export function instanceFor(profile: Profile, instances: Instance[]): Instance | undefined {
+  return instances.find((i) => owns(profile, i));
+}
+
+export async function quitDesktop(profile: Profile): Promise<boolean> {
   const inst = instanceFor(profile, await runningInstances());
   if (!inst) return false;
   process.kill(inst.pid, 'SIGTERM');
@@ -131,30 +151,27 @@ async function quitDesktop(profile) {
 // Quit every instance of a vendor's app except the given profile's. Used
 // before a first sign-in, because the login deep link is delivered to
 // whichever instance macOS picks.
-async function quitOthers(profile) {
-  const d = dirs(profile);
-  const list = (await runningInstances()).filter((i) => i.vendor === profile.vendor);
-  let n = 0;
-  for (const i of list) {
-    const mine = d.isDefault ? i.userDataDir === null : i.userDataDir === d.desktop;
-    if (mine) continue;
-    process.kill(i.pid, 'SIGTERM');
-    n++;
-  }
-  return n;
+export async function quitOthers(profile: Profile): Promise<number> {
+  const others = (await runningInstances()).filter((i) => i.vendor === profile.vendor && !owns(profile, i));
+  for (const i of others) process.kill(i.pid, 'SIGTERM');
+  return others.length;
 }
 
-function shellQuote(s) {
+function shellQuote(s: string): string {
   return `'${String(s).replace(/'/g, `'\\''`)}'`;
 }
 
 // Terminals we know how to hand a command to. Only installed ones are offered.
-const APP_DIRS = [
-  '/Applications',
-  path.join(require('os').homedir(), 'Applications'),
-  '/System/Applications/Utilities',
-];
-const TERMINALS = [
+interface TerminalApp {
+  id: string;
+  label: string;
+  bundle: string;
+}
+interface InstalledTerminal extends TerminalApp {
+  app: string;
+}
+const APP_DIRS = ['/Applications', path.join(os.homedir(), 'Applications'), '/System/Applications/Utilities'];
+const TERMINALS: TerminalApp[] = [
   { id: 'Terminal', label: 'Terminal', bundle: 'Terminal.app' },
   { id: 'iTerm2', label: 'iTerm2', bundle: 'iTerm.app' },
   { id: 'Ghostty', label: 'Ghostty', bundle: 'Ghostty.app' },
@@ -164,7 +181,7 @@ const TERMINALS = [
   { id: 'WezTerm', label: 'WezTerm', bundle: 'WezTerm.app' },
 ];
 
-function terminalApp(t) {
+function terminalApp(t: TerminalApp): string | null {
   for (const d of APP_DIRS) {
     const p = path.join(d, t.bundle);
     if (fs.existsSync(p)) return p;
@@ -172,13 +189,18 @@ function terminalApp(t) {
   return null;
 }
 
-function installedTerminals() {
-  return TERMINALS.map((t) => ({ ...t, app: terminalApp(t) })).filter((t) => t.app);
+export function installedTerminals(): InstalledTerminal[] {
+  const out: InstalledTerminal[] = [];
+  for (const t of TERMINALS) {
+    const app = terminalApp(t);
+    if (app) out.push({ ...t, app });
+  }
+  return out;
 }
 
 // Warp has no "run this command" flag; it opens launch configurations by name.
-function warpLaunchConfig(script, cwd) {
-  const dir = path.join(require('os').homedir(), '.warp', 'launch_configurations');
+function warpLaunchConfig(script: string, cwd?: string): string {
+  const dir = path.join(os.homedir(), '.warp', 'launch_configurations');
   fs.mkdirSync(dir, { recursive: true });
   // Drop configs from earlier launches so they don't pile up in Warp's menu.
   for (const f of fs.readdirSync(dir)) {
@@ -192,7 +214,7 @@ windows:
   - tabs:
       - title: Switchboard
         layout:
-          cwd: ${JSON.stringify(cwd || require('os').homedir())}
+          cwd: ${JSON.stringify(cwd || os.homedir())}
           commands:
             - exec: ${JSON.stringify(script)}
 `;
@@ -200,34 +222,47 @@ windows:
   return name;
 }
 
-// Command that puts the user's shell into a given profile, e.g.
-//   CLAUDE_CONFIG_DIR='/Users/me/.switchboard/claude/work/home' claude
-function cliCommand(profile, extra = '') {
+// The `NAME='value'` assignment that puts a shell into the profile, or an
+// empty string for a Default profile, which needs none.
+function homeAssignment(profile: Profile): string {
   const v = VENDORS[profile.vendor];
   const d = dirs(profile);
-  const prefix = d.isDefault ? '' : `${v.homeEnv}=${shellQuote(d.home)} `;
-  return `${prefix}${v.cli}${extra ? ' ' + extra : ''}`.trim();
+  return d.isDefault ? '' : `${v.homeEnv}=${shellQuote(d.home)}`;
 }
 
-function loginCommand(profile) {
+// The CLI with its arguments, e.g. `codex login`.
+function cliInvocation(profile: Profile, extra: string): string {
+  return [VENDORS[profile.vendor].cli, extra].filter(Boolean).join(' ');
+}
+
+// Command that puts the user's shell into a given profile, e.g.
+//   CLAUDE_CONFIG_DIR='/Users/me/.switchboard/claude/work/home' claude
+export function cliCommand(profile: Profile, extra = ''): string {
+  return [homeAssignment(profile), cliInvocation(profile, extra)].filter(Boolean).join(' ');
+}
+
+export function loginCommand(profile: Profile): string {
   return cliCommand(profile, profile.vendor === 'claude' ? 'auth login' : 'login');
 }
 
 // Shell script that puts the session into the profile, then runs the CLI.
 // The env var is exported so the shell you land in afterwards stays on the
 // same account.
-function shellScript(profile, extra = '') {
-  const v = VENDORS[profile.vendor];
-  const d = dirs(profile);
-  const prefix = d.isDefault ? '' : `export ${v.homeEnv}=${shellQuote(d.home)}; `;
-  return `${prefix}${v.cli}${extra ? ' ' + extra : ''}`;
+export function shellScript(profile: Profile, extra = ''): string {
+  const assign = homeAssignment(profile);
+  const cli = cliInvocation(profile, extra);
+  return assign ? `export ${assign}; ${cli}` : cli;
 }
 
 // Open a window in the chosen terminal that runs `script` in `cwd`.
 // Unknown or uninstalled choices fall back to Terminal.app.
-async function openTerminal(script, { terminal = 'Terminal', cwd } = {}) {
-  const t =
-    installedTerminals().find((x) => x.id === terminal) || installedTerminals().find((x) => x.id === 'Terminal');
+export async function openTerminal(
+  script: string,
+  { terminal = 'Terminal', cwd }: { terminal?: string; cwd?: string } = {},
+): Promise<unknown> {
+  const installed = installedTerminals();
+  const t = installed.find((x) => x.id === terminal) || installed.find((x) => x.id === 'Terminal');
+  if (!t) throw new Error('no terminal app found');
   const full = cwd ? `cd ${shellQuote(cwd)} && ${script}` : script;
   // For terminals that exit when the command does, keep a shell open after.
   const keepOpen = `${full}; exec "$SHELL"`;
@@ -262,39 +297,19 @@ end tell`,
   }
 }
 
-async function openLogin(profile, settings) {
+export async function openLogin(profile: Profile, settings: Settings): Promise<void> {
   ensureDirs(profile);
   await openTerminal(shellScript(profile, profile.vendor === 'claude' ? 'auth login' : 'login'), {
     terminal: settings.terminal,
   });
 }
 
-async function openShell(profile, settings, cwd) {
+export async function openShell(profile: Profile, settings: Settings, cwd?: string): Promise<void> {
   ensureDirs(profile);
   await openTerminal(shellScript(profile), { terminal: settings.terminal, cwd });
 }
 
-function revealDir(profile) {
+export function revealDir(profile: Profile): Promise<unknown> {
   const d = dirs(profile);
   return run('open', [d.isDefault ? d.home : path.dirname(d.home)]);
 }
-
-module.exports = {
-  run,
-  launchArgs,
-  adoptLoginShellPath,
-  haveCommand,
-  installedTerminals,
-  openTerminal,
-  shellScript,
-  launchDesktop,
-  quitDesktop,
-  quitOthers,
-  runningInstances,
-  instanceFor,
-  cliCommand,
-  loginCommand,
-  openLogin,
-  openShell,
-  revealDir,
-};

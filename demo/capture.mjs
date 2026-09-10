@@ -12,14 +12,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const RENDERER = path.join(ROOT, 'src', 'renderer');
+const RENDERER = path.join(ROOT, 'out', 'renderer'); // built by `bun run build`
 const DOCS = path.join(ROOT, 'docs');
 const WORK = path.join(ROOT, 'docs', '.work');
 
 // The setup dialog's checklist comes from the app itself, so the demo cannot
 // drift from what the app actually offers.
 process.env.HOME = fs.mkdtempSync('/tmp/switchboard-demo-');
-const { SETUP_ITEMS } = await import(path.join(ROOT, 'src', 'profiles.js'));
+const { SETUP_ITEMS } = await import(path.join(ROOT, 'src', 'profiles.ts'));
 const fixture = await import(path.join(ROOT, 'demo', 'fixture.js'));
 
 const VIEWPORT = { width: 920, height: 700 };
@@ -51,7 +51,7 @@ function bridge(state) {
       refresh: noop, addProfile: () => Promise.resolve({ result: { done: [], skipped: [] } }),
       removeProfile: noop, updateProfile: noop, bringOver: () => Promise.resolve({ done: [], skipped: [] }),
       saveSettings: noop, launch: noop, quit: noop, quitOthers: () => Promise.resolve(0),
-      login: noop, shell: noop, reveal: noop, copyCommand: noop, menu: () => Promise.resolve(null),
+      login: noop, shell: noop, reveal: noop, copyCommand: noop,
     };
     const s = document.createElement('style');
     s.textContent = ${JSON.stringify(CHROME_CSS)};

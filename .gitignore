@@ -5,3 +5,4 @@ build/icon.iconset/
 build/.render-*.html
 docs/.work/
 docs/demo.mp4
+out/
