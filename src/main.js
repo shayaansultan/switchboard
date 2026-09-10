@@ -238,21 +238,18 @@ ipcMain.handle('profiles:add', async (_e, p) => {
   await refreshAll(profile.id);
   return { profile, result };
 });
-ipcMain.handle('profiles:remove', async (_e, id, opts) => {
-  // fall through to removal below; cache entry goes with it via saveCache
+ipcMain.handle('profiles:remove', async (_e, id) => {
   const p = byId(id);
-  if (opts && opts.deleteData) {
-    const r = await dialog.showMessageBox(win, {
-      type: 'warning',
-      buttons: ['Delete', 'Cancel'],
-      defaultId: 1,
-      cancelId: 1,
-      message: `Delete all data for "${p.name}"?`,
-      detail: `This removes the profile's CLI login, desktop session, history and settings under ${path.dirname(profiles.dirs(p).home)}. It cannot be undone.`,
-    });
-    if (r.response !== 0) return false;
-  }
-  profiles.remove(data, id, opts || {});
+  const r = await dialog.showMessageBox(win, {
+    type: 'warning',
+    buttons: ['Remove', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    message: `Remove "${p.name}" and delete all its data?`,
+    detail: `This removes the profile's CLI login, desktop session, history and settings under ${path.dirname(profiles.dirs(p).home)}. It cannot be undone.`,
+  });
+  if (r.response !== 0) return false;
+  profiles.remove(data, id);
   live.delete(id);
   saveCache();
   broadcast();

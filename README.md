@@ -124,6 +124,10 @@ switch; started that way it stays in the menu bar until you click it.
    you choose in Settings. Terminal.app, iTerm2, Ghostty, Warp, kitty, Alacritty
    and WezTerm are supported, and only the installed ones are listed.
 
+**Remove** on a card deletes the profile and everything under its directory:
+the CLI login, the desktop session, history and settings. There is no way to
+remove a profile and keep its data. The Default profiles cannot be removed.
+
 ### Keep in sync, or copy once
 
 Items you bring over can be linked or copied, and the difference matters.

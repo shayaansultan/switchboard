@@ -486,9 +486,12 @@ function add(data, { vendor, name, sourceId, items, mode }) {
   if (!VENDORS[vendor]) throw new Error(`unknown vendor ${vendor}`);
   const clean = String(name || '').trim();
   if (!clean) throw new Error('name is required');
+  // A directory left behind by an interrupted removal is never adopted by a
+  // new profile of the same name: it could still hold another account's login.
+  const taken = (i) => data.profiles.some((p) => p.id === i) || fs.existsSync(path.join(ROOT, vendor, i));
   let id = `${vendor}-${slugify(clean)}`;
   let n = 2;
-  while (data.profiles.some((p) => p.id === id)) id = `${vendor}-${slugify(clean)}-${n++}`;
+  while (taken(id)) id = `${vendor}-${slugify(clean)}-${n++}`;
   const profile = {
     id,
     vendor,
@@ -505,16 +508,17 @@ function add(data, { vendor, name, sourceId, items, mode }) {
   return { profile, result };
 }
 
-function remove(data, id, { deleteData } = {}) {
+// Removing a profile removes everything it owns: its CLI login, desktop
+// session, history and settings. There is no keep-the-data variant; the
+// directory means nothing without its entry in the store.
+function remove(data, id) {
   const p = data.profiles.find((x) => x.id === id);
   if (!p) return;
   if (p.isDefault) throw new Error('the default profile cannot be removed');
   data.profiles = data.profiles.filter((x) => x.id !== id);
   save(data);
-  if (deleteData) {
-    const base = path.join(ROOT, p.vendor, p.id);
-    if (base.startsWith(ROOT + path.sep)) fs.rmSync(base, { recursive: true, force: true });
-  }
+  const base = path.join(ROOT, p.vendor, p.id);
+  if (base.startsWith(ROOT + path.sep)) fs.rmSync(base, { recursive: true, force: true });
 }
 
 function update(data, id, patch) {

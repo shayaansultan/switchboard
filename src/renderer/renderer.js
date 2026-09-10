@@ -96,10 +96,7 @@ function card(p) {
     el('button', { onclick: (e) => act(() => window.sb.refresh(p.id), e.target), title: 'Refresh usage' }, '↻'),
     p.isDefault ? null : el('button', { onclick: () => openSetup({ target: p }), title: 'Bring skills, rules or settings over from another profile' }, 'Bring over…'),
     el('span', { class: 'spacer' }),
-    p.isDefault ? null : el('button', { class: 'danger', onclick: (e) => act(async () => {
-      const wipe = confirm(`Remove "${p.name}"?\n\nOK = remove and delete its data\nCancel = keep everything`);
-      if (wipe) await window.sb.removeProfile(p.id, { deleteData: true });
-    }, e.target) }, 'Remove'),
+    p.isDefault ? null : el('button', { class: 'danger', title: 'Remove this profile and delete everything it owns', onclick: (e) => act(() => window.sb.removeProfile(p.id), e.target) }, 'Remove'),
   );
 
   const notes = [];

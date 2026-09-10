@@ -81,13 +81,13 @@ test('bringOver refuses a Default target, a different app, and itself', () => {
   expect(() => profiles.bringOver(data, work, work, { items: ['skills'] })).toThrow();
 });
 
-test('removing a profile with its data deletes only inside the Switchboard root', () => {
+test('removing a profile deletes its data, and only inside the Switchboard root', () => {
   const data = profiles.load();
   const work = profiles.add(data, { vendor: 'claude', name: 'Work' }).profile;
   fs.writeFileSync(path.join(CLAUDE_HOME, 'CLAUDE.md'), 'personal instructions');
   profiles.bringOver(data, work, claudeSource(), { items: ['instructions'], mode: 'link' });
 
-  profiles.remove(data, work.id, { deleteData: true });
+  profiles.remove(data, work.id);
 
   expect(fs.existsSync(profiles.dirs(work).home)).toBe(false);
   // Deleting through a symlink must not reach the source file.
@@ -96,7 +96,20 @@ test('removing a profile with its data deletes only inside the Switchboard root'
 
 test('a Default profile cannot be removed', () => {
   const data = profiles.load();
-  expect(() => profiles.remove(data, 'claude-default', { deleteData: true })).toThrow();
+  expect(() => profiles.remove(data, 'claude-default')).toThrow();
+});
+
+test('a new profile never adopts a directory left behind by an interrupted removal', () => {
+  const data = profiles.load();
+  const first = profiles.add(data, { vendor: 'claude', name: 'Work' }).profile;
+  profiles.remove(data, first.id);
+  // Simulate a removal that got as far as the store but not the directory.
+  fs.mkdirSync(path.join(profiles.ROOT, 'claude', first.id, 'home'), { recursive: true });
+  fs.writeFileSync(path.join(profiles.ROOT, 'claude', first.id, 'home', '.credentials.json'), 'old login');
+
+  const again = profiles.add(data, { vendor: 'claude', name: 'Work' }).profile;
+  expect(again.id).not.toBe(first.id);
+  expect(fs.readdirSync(profiles.dirs(again).home)).toEqual([]);
 });
 
 // ---- bringing things over ----

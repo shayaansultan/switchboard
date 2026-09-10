@@ -5,7 +5,7 @@ contextBridge.exposeInMainWorld('sb', {
   measureSizes: () => ipcRenderer.invoke('state:measure'),
   refresh: (id) => ipcRenderer.invoke('state:refresh', id),
   addProfile: (p) => ipcRenderer.invoke('profiles:add', p),
-  removeProfile: (id, opts) => ipcRenderer.invoke('profiles:remove', id, opts),
+  removeProfile: (id) => ipcRenderer.invoke('profiles:remove', id),
   updateProfile: (id, patch) => ipcRenderer.invoke('profiles:update', id, patch),
   bringOver: (id, sourceId, opts) => ipcRenderer.invoke('profiles:bringOver', id, sourceId, opts),
   saveSettings: (s) => ipcRenderer.invoke('settings:save', s),
