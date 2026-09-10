@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('sb', {
   login: (id) => ipcRenderer.invoke('cli:login', id),
   shell: (id) => ipcRenderer.invoke('cli:shell', id),
   reveal: (id) => ipcRenderer.invoke('profile:reveal', id),
+  menu: (id) => ipcRenderer.invoke('profile:menu', id),
   copyCommand: (id) => ipcRenderer.invoke('cli:copy', id),
   onState: (fn) => ipcRenderer.on('state', (_e, s) => fn(s)),
 });

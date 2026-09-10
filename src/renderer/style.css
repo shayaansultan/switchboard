@@ -21,8 +21,6 @@ button:hover { background: #f3f3f0; }
 button.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
 button.primary:hover { background: #333; }
 button.secondary { background: transparent; }
-button.danger { color: var(--muted); }
-button.danger:hover { color: var(--bad); border-color: var(--bad); }
 button:disabled { opacity: .45; cursor: default; }
 
 .titlebar { -webkit-app-region: drag; display: flex; align-items: center; justify-content: space-between; padding: 11px 16px 11px 84px; border-bottom: 1px solid var(--line); background: var(--bg); position: sticky; top: 0; z-index: 2; }
@@ -34,7 +32,11 @@ section h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--te
 section h3 .na { font-weight: 400; color: var(--muted); font-size: 12px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 10px; }
 
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px 12px; display: grid; gap: 10px; }
+/* Cards in a row are stretched to the tallest. Stack the rows from the top
+   and let the usage block absorb the spare height, so the header lines up
+   across cards at the top and the buttons and command line up at the bottom;
+   otherwise grid spreads the spare height evenly between every row. */
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px 12px; display: grid; gap: 10px; grid-template-rows: auto auto 1fr; align-items: start; }
 .card .head { display: flex; align-items: center; gap: 8px; }
 .card .head::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--card-color, var(--muted)); flex: none; }
 .card .name { font-weight: 600; font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -57,9 +59,15 @@ section h3 .na { font-weight: 400; color: var(--muted); font-size: 12px; }
 .bar .reset { grid-column: 2 / 4; color: var(--muted); font-size: 11px; margin-top: -5px; }
 
 .card .buttons { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 2px; }
-.card .buttons .spacer { flex: 1; }
-.cli { font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); background: var(--panel-2); border: 1px solid #ebebe7; padding: 5px 8px; border-radius: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.cli:hover { color: var(--text); }
+.cli { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); background: var(--panel-2); border: 1px solid #ebebe7; padding: 3px 3px 3px 8px; border-radius: 4px; }
+.cli .cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; cursor: text; }
+.cli .copy-btn { flex: none; display: inline-flex; padding: 3px; border: 0; border-radius: 3px; background: transparent; color: var(--muted); }
+.cli .copy-btn:hover { color: var(--text); background: #e6e6e1; }
+.cli .ico { width: 14px; height: 14px; display: inline-block; }
+.cli .ico svg { width: 100%; height: 100%; display: block; }
+.cli .ico.check { display: none; color: var(--run); }
+.cli .copy-btn.copied .ico.copy { display: none; }
+.cli .copy-btn.copied .ico.check { display: inline-block; }
 .note { font-size: 11px; color: var(--muted); line-height: 1.5; }
 .note b { color: var(--text); font-weight: 600; }
 .note a { color: var(--text); }

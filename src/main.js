@@ -293,6 +293,24 @@ ipcMain.handle('app:quitOthers', async (_e, id) => {
   setTimeout(() => refreshRunningOnly().catch(() => {}), 1500);
   return n;
 });
+// The card's secondary actions live in a native menu, like the tray's, so
+// every card has one row of buttons. The renderer gets back which item was
+// chosen and acts on it, because "Bring over…" opens one of its own dialogs.
+// Click handlers may run after the menu's close callback, so the close path
+// waits a beat before reporting that nothing was chosen.
+ipcMain.handle('profile:menu', (e, id) => new Promise((resolve) => {
+  const p = byId(id);
+  const pick = (choice) => () => resolve(choice);
+  const items = p.isDefault
+    ? [{ label: 'Show in Finder', click: pick('reveal') }]
+    : [
+        { label: 'Bring over…', click: pick('bringOver') },
+        { label: 'Show in Finder', click: pick('reveal') },
+        { type: 'separator' },
+        { label: 'Remove…', click: pick('remove') },
+      ];
+  Menu.buildFromTemplate(items).popup({ window: BrowserWindow.fromWebContents(e.sender), callback: () => setTimeout(() => resolve(null), 150) });
+}));
 ipcMain.handle('cli:login', (_e, id) => launch.openLogin(byId(id), data.settings));
 ipcMain.handle('cli:shell', (_e, id) => launch.openShell(byId(id), data.settings));
 ipcMain.handle('profile:reveal', (_e, id) => launch.revealDir(byId(id)));

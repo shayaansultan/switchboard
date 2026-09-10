@@ -51,7 +51,7 @@ function bridge(state) {
       refresh: noop, addProfile: () => Promise.resolve({ result: { done: [], skipped: [] } }),
       removeProfile: noop, updateProfile: noop, bringOver: () => Promise.resolve({ done: [], skipped: [] }),
       saveSettings: noop, launch: noop, quit: noop, quitOthers: () => Promise.resolve(0),
-      login: noop, shell: noop, reveal: noop, copyCommand: noop,
+      login: noop, shell: noop, reveal: noop, copyCommand: noop, menu: () => Promise.resolve(null),
     };
     const s = document.createElement('style');
     s.textContent = ${JSON.stringify(CHROME_CSS)};

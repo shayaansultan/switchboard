@@ -25,6 +25,17 @@ function relTime(iso) {
   return `resets in ${Math.round(h / 24)}d`;
 }
 
+// Small stroke icons, coloured by the surrounding text.
+const ICONS = {
+  copy: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>',
+  check: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg>',
+};
+function icon(name) {
+  const s = el('span', { class: `ico ${name}` });
+  s.innerHTML = ICONS[name];
+  return s;
+}
+
 async function act(fn, btn) {
   if (btn) btn.disabled = true;
   try {
@@ -94,9 +105,12 @@ function card(p) {
     el('button', { onclick: (e) => act(() => window.sb.shell(p.id), e.target), title: 'Open a terminal already pointed at this profile' }, 'Terminal'),
     el('button', { onclick: (e) => act(() => window.sb.login(p.id), e.target), title: 'Sign the CLI into this profile (needed for usage). Run again if the token expires.' }, 'Sign in CLI'),
     el('button', { onclick: (e) => act(() => window.sb.refresh(p.id), e.target), title: 'Refresh usage' }, '↻'),
-    p.isDefault ? null : el('button', { onclick: () => openSetup({ target: p }), title: 'Bring skills, rules or settings over from another profile' }, 'Bring over…'),
-    el('span', { class: 'spacer' }),
-    p.isDefault ? null : el('button', { class: 'danger', title: 'Remove this profile and delete everything it owns', onclick: (e) => act(() => window.sb.removeProfile(p.id), e.target) }, 'Remove'),
+    el('button', { onclick: (e) => act(async () => {
+      const choice = await window.sb.menu(p.id);
+      if (choice === 'bringOver') openSetup({ target: p });
+      else if (choice === 'reveal') await window.sb.reveal(p.id);
+      else if (choice === 'remove') await window.sb.removeProfile(p.id);
+    }, e.target), title: 'More' }, '⋯'),
   );
 
   const notes = [];
@@ -121,9 +135,22 @@ function card(p) {
     pending ? el('div', { class: 'ident' }, el('span', { class: 'skel', style: 'width:180px' })) : el('div', { class: `ident ${id.loggedIn ? '' : 'err'}` }, identText),
     usageBlock,
     buttons,
-    el('div', { class: 'cli', title: 'Click to copy', onclick: () => window.sb.copyCommand(p.id) }, p.cli),
+    cliBox(p),
     notes,
   );
+}
+
+// The command that enters this profile, as selectable text, with a button
+// that copies it. The icon flips to a tick for a moment so the click is seen
+// to have done something.
+function cliBox(p) {
+  const btn = el('button', { class: 'copy-btn', title: 'Copy command', onclick: () => {
+    window.sb.copyCommand(p.id);
+    btn.classList.add('copied');
+    clearTimeout(btn.timer);
+    btn.timer = setTimeout(() => btn.classList.remove('copied'), 1500);
+  } }, icon('copy'), icon('check'));
+  return el('div', { class: 'cli' }, el('span', { class: 'cmd' }, p.cli), btn);
 }
 
 function render() {
