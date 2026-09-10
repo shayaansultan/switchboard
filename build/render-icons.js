@@ -11,7 +11,14 @@ const jobs = [
 ];
 
 async function render({ svg, out, size }) {
-  const win = new BrowserWindow({ width: size, height: size, show: false, transparent: true, frame: false, webPreferences: { offscreen: true } });
+  const win = new BrowserWindow({
+    width: size,
+    height: size,
+    show: false,
+    transparent: true,
+    frame: false,
+    webPreferences: { offscreen: true },
+  });
   const data = fs.readFileSync(path.join(__dirname, svg), 'utf8');
   const html = `<!doctype html><html><body style="margin:0;background:transparent;width:${size}px;height:${size}px;overflow:hidden">
     <img src="data:image/svg+xml;base64,${Buffer.from(data).toString('base64')}" style="width:${size}px;height:${size}px;display:block"></body></html>`;

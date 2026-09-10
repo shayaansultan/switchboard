@@ -37,7 +37,10 @@ async function adoptLoginShellPath() {
   try {
     const shell = process.env.SHELL || '/bin/zsh';
     const { stdout } = await run(shell, ['-ilc', '/usr/bin/env'], { timeout: 8000 });
-    const line = stdout.split('\n').reverse().find((l) => l.startsWith('PATH='));
+    const line = stdout
+      .split('\n')
+      .reverse()
+      .find((l) => l.startsWith('PATH='));
     const found = line ? line.slice('PATH='.length).trim() : '';
     if (found) {
       const seen = new Set();
@@ -146,7 +149,11 @@ function shellQuote(s) {
 }
 
 // Terminals we know how to hand a command to. Only installed ones are offered.
-const APP_DIRS = ['/Applications', path.join(require('os').homedir(), 'Applications'), '/System/Applications/Utilities'];
+const APP_DIRS = [
+  '/Applications',
+  path.join(require('os').homedir(), 'Applications'),
+  '/System/Applications/Utilities',
+];
 const TERMINALS = [
   { id: 'Terminal', label: 'Terminal', bundle: 'Terminal.app' },
   { id: 'iTerm2', label: 'iTerm2', bundle: 'iTerm.app' },
@@ -175,7 +182,8 @@ function warpLaunchConfig(script, cwd) {
   fs.mkdirSync(dir, { recursive: true });
   // Drop configs from earlier launches so they don't pile up in Warp's menu.
   for (const f of fs.readdirSync(dir)) {
-    if (/^switchboard-\d+\.yaml$/.test(f) && Date.now() - Number(f.slice(12, -5)) > 60000) fs.unlinkSync(path.join(dir, f));
+    if (/^switchboard-\d+\.yaml$/.test(f) && Date.now() - Number(f.slice(12, -5)) > 60000)
+      fs.unlinkSync(path.join(dir, f));
   }
   const name = `switchboard-${Date.now()}`;
   const yaml = `---
@@ -218,17 +226,21 @@ function shellScript(profile, extra = '') {
 // Open a window in the chosen terminal that runs `script` in `cwd`.
 // Unknown or uninstalled choices fall back to Terminal.app.
 async function openTerminal(script, { terminal = 'Terminal', cwd } = {}) {
-  const t = installedTerminals().find((x) => x.id === terminal) || installedTerminals().find((x) => x.id === 'Terminal');
+  const t =
+    installedTerminals().find((x) => x.id === terminal) || installedTerminals().find((x) => x.id === 'Terminal');
   const full = cwd ? `cd ${shellQuote(cwd)} && ${script}` : script;
   // For terminals that exit when the command does, keep a shell open after.
   const keepOpen = `${full}; exec "$SHELL"`;
   switch (t.id) {
     case 'iTerm2':
-      return run('osascript', ['-e', `tell application "iTerm"
+      return run('osascript', [
+        '-e',
+        `tell application "iTerm"
   activate
   set w to (create window with default profile)
   tell current session of w to write text ${JSON.stringify(full)}
-end tell`]);
+end tell`,
+      ]);
     case 'Ghostty':
       return run('open', ['-na', t.app, '--args', '-e', 'zsh', '-ic', keepOpen]);
     case 'Warp':
@@ -240,16 +252,21 @@ end tell`]);
     case 'WezTerm':
       return run('open', ['-na', t.app, '--args', 'start', '--', 'zsh', '-ic', keepOpen]);
     default:
-      return run('osascript', ['-e', `tell application "Terminal"
+      return run('osascript', [
+        '-e',
+        `tell application "Terminal"
   activate
   do script ${JSON.stringify(full)}
-end tell`]);
+end tell`,
+      ]);
   }
 }
 
 async function openLogin(profile, settings) {
   ensureDirs(profile);
-  await openTerminal(shellScript(profile, profile.vendor === 'claude' ? 'auth login' : 'login'), { terminal: settings.terminal });
+  await openTerminal(shellScript(profile, profile.vendor === 'claude' ? 'auth login' : 'login'), {
+    terminal: settings.terminal,
+  });
 }
 
 async function openShell(profile, settings, cwd) {

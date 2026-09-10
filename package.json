@@ -9,13 +9,17 @@
     "icons": "electron build/render-icons.js",
     "dist": "electron-builder --mac --dir",
     "install-app": "bun run dist && APP=$(ls -d dist/mac*/Switchboard.app | head -1) && rm -rf /Applications/Switchboard.app && ditto \"$APP\" /Applications/Switchboard.app && codesign --force --deep --sign - /Applications/Switchboard.app && rm -rf dist && open /Applications/Switchboard.app",
-    "test": "bun test",
-    "demo": "bun demo/capture.mjs"
+    "test": "oxlint && bun test",
+    "demo": "bun demo/capture.mjs",
+    "fmt": "oxfmt",
+    "lint": "oxlint"
   },
   "license": "MIT",
   "devDependencies": {
     "electron": "^44.3.0",
     "electron-builder": "^26.15.3",
+    "oxfmt": "^0.67.0",
+    "oxlint": "^1.82.0",
     "playwright": "^1.49.0"
   },
   "build": {

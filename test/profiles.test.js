@@ -119,8 +119,20 @@ test('link mode symlinks to the source; copy mode makes independent files', () =
   fs.writeFileSync(path.join(CLAUDE_HOME, 'skills', 'demo', 'SKILL.md'), 'v1');
 
   const data = profiles.load();
-  const linked = profiles.add(data, { vendor: 'claude', name: 'Linked', sourceId: 'claude-default', items: ['skills'], mode: 'link' }).profile;
-  const copied = profiles.add(data, { vendor: 'claude', name: 'Copied', sourceId: 'claude-default', items: ['skills'], mode: 'copy' }).profile;
+  const linked = profiles.add(data, {
+    vendor: 'claude',
+    name: 'Linked',
+    sourceId: 'claude-default',
+    items: ['skills'],
+    mode: 'link',
+  }).profile;
+  const copied = profiles.add(data, {
+    vendor: 'claude',
+    name: 'Copied',
+    sourceId: 'claude-default',
+    items: ['skills'],
+    mode: 'copy',
+  }).profile;
 
   const linkedSkills = path.join(profiles.dirs(linked).home, 'skills');
   const copiedSkills = path.join(profiles.dirs(copied).home, 'skills');
@@ -161,17 +173,25 @@ test('a folder the app already populated gets the source entries merged in', () 
 // ---- credentials and connectors must not travel ----
 
 test('copied Claude preferences drop every credential-bearing key', () => {
-  fs.writeFileSync(path.join(CLAUDE_HOME, 'settings.json'), JSON.stringify({
-    model: 'opus',
-    env: { ANTHROPIC_API_KEY: 'sk-ant-should-not-travel' },
-    apiKeyHelper: '/bin/echo secret',
-    awsAuthRefresh: 'aws sso login',
-    enabledPlugins: { 'x@y': true },
-    extraKnownMarketplaces: { m: {} },
-  }));
+  fs.writeFileSync(
+    path.join(CLAUDE_HOME, 'settings.json'),
+    JSON.stringify({
+      model: 'opus',
+      env: { ANTHROPIC_API_KEY: 'sk-ant-should-not-travel' },
+      apiKeyHelper: '/bin/echo secret',
+      awsAuthRefresh: 'aws sso login',
+      enabledPlugins: { 'x@y': true },
+      extraKnownMarketplaces: { m: {} },
+    }),
+  );
 
   const data = profiles.load();
-  const work = profiles.add(data, { vendor: 'claude', name: 'Work', sourceId: 'claude-default', items: ['preferences'] }).profile;
+  const work = profiles.add(data, {
+    vendor: 'claude',
+    name: 'Work',
+    sourceId: 'claude-default',
+    items: ['preferences'],
+  }).profile;
   const copied = JSON.parse(fs.readFileSync(path.join(profiles.dirs(work).home, 'settings.json'), 'utf8'));
 
   expect(copied.model).toBe('opus');
@@ -181,25 +201,33 @@ test('copied Claude preferences drop every credential-bearing key', () => {
 });
 
 test('copied Codex preferences drop connectors, plugins and marketplaces', () => {
-  fs.writeFileSync(path.join(CODEX_HOME, 'config.toml'), [
-    'model = "gpt-6"',
-    'approval_policy = "on-request"',
-    '',
-    '[mcp_servers.slack]',
-    'command = "slack-mcp"',
-    '',
-    '[plugins."thing@market"]',
-    'enabled = true',
-    '',
-    '[marketplaces.market]',
-    'source = "local"',
-    '',
-    '[features]',
-    'memories = true',
-  ].join('\n'));
+  fs.writeFileSync(
+    path.join(CODEX_HOME, 'config.toml'),
+    [
+      'model = "gpt-6"',
+      'approval_policy = "on-request"',
+      '',
+      '[mcp_servers.slack]',
+      'command = "slack-mcp"',
+      '',
+      '[plugins."thing@market"]',
+      'enabled = true',
+      '',
+      '[marketplaces.market]',
+      'source = "local"',
+      '',
+      '[features]',
+      'memories = true',
+    ].join('\n'),
+  );
 
   const data = profiles.load();
-  const work = profiles.add(data, { vendor: 'codex', name: 'Work', sourceId: 'codex-default', items: ['preferences'] }).profile;
+  const work = profiles.add(data, {
+    vendor: 'codex',
+    name: 'Work',
+    sourceId: 'codex-default',
+    items: ['preferences'],
+  }).profile;
   const copied = fs.readFileSync(path.join(profiles.dirs(work).home, 'config.toml'), 'utf8');
 
   expect(copied).toContain('model = "gpt-6"');
@@ -210,10 +238,18 @@ test('copied Codex preferences drop connectors, plugins and marketplaces', () =>
 });
 
 test('connectors travel only when explicitly asked for', () => {
-  fs.writeFileSync(path.join(CODEX_HOME, 'config.toml'), 'model = "gpt-6"\n\n[mcp_servers.slack]\ncommand = "slack-mcp"\n');
+  fs.writeFileSync(
+    path.join(CODEX_HOME, 'config.toml'),
+    'model = "gpt-6"\n\n[mcp_servers.slack]\ncommand = "slack-mcp"\n',
+  );
 
   const data = profiles.load();
-  const work = profiles.add(data, { vendor: 'codex', name: 'Work', sourceId: 'codex-default', items: ['preferences'] }).profile;
+  const work = profiles.add(data, {
+    vendor: 'codex',
+    name: 'Work',
+    sourceId: 'codex-default',
+    items: ['preferences'],
+  }).profile;
   const dst = path.join(profiles.dirs(work).home, 'config.toml');
   expect(fs.readFileSync(dst, 'utf8')).not.toContain('slack-mcp');
 
@@ -227,9 +263,17 @@ test('Claude connectors are read from where Claude Code actually keeps them', ()
   expect(profiles.claudeJsonPath(CLAUDE_HOME)).toBe(path.join(SANDBOX, '.claude.json'));
   expect(profiles.claudeJsonPath('/tmp/other')).toBe('/tmp/other/.claude.json');
 
-  fs.writeFileSync(path.join(SANDBOX, '.claude.json'), JSON.stringify({ mcpServers: { notion: { command: 'notion-mcp' } } }));
+  fs.writeFileSync(
+    path.join(SANDBOX, '.claude.json'),
+    JSON.stringify({ mcpServers: { notion: { command: 'notion-mcp' } } }),
+  );
   const data = profiles.load();
-  const work = profiles.add(data, { vendor: 'claude', name: 'Work', sourceId: 'claude-default', items: ['connectors'] }).profile;
+  const work = profiles.add(data, {
+    vendor: 'claude',
+    name: 'Work',
+    sourceId: 'claude-default',
+    items: ['connectors'],
+  }).profile;
 
   const dst = JSON.parse(fs.readFileSync(path.join(profiles.dirs(work).home, '.claude.json'), 'utf8'));
   expect(dst.mcpServers.notion.command).toBe('notion-mcp');
@@ -255,7 +299,13 @@ test('chat history is copied even when the schema number has moved on', () => {
   fs.writeFileSync(path.join(CODEX_HOME, 'sessions', '2026', 'a.jsonl'), 'session');
 
   const data = profiles.load();
-  const work = profiles.add(data, { vendor: 'codex', name: 'Work', sourceId: 'codex-default', items: ['history'], mode: 'link' }).profile;
+  const work = profiles.add(data, {
+    vendor: 'codex',
+    name: 'Work',
+    sourceId: 'codex-default',
+    items: ['history'],
+    mode: 'link',
+  }).profile;
   const home = profiles.dirs(work).home;
 
   expect(fs.readFileSync(path.join(home, 'thread_history_9.sqlite'), 'utf8')).toBe('threads');
@@ -287,7 +337,9 @@ test('the store survives a round trip and never persists the load error', () => 
   profiles.add(data, { vendor: 'codex', name: 'Client X' });
   const again = profiles.load();
   expect(again.profiles.map((p) => p.name)).toContain('Client X');
-  expect(Object.keys(JSON.parse(fs.readFileSync(path.join(profiles.ROOT, 'profiles.json'), 'utf8')))).not.toContain('loadError');
+  expect(Object.keys(JSON.parse(fs.readFileSync(path.join(profiles.ROOT, 'profiles.json'), 'utf8')))).not.toContain(
+    'loadError',
+  );
 });
 
 // ---- launch arguments ----
@@ -359,7 +411,13 @@ function writeSourceState(state = SOURCE_STATE) {
 test('Codex chat history carries the project grouping, and nothing that identifies the machine', () => {
   writeSourceState();
   const data = profiles.load();
-  const { profile, result } = profiles.add(data, { vendor: 'codex', name: 'Work', sourceId: 'codex-default', items: ['history'], mode: 'copy' });
+  const { profile, result } = profiles.add(data, {
+    vendor: 'codex',
+    name: 'Work',
+    sourceId: 'codex-default',
+    items: ['history'],
+    mode: 'copy',
+  });
   const got = JSON.parse(fs.readFileSync(path.join(profiles.dirs(profile).home, GS), 'utf8'));
   expect(got['local-projects']).toEqual(SOURCE_STATE['local-projects']);
   expect(got['project-order']).toEqual(['p-agents', 'p-answer']);
@@ -388,14 +446,17 @@ test('a project the profile re-added by hand keeps its id, and the source refere
   const { profile } = profiles.add(data, { vendor: 'codex', name: 'Work' });
   const home = profiles.dirs(profile).home;
   const own = { id: 'p-mine', name: 'answerThis', rootPaths: ['/w/answerThis'], createdAt: 9, updatedAt: 9 };
-  fs.writeFileSync(path.join(home, GS), JSON.stringify({
-    'local-projects': { 'p-mine': own },
-    'project-order': ['p-mine'],
-    'thread-project-assignments': { 't-new': { projectKind: 'local', projectId: 'p-mine' } },
-    'projectless-thread-ids': ['t-here'],
-    'electron-main-window-bounds': { x: 5 },
-    'app-server-project-id-by-legacy-project-id-by-host': { 'local:/dst': { 'p-mine': 'srv-9' } },
-  }));
+  fs.writeFileSync(
+    path.join(home, GS),
+    JSON.stringify({
+      'local-projects': { 'p-mine': own },
+      'project-order': ['p-mine'],
+      'thread-project-assignments': { 't-new': { projectKind: 'local', projectId: 'p-mine' } },
+      'projectless-thread-ids': ['t-here'],
+      'electron-main-window-bounds': { x: 5 },
+      'app-server-project-id-by-legacy-project-id-by-host': { 'local:/dst': { 'p-mine': 'srv-9' } },
+    }),
+  );
   profiles.bringOver(data, profile, codexSource(), { items: ['history'], mode: 'copy' });
   const got = JSON.parse(fs.readFileSync(path.join(home, GS), 'utf8'));
   expect(Object.keys(got['local-projects']).sort()).toEqual(['p-agents', 'p-mine']);
@@ -416,11 +477,20 @@ test('a project the profile re-added by hand keeps its id, and the source refere
 });
 
 test('projects without root folders are never folded into each other', () => {
-  writeSourceState({ 'local-projects': { 'p-src-loose': { id: 'p-src-loose', name: 'Loose', createdAt: 1, updatedAt: 1 } }, 'project-order': ['p-src-loose'] });
+  writeSourceState({
+    'local-projects': { 'p-src-loose': { id: 'p-src-loose', name: 'Loose', createdAt: 1, updatedAt: 1 } },
+    'project-order': ['p-src-loose'],
+  });
   const data = profiles.load();
   const { profile } = profiles.add(data, { vendor: 'codex', name: 'Work' });
   const home = profiles.dirs(profile).home;
-  fs.writeFileSync(path.join(home, GS), JSON.stringify({ 'local-projects': { 'p-dst-loose': { id: 'p-dst-loose', name: 'Other', createdAt: 2, updatedAt: 2 } }, 'project-order': ['p-dst-loose'] }));
+  fs.writeFileSync(
+    path.join(home, GS),
+    JSON.stringify({
+      'local-projects': { 'p-dst-loose': { id: 'p-dst-loose', name: 'Other', createdAt: 2, updatedAt: 2 } },
+      'project-order': ['p-dst-loose'],
+    }),
+  );
   profiles.bringOver(data, profile, codexSource(), { items: ['history'], mode: 'copy' });
   const got = JSON.parse(fs.readFileSync(path.join(home, GS), 'utf8'));
   expect(Object.keys(got['local-projects']).sort()).toEqual(['p-dst-loose', 'p-src-loose']);
@@ -430,7 +500,13 @@ test('projects without root folders are never folded into each other', () => {
 test('bringing the grouping over twice changes nothing the second time', () => {
   writeSourceState();
   const data = profiles.load();
-  const { profile } = profiles.add(data, { vendor: 'codex', name: 'Work', sourceId: 'codex-default', items: ['history'], mode: 'copy' });
+  const { profile } = profiles.add(data, {
+    vendor: 'codex',
+    name: 'Work',
+    sourceId: 'codex-default',
+    items: ['history'],
+    mode: 'copy',
+  });
   const file = path.join(profiles.dirs(profile).home, GS);
   const before = fs.readFileSync(file, 'utf8');
   const r = profiles.bringOver(data, profile, codexSource(), { items: ['history'], mode: 'copy' });
@@ -442,16 +518,34 @@ test('the grouping travels only with chat history, and copes with a missing or b
   writeSourceState();
   fs.writeFileSync(path.join(CODEX_HOME, 'AGENTS.md'), 'hi');
   const data = profiles.load();
-  const a = profiles.add(data, { vendor: 'codex', name: 'A', sourceId: 'codex-default', items: ['instructions'], mode: 'copy' }).profile;
+  const a = profiles.add(data, {
+    vendor: 'codex',
+    name: 'A',
+    sourceId: 'codex-default',
+    items: ['instructions'],
+    mode: 'copy',
+  }).profile;
   expect(fs.existsSync(path.join(profiles.dirs(a).home, GS))).toBe(false);
 
   fs.rmSync(path.join(CODEX_HOME, GS));
-  const b = profiles.add(data, { vendor: 'codex', name: 'B', sourceId: 'codex-default', items: ['history'], mode: 'copy' });
+  const b = profiles.add(data, {
+    vendor: 'codex',
+    name: 'B',
+    sourceId: 'codex-default',
+    items: ['history'],
+    mode: 'copy',
+  });
   expect(fs.existsSync(path.join(profiles.dirs(b.profile).home, GS))).toBe(false);
   expect(b.result.skipped).toEqual([]);
 
   fs.writeFileSync(path.join(CODEX_HOME, GS), '{not json');
-  const c = profiles.add(data, { vendor: 'codex', name: 'C', sourceId: 'codex-default', items: ['history'], mode: 'copy' });
+  const c = profiles.add(data, {
+    vendor: 'codex',
+    name: 'C',
+    sourceId: 'codex-default',
+    items: ['history'],
+    mode: 'copy',
+  });
   expect(fs.existsSync(path.join(profiles.dirs(c.profile).home, GS))).toBe(false);
   expect(c.result.skipped.some((s) => s.item === 'project grouping')).toBe(true);
 });

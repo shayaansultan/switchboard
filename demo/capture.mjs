@@ -67,7 +67,13 @@ const state = {
     Object.entries(SETUP_ITEMS).map(([v, items]) => [
       v,
       items.map(({ id, label, hint, kind, on, warn, copyOnly }) => ({
-        id, label, hint, kind, on, warn, copyOnly,
+        id,
+        label,
+        hint,
+        kind,
+        on,
+        warn,
+        copyOnly,
         size: id === 'history' ? (v === 'claude' ? '480 MB' : '1.2 GB') : null,
       })),
     ]),
@@ -75,7 +81,9 @@ const state = {
   profiles: fixture.profiles.map((p) => ({
     ...p,
     dirs: { home: `~/.switchboard/${p.vendor}/${p.id}/home`, isDefault: p.isDefault },
-    cli: p.isDefault ? p.vendor : `${p.vendor === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME'}='~/.switchboard/${p.vendor}/${p.id}/home' ${p.vendor}`,
+    cli: p.isDefault
+      ? p.vendor
+      : `${p.vendor === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME'}='~/.switchboard/${p.vendor}/${p.id}/home' ${p.vendor}`,
   })),
 };
 
@@ -170,7 +178,20 @@ async function newPage(ctxOptions = {}) {
   const video = page.video();
   await ctx.close();
   const webm = await video.path();
-  execFileSync('ffmpeg', ['-v', 'error', '-i', webm, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-y', path.join(DOCS, 'demo.mp4')]);
+  execFileSync('ffmpeg', [
+    '-v',
+    'error',
+    '-i',
+    webm,
+    '-c:v',
+    'libx264',
+    '-pix_fmt',
+    'yuv420p',
+    '-movflags',
+    '+faststart',
+    '-y',
+    path.join(DOCS, 'demo.mp4'),
+  ]);
   console.log('wrote docs/demo.mp4');
 }
 

@@ -169,6 +169,8 @@ Slack, Notion and so on.
 
 ```bash
 bun test          # profile isolation and setup logic
+bun run lint      # oxlint; `bun run test` runs it before the tests
+bun run fmt       # oxfmt, Prettier-compatible; the CSS and HTML are left alone
 bun start         # run without installing
 bun run demo      # regenerate the screenshot and social card from invented accounts
 bun run icons     # re-render the icon PNGs from build/icon.svg

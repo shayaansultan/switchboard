@@ -44,28 +44,113 @@ const VENDORS = {
 // `on` is the default checkbox state in the dialog.
 const SETUP_ITEMS = {
   claude: [
-    { id: 'preferences', label: 'Preferences', hint: 'Model, permissions, effort level. Never API keys.', kind: 'preferences', on: true },
+    {
+      id: 'preferences',
+      label: 'Preferences',
+      hint: 'Model, permissions, effort level. Never API keys.',
+      kind: 'preferences',
+      on: true,
+    },
     { id: 'skills', label: 'Skills', kind: 'paths', paths: ['skills'], on: true },
-    { id: 'instructions', label: 'Instructions (CLAUDE.md)', hint: 'Claude edits this file itself, so kept in sync means its edits reach the source profile too.', kind: 'paths', paths: ['CLAUDE.md'], on: true },
-    { id: 'agents', label: 'Agents, commands and hooks', kind: 'paths', paths: ['agents', 'commands', 'hooks'], on: true },
+    {
+      id: 'instructions',
+      label: 'Instructions (CLAUDE.md)',
+      hint: 'Claude edits this file itself, so kept in sync means its edits reach the source profile too.',
+      kind: 'paths',
+      paths: ['CLAUDE.md'],
+      on: true,
+    },
+    {
+      id: 'agents',
+      label: 'Agents, commands and hooks',
+      kind: 'paths',
+      paths: ['agents', 'commands', 'hooks'],
+      on: true,
+    },
     { id: 'keybindings', label: 'Keybindings', kind: 'paths', paths: ['keybindings.json'], on: true },
-    { id: 'plugins', label: 'Plugins', hint: 'Plugins can bundle connectors to the source account’s services.', kind: 'paths', paths: ['plugins'], on: false, warn: true },
-    { id: 'connectors', label: 'Connectors (MCP servers)', hint: 'These reach the source account’s Slack, Notion, and so on. Usually the new account wants its own.', kind: 'connectors', on: false, warn: true },
-    { id: 'history', label: 'Chat history', hint: 'Past Claude Code sessions and the resume list. Always copied once, never linked.', kind: 'paths', paths: ['projects', 'history.jsonl'], copyOnly: true, on: false },
+    {
+      id: 'plugins',
+      label: 'Plugins',
+      hint: 'Plugins can bundle connectors to the source account’s services.',
+      kind: 'paths',
+      paths: ['plugins'],
+      on: false,
+      warn: true,
+    },
+    {
+      id: 'connectors',
+      label: 'Connectors (MCP servers)',
+      hint: 'These reach the source account’s Slack, Notion, and so on. Usually the new account wants its own.',
+      kind: 'connectors',
+      on: false,
+      warn: true,
+    },
+    {
+      id: 'history',
+      label: 'Chat history',
+      hint: 'Past Claude Code sessions and the resume list. Always copied once, never linked.',
+      kind: 'paths',
+      paths: ['projects', 'history.jsonl'],
+      copyOnly: true,
+      on: false,
+    },
   ],
   codex: [
-    { id: 'preferences', label: 'Preferences', hint: 'Model, personality, approval policy, trusted projects.', kind: 'preferences', on: true },
+    {
+      id: 'preferences',
+      label: 'Preferences',
+      hint: 'Model, personality, approval policy, trusted projects.',
+      kind: 'preferences',
+      on: true,
+    },
     { id: 'skills', label: 'Skills', kind: 'paths', paths: ['skills'], on: true },
-    { id: 'instructions', label: 'Instructions (AGENTS.md) and rules', hint: 'Codex edits these itself, so kept in sync means its edits reach the source profile too.', kind: 'paths', paths: ['AGENTS.md', 'rules'], on: true },
+    {
+      id: 'instructions',
+      label: 'Instructions (AGENTS.md) and rules',
+      hint: 'Codex edits these itself, so kept in sync means its edits reach the source profile too.',
+      kind: 'paths',
+      paths: ['AGENTS.md', 'rules'],
+      on: true,
+    },
     { id: 'keybindings', label: 'Keybindings', kind: 'paths', paths: ['keybindings.json'], on: true },
-    { id: 'plugins', label: 'Plugins and marketplaces', hint: 'Plugins can bundle connectors to the source account’s services.', kind: 'connectors', tables: ['plugins', 'marketplaces'], on: false, warn: true },
-    { id: 'connectors', label: 'Connectors (MCP servers)', hint: 'These reach the source account’s Slack, Notion, and so on. Usually the new account wants its own.', kind: 'connectors', tables: ['mcp_servers'], on: false, warn: true },
-    { id: 'history', label: 'Chat history', hint: 'Past Codex sessions, the thread list and which project each thread sits in. Always copied once, never linked.', kind: 'paths', paths: ['sessions', 'archived_sessions', 'history.jsonl', 'session_index.jsonl', 'thread_history_*'], copyOnly: true, projectState: true, on: false },
+    {
+      id: 'plugins',
+      label: 'Plugins and marketplaces',
+      hint: 'Plugins can bundle connectors to the source account’s services.',
+      kind: 'connectors',
+      tables: ['plugins', 'marketplaces'],
+      on: false,
+      warn: true,
+    },
+    {
+      id: 'connectors',
+      label: 'Connectors (MCP servers)',
+      hint: 'These reach the source account’s Slack, Notion, and so on. Usually the new account wants its own.',
+      kind: 'connectors',
+      tables: ['mcp_servers'],
+      on: false,
+      warn: true,
+    },
+    {
+      id: 'history',
+      label: 'Chat history',
+      hint: 'Past Codex sessions, the thread list and which project each thread sits in. Always copied once, never linked.',
+      kind: 'paths',
+      paths: ['sessions', 'archived_sessions', 'history.jsonl', 'session_index.jsonl', 'thread_history_*'],
+      copyOnly: true,
+      projectState: true,
+      on: false,
+    },
   ],
 };
 
 function slugify(name) {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'profile';
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'profile'
+  );
 }
 
 function defaults() {
@@ -91,7 +176,7 @@ function load() {
   try {
     const data = JSON.parse(raw);
     if (!Array.isArray(data.profiles)) throw new Error('no profiles array');
-    data.settings = { ...defaults().settings, ...(data.settings || {}) };
+    data.settings = { ...defaults().settings, ...data.settings };
     return data;
   } catch (e) {
     // The file exists but is unreadable. Keep it: it is the only record of
@@ -114,7 +199,7 @@ function load() {
 function save(data) {
   fs.mkdirSync(ROOT, { recursive: true, mode: 0o700 });
   const tmp = `${STORE}.tmp`;
-  const { loadError, ...persisted } = data;
+  const { loadError: _loadError, ...persisted } = data;
   fs.writeFileSync(tmp, JSON.stringify(persisted, null, 2), { mode: 0o600 });
   fs.renameSync(tmp, STORE);
 }
@@ -166,7 +251,9 @@ const CODEX_CONNECTOR_TABLES = ['mcp_servers', 'plugins', 'marketplaces'];
 
 function stripCodexConnectors(toml) {
   const { head, tables } = tomlTables(toml);
-  return [head, ...tables.filter((t) => !CODEX_CONNECTOR_TABLES.includes(t.name)).map((t) => t.text)].join('\n').replace(/\n{3,}/g, '\n\n');
+  return [head, ...tables.filter((t) => !CODEX_CONNECTOR_TABLES.includes(t.name)).map((t) => t.text)]
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n');
 }
 
 // Append the named tables from `srcToml` to `dstToml`, replacing any of the
@@ -316,7 +403,7 @@ function bringConnectors(vendor, item, srcHome, dstHome, out) {
     const servers = JSON.parse(fs.readFileSync(src, 'utf8')).mcpServers || {};
     if (!Object.keys(servers).length) return;
     const cur = fs.existsSync(dst) ? JSON.parse(fs.readFileSync(dst, 'utf8')) : {};
-    cur.mcpServers = { ...servers, ...(cur.mcpServers || {}) };
+    cur.mcpServers = { ...servers, ...cur.mcpServers };
     fs.writeFileSync(dst, JSON.stringify(cur, null, 2));
   }
   out.done.push(item.id);
@@ -473,7 +560,8 @@ function bringOver(data, profile, source, { items = [], mode = 'link' } = {}) {
     if (item.kind === 'preferences') bringPreferences(profile.vendor, srcHome, dstHome, out);
     else if (item.kind === 'connectors') bringConnectors(profile.vendor, item, srcHome, dstHome, out);
     else {
-      for (const rel of expandPaths(item.paths, srcHome)) bringPath(path.join(srcHome, rel), path.join(dstHome, rel), item.copyOnly ? 'copy' : mode, rel, out);
+      for (const rel of expandPaths(item.paths, srcHome))
+        bringPath(path.join(srcHome, rel), path.join(dstHome, rel), item.copyOnly ? 'copy' : mode, rel, out);
       if (item.projectState) bringCodexProjectState(srcHome, dstHome, out);
     }
   }
@@ -504,7 +592,8 @@ function add(data, { vendor, name, sourceId, items, mode }) {
   data.profiles.push(profile);
   save(data);
   const source = sourceId ? data.profiles.find((p) => p.id === sourceId) : null;
-  const result = source && items && items.length ? bringOver(data, profile, source, { items, mode }) : { done: [], skipped: [] };
+  const result =
+    source && items && items.length ? bringOver(data, profile, source, { items, mode }) : { done: [], skipped: [] };
   return { profile, result };
 }
 

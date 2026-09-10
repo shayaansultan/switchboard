@@ -21,12 +21,16 @@ async function measureItemSizes() {
   for (const [vendor, items] of Object.entries(profiles.SETUP_ITEMS)) {
     for (const item of items) {
       if (!item.copyOnly) continue;
-      const paths = item.paths.map((p) => path.join(profiles.VENDORS[vendor].defaultHome, p)).filter((p) => require('fs').existsSync(p));
+      const paths = item.paths
+        .map((p) => path.join(profiles.VENDORS[vendor].defaultHome, p))
+        .filter((p) => require('fs').existsSync(p));
       if (!paths.length) continue;
       try {
         const { stdout } = await launch.run('du', ['-skc', ...paths]);
         const kb = Number((stdout.trim().split('\n').pop() || '').split(/\s+/)[0]);
-        if (kb) itemSizes[`${vendor}/${item.id}`] = kb >= 1048576 ? `${(kb / 1048576).toFixed(1)} GB` : `${Math.round(kb / 1024)} MB`;
+        if (kb)
+          itemSizes[`${vendor}/${item.id}`] =
+            kb >= 1048576 ? `${(kb / 1048576).toFixed(1)} GB` : `${Math.round(kb / 1024)} MB`;
       } catch {
         /* size is a nicety */
       }
@@ -59,7 +63,10 @@ function saveCache() {
   for (const p of data.profiles) {
     const s = live.get(p.id);
     if (!s || !s.identity) continue;
-    const usage = s.usage && s.usage.windows ? { windows: s.usage.windows, plan: s.usage.plan, fetchedAt: s.usage.fetchedAt } : undefined;
+    const usage =
+      s.usage && s.usage.windows
+        ? { windows: s.usage.windows, plan: s.usage.plan, fetchedAt: s.usage.fetchedAt }
+        : undefined;
     c[p.id] = { identity: s.identity, usage };
   }
   try {
@@ -75,13 +82,32 @@ function stateSnapshot() {
   return {
     settings: data.settings,
     terminals: launch.installedTerminals().map((t) => ({ id: t.id, label: t.label })),
-    setupItems: Object.fromEntries(Object.entries(profiles.SETUP_ITEMS).map(([v, items]) => [v, items.map(({ id, label, hint, kind, on, warn, copyOnly }) => ({ id, label, hint, kind, on, warn, copyOnly, size: itemSizes[`${v}/${id}`] || null }))])),
-    vendors: Object.fromEntries(Object.entries(profiles.VENDORS).map(([k, v]) => [k, { label: v.label, installed: require('fs').existsSync(v.appPath) }])),
+    setupItems: Object.fromEntries(
+      Object.entries(profiles.SETUP_ITEMS).map(([v, items]) => [
+        v,
+        items.map(({ id, label, hint, kind, on, warn, copyOnly }) => ({
+          id,
+          label,
+          hint,
+          kind,
+          on,
+          warn,
+          copyOnly,
+          size: itemSizes[`${v}/${id}`] || null,
+        })),
+      ]),
+    ),
+    vendors: Object.fromEntries(
+      Object.entries(profiles.VENDORS).map(([k, v]) => [
+        k,
+        { label: v.label, installed: require('fs').existsSync(v.appPath) },
+      ]),
+    ),
     profiles: data.profiles.map((p) => ({
       ...p,
       dirs: profiles.dirs(p),
       cli: launch.cliCommand(p),
-      ...(live.get(p.id) || {}),
+      ...live.get(p.id),
     })),
   };
 }
@@ -169,7 +195,11 @@ function usageLine(p) {
   const s = live.get(p.id);
   if (!s || !s.usage || s.usage.error) return s && s.identity && !s.identity.loggedIn ? 'not signed in' : '…';
   const remaining = data.settings.usageMode === 'remaining';
-  return s.usage.windows.map((w) => `${w.label} ${remaining ? 100 - w.pct : w.pct}%${remaining ? ' left' : ''}`).join(', ') || 'no windows';
+  return (
+    s.usage.windows
+      .map((w) => `${w.label} ${remaining ? 100 - w.pct : w.pct}%${remaining ? ' left' : ''}`)
+      .join(', ') || 'no windows'
+  );
 }
 
 function rebuildTray() {
@@ -182,7 +212,13 @@ function rebuildTray() {
       items.push({
         label: `${s.running ? '● ' : '○ '}${p.name} — ${usageLine(p)}`,
         submenu: [
-          { label: s.running ? 'Quit app' : 'Launch app', click: () => (s.running ? launch.quitDesktop(p) : launch.launchDesktop(p)).then(() => setTimeout(() => refreshRunningOnly(), 1500)) },
+          {
+            label: s.running ? 'Quit app' : 'Launch app',
+            click: () =>
+              (s.running ? launch.quitDesktop(p) : launch.launchDesktop(p)).then(() =>
+                setTimeout(() => refreshRunningOnly(), 1500),
+              ),
+          },
           { label: 'Open terminal here', click: () => launch.openShell(p, data.settings) },
           { label: 'Refresh usage', click: () => refreshAll(p.id, true) },
         ],
@@ -261,9 +297,13 @@ ipcMain.handle('profiles:bringOver', async (_e, id, sourceId, opts) => {
   // Chat history rewrites the app's own state file. A running window keeps
   // that file in memory and writes it back whole, which would silently undo
   // the change, so refuse rather than let it look like it worked.
-  const touchesAppState = (o.items || []).some((i) => (profiles.SETUP_ITEMS[target.vendor] || []).some((it) => it.id === i && it.projectState));
+  const touchesAppState = (o.items || []).some((i) =>
+    (profiles.SETUP_ITEMS[target.vendor] || []).some((it) => it.id === i && it.projectState),
+  );
   if (touchesAppState && launch.instanceFor(target, await launch.runningInstances().catch(() => []))) {
-    throw new Error(`Quit the ${profiles.VENDORS[target.vendor].label} window for "${target.name}" first: chat history changes a file that window keeps open.`);
+    throw new Error(
+      `Quit the ${profiles.VENDORS[target.vendor].label} window for "${target.name}" first: chat history changes a file that window keeps open.`,
+    );
   }
   const r = profiles.bringOver(data, target, byId(sourceId), o);
   broadcast();
@@ -298,19 +338,26 @@ ipcMain.handle('app:quitOthers', async (_e, id) => {
 // chosen and acts on it, because "Bring over…" opens one of its own dialogs.
 // Click handlers may run after the menu's close callback, so the close path
 // waits a beat before reporting that nothing was chosen.
-ipcMain.handle('profile:menu', (e, id) => new Promise((resolve) => {
-  const p = byId(id);
-  const pick = (choice) => () => resolve(choice);
-  const items = p.isDefault
-    ? [{ label: 'Show in Finder', click: pick('reveal') }]
-    : [
-        { label: 'Bring over…', click: pick('bringOver') },
-        { label: 'Show in Finder', click: pick('reveal') },
-        { type: 'separator' },
-        { label: 'Remove…', click: pick('remove') },
-      ];
-  Menu.buildFromTemplate(items).popup({ window: BrowserWindow.fromWebContents(e.sender), callback: () => setTimeout(() => resolve(null), 150) });
-}));
+ipcMain.handle(
+  'profile:menu',
+  (e, id) =>
+    new Promise((resolve) => {
+      const p = byId(id);
+      const pick = (choice) => () => resolve(choice);
+      const items = p.isDefault
+        ? [{ label: 'Show in Finder', click: pick('reveal') }]
+        : [
+            { label: 'Bring over…', click: pick('bringOver') },
+            { label: 'Show in Finder', click: pick('reveal') },
+            { type: 'separator' },
+            { label: 'Remove…', click: pick('remove') },
+          ];
+      Menu.buildFromTemplate(items).popup({
+        window: BrowserWindow.fromWebContents(e.sender),
+        callback: () => setTimeout(() => resolve(null), 150),
+      });
+    }),
+);
 ipcMain.handle('cli:login', (_e, id) => launch.openLogin(byId(id), data.settings));
 ipcMain.handle('cli:shell', (_e, id) => launch.openShell(byId(id), data.settings));
 ipcMain.handle('profile:reveal', (_e, id) => launch.revealDir(byId(id)));

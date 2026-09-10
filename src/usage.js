@@ -32,7 +32,14 @@ function keychainService(configDir) {
 
 async function readKeychain(service) {
   try {
-    const { stdout } = await run('security', ['find-generic-password', '-s', service, '-a', os.userInfo().username, '-w']);
+    const { stdout } = await run('security', [
+      'find-generic-password',
+      '-s',
+      service,
+      '-a',
+      os.userInfo().username,
+      '-w',
+    ]);
     return stdout.trim() || null;
   } catch (e) {
     // 44 = item not found. Anything else (locked keychain, denied) is reported.
@@ -61,7 +68,12 @@ async function claudeIdentity(profile) {
   try {
     const { stdout } = await run(VENDORS.claude.cli, ['auth', 'status', '--json'], { env });
     const j = JSON.parse(stdout);
-    return { loggedIn: !!j.loggedIn, email: j.email || null, plan: planName(j.subscriptionType), org: j.orgName || null };
+    return {
+      loggedIn: !!j.loggedIn,
+      email: j.email || null,
+      plan: planName(j.subscriptionType),
+      org: j.orgName || null,
+    };
   } catch (e) {
     // `claude auth status` exits non-zero when logged out but still prints JSON.
     try {
@@ -78,7 +90,15 @@ async function claudeIdentity(profile) {
 function planName(slug) {
   if (!slug) return null;
   const s = String(slug).toLowerCase();
-  for (const [needle, label] of [['enterprise', 'Enterprise'], ['business', 'Business'], ['team', 'Team'], ['max', 'Max'], ['pro', 'Pro'], ['plus', 'Plus'], ['free', 'Free']]) {
+  for (const [needle, label] of [
+    ['enterprise', 'Enterprise'],
+    ['business', 'Business'],
+    ['team', 'Team'],
+    ['max', 'Max'],
+    ['pro', 'Pro'],
+    ['plus', 'Plus'],
+    ['free', 'Free'],
+  ]) {
     if (s.includes(needle)) return label;
   }
   return slug;
@@ -137,7 +157,8 @@ async function claudeUsage(profile) {
     }
   } else {
     const push = (label, w) => {
-      if (w && w.utilization != null) windows.push({ label, pct: pct(w.utilization), resetsAt: isoOrNull(w.resets_at) });
+      if (w && w.utilization != null)
+        windows.push({ label, pct: pct(w.utilization), resetsAt: isoOrNull(w.resets_at) });
     };
     push('5h', j.five_hour);
     push('7d', j.seven_day);
@@ -184,7 +205,8 @@ async function codexIdentity(profile) {
 async function codexUsage(profile) {
   const d = dirs(profile);
   const a = codexAuth(d.home);
-  if (!a || !a.token) return { error: a && a.mode === 'apikey' ? 'API-key login has no rate-limit windows' : 'not signed in' };
+  if (!a || !a.token)
+    return { error: a && a.mode === 'apikey' ? 'API-key login has no rate-limit windows' : 'not signed in' };
   let last = null;
   for (const url of CODEX_USAGE_URLS) {
     const res = await fetch(url, {
@@ -211,10 +233,14 @@ async function codexUsage(profile) {
     };
     const push = (w, prefix = '') => {
       if (!w || w.used_percent == null) return;
-      const resetsAt = w.reset_at != null ? isoOrNull(w.reset_at)
-        : w.resets_at != null ? isoOrNull(w.resets_at)
-        : w.reset_after_seconds != null ? new Date(Date.now() + w.reset_after_seconds * 1000).toISOString()
-        : null;
+      const resetsAt =
+        w.reset_at != null
+          ? isoOrNull(w.reset_at)
+          : w.resets_at != null
+            ? isoOrNull(w.resets_at)
+            : w.reset_after_seconds != null
+              ? new Date(Date.now() + w.reset_after_seconds * 1000).toISOString()
+              : null;
       windows.push({ label: (prefix + windowLabel(w)).trim(), pct: pct(w.used_percent), resetsAt });
     };
     const rl = j.rate_limit || {};
@@ -222,7 +248,10 @@ async function codexUsage(profile) {
     push(rl.secondary_window);
     // Model-specific limits (e.g. a separate pool for a fast model).
     for (const extra of j.additional_rate_limits || []) {
-      const name = (extra.limit_name || "").replace(/^GPT-/, "").replace(/-?Codex-?/i, "-").replace(/^-|-$/g, "");
+      const name = (extra.limit_name || '')
+        .replace(/^GPT-/, '')
+        .replace(/-?Codex-?/i, '-')
+        .replace(/^-|-$/g, '');
       push(extra.rate_limit && extra.rate_limit.primary_window, name ? `${name} ` : '');
       push(extra.rate_limit && extra.rate_limit.secondary_window, name ? `${name} ` : '');
     }
