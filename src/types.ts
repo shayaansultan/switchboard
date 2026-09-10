@@ -28,11 +28,14 @@ export interface Profile {
 
 export type UsageMode = 'used' | 'remaining';
 
+export type Appearance = 'system' | 'light' | 'dark';
+
 export interface Settings {
   terminal: string;
   pollMinutes: number;
   usageMode: UsageMode;
   openAtLogin?: boolean;
+  appearance?: Appearance;
 }
 
 export interface Store {

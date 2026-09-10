@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, clipboard, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, nativeTheme, clipboard, dialog } from 'electron';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -191,6 +191,21 @@ function schedulePolling(): void {
   pollTimer = setInterval(() => refreshAll().catch(() => {}), mins * 60 * 1000);
 }
 
+// The window's own background, painted before the page loads and behind it
+// while it resizes. Must match --bg in the stylesheet for each scheme.
+function windowBackground(): string {
+  return nativeTheme.shouldUseDarkColors ? '#1d1d1b' : '#f1f1ee';
+}
+
+// The Appearance setting drives Electron's theme source, which in turn
+// drives the prefers-color-scheme media query the stylesheet keys on.
+function applyAppearance(): void {
+  nativeTheme.themeSource = data.settings.appearance ?? 'system';
+}
+nativeTheme.on('updated', () => {
+  if (win && !win.isDestroyed()) win.setBackgroundColor(windowBackground());
+});
+
 function createWindow(): BrowserWindow {
   const w = new BrowserWindow({
     width: 760,
@@ -199,7 +214,7 @@ function createWindow(): BrowserWindow {
     minHeight: 420,
     title: 'Switchboard',
     titleBarStyle: 'hiddenInset',
-    backgroundColor: '#f1f1ee',
+    backgroundColor: windowBackground(),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   });
   w.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -346,6 +361,7 @@ ipcMain.handle('settings:save', (_e, s: Partial<Settings>) => {
   profiles.save(data);
   schedulePolling();
   applyLoginItem();
+  applyAppearance();
   broadcast();
 });
 ipcMain.handle('app:launch', async (_e, id: string) => {
@@ -375,6 +391,7 @@ app.whenReady().then(async () => {
   if (!app.requestSingleInstanceLock()) return;
   if (!app.isPackaged) app.dock?.setIcon(path.join(__dirname, '..', 'build', 'icon-1024.png'));
   await launch.adoptLoginShellPath();
+  applyAppearance();
   createTray();
   // Launched at login: stay in the menu bar, don't pop the window.
   const hidden = app.getLoginItemSettings().wasOpenedAtLogin;

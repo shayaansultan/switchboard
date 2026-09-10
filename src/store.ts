@@ -49,7 +49,7 @@ export function slugify(name: string): string {
 
 function defaults(): Store {
   return {
-    settings: { terminal: 'Terminal', pollMinutes: 5, usageMode: 'used' },
+    settings: { terminal: 'Terminal', pollMinutes: 5, usageMode: 'used', appearance: 'system' },
     profiles: [
       { id: 'claude-default', vendor: 'claude', name: 'Default', isDefault: true, color: '#d97757' },
       { id: 'codex-default', vendor: 'codex', name: 'Default', isDefault: true, color: '#10a37f' },

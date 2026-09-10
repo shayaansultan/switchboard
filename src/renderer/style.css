@@ -1,25 +1,71 @@
 /* Light, quiet, native-Mac utility. Hairlines instead of shadows,
-   ink-coloured bars, colour only where it carries meaning. */
+   ink-coloured bars, colour only where it carries meaning. Every colour is a
+   token here so the dark set below is the whole of dark mode. Which set
+   applies follows the window's colour scheme, which the main process sets
+   from the Appearance setting (system, light or dark). */
 :root {
   --bg: #f1f1ee;
   --panel: #ffffff;
   --panel-2: #f5f5f2;
+  --field: #ffffff;
   --line: #d9d9d4;
+  --line-2: #ebebe7;
   --text: #1d1d1b;
   --muted: #6e6e69;
   --ink: #1d1d1b;
-  --ok: #1d1d1b;
+  --on-ink: #ffffff;
+  --ink-hover: #333333;
+  --btn-bg: #ffffff;
+  --btn-border: #c6c6c0;
+  --hover: #f3f3f0;
+  --track: #e6e6e1;
+  --dot-border: #b9b9b3;
+  --danger-bg: #fbeeec;
+  --skel-a: #e6e6e1;
+  --skel-b: #efefeb;
+  --shadow: rgba(0, 0, 0, 0.12);
+  --shadow-2: rgba(0, 0, 0, 0.18);
   --warn: #b4741a;
   --bad: #b3362a;
   --run: #2e9e5b;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1d1d1b;
+    --panel: #262624;
+    --panel-2: #2e2e2b;
+    --field: #1f1f1d;
+    --line: #3a3a37;
+    --line-2: #343431;
+    --text: #e9e9e4;
+    --muted: #9c9c95;
+    --ink: #e9e9e4;
+    --on-ink: #1d1d1b;
+    --ink-hover: #d2d2cc;
+    --btn-bg: #2e2e2b;
+    --btn-border: #47473f;
+    --hover: #383835;
+    --track: #3a3a37;
+    --dot-border: #55554f;
+    --danger-bg: #3d2724;
+    --skel-a: #33332f;
+    --skel-b: #3d3d39;
+    --shadow: rgba(0, 0, 0, 0.45);
+    --shadow-2: rgba(0, 0, 0, 0.6);
+    --warn: #d9a441;
+    --bad: #e46b5d;
+    --run: #3fc46f;
+    color-scheme: dark;
+  }
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.45 -apple-system, "SF Pro Text", system-ui, sans-serif; }
-button { font: inherit; font-size: 12px; color: var(--text); background: #fff; border: 1px solid #c6c6c0; border-radius: 5px; padding: 4px 10px; cursor: pointer; }
-button:hover { background: #f3f3f0; }
-button.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
-button.primary:hover { background: #333; }
+button { font: inherit; font-size: 12px; color: var(--text); background: var(--btn-bg); border: 1px solid var(--btn-border); border-radius: 5px; padding: 4px 10px; cursor: pointer; }
+button:hover { background: var(--hover); }
+button.primary { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+button.primary:hover { background: var(--ink-hover); border-color: var(--ink-hover); }
 button.secondary { background: transparent; }
 button:disabled { opacity: .45; cursor: default; }
 
@@ -41,7 +87,7 @@ section h3 .na { font-weight: 400; color: var(--muted); font-size: 12px; }
 .card .head::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--card-color, var(--muted)); flex: none; }
 .card .name { font-weight: 600; font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card .name input { font: inherit; background: transparent; border: 0; color: inherit; width: 100%; border-bottom: 1px dashed var(--line); }
-.dot { width: 7px; height: 7px; border-radius: 50%; border: 1px solid #b9b9b3; flex: none; order: 10; }
+.dot { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--dot-border); flex: none; order: 10; }
 .dot.on { background: var(--run); border-color: var(--run); }
 .badge { font-size: 12px; color: var(--muted); }
 .badge + .badge { margin-left: 4px; }
@@ -51,7 +97,7 @@ section h3 .na { font-weight: 400; color: var(--muted); font-size: 12px; }
 .bars { display: grid; gap: 7px; }
 .bar { display: grid; grid-template-columns: 96px 1fr 40px; align-items: center; gap: 10px; font-size: 12px; }
 .bar .label { color: var(--muted); }
-.bar .track { height: 4px; background: #e6e6e1; border-radius: 2px; overflow: hidden; }
+.bar .track { height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; }
 .bar .fill { height: 100%; background: var(--ink); border-radius: 2px; transition: width .4s; }
 .bar .fill.warn { background: var(--warn); }
 .bar .fill.bad { background: var(--bad); }
@@ -59,32 +105,32 @@ section h3 .na { font-weight: 400; color: var(--muted); font-size: 12px; }
 .bar .reset { grid-column: 2 / 4; color: var(--muted); font-size: 11px; margin-top: -5px; }
 
 .card .buttons { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 2px; }
-.cli { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); background: var(--panel-2); border: 1px solid #ebebe7; padding: 3px 3px 3px 8px; border-radius: 4px; }
+.cli { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line-2); padding: 3px 3px 3px 8px; border-radius: 4px; }
 .cli .cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; cursor: text; }
 .cli .copy-btn { flex: none; display: inline-flex; padding: 3px; border: 0; border-radius: 3px; background: transparent; color: var(--muted); }
-.cli .copy-btn:hover { color: var(--text); background: #e6e6e1; }
+.cli .copy-btn:hover { color: var(--text); background: var(--track); }
 .cli .ico { width: 14px; height: 14px; display: inline-block; }
 .cli .ico svg { width: 100%; height: 100%; display: block; }
 .cli .ico.check { display: none; color: var(--run); }
 .cli .copy-btn.copied .ico.copy { display: none; }
 .cli .copy-btn.copied .ico.check { display: inline-block; }
-.menu { position: fixed; z-index: 10; min-width: 170px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.menu { position: fixed; z-index: 10; min-width: 170px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 24px var(--shadow); }
 .menu button { display: block; width: 100%; text-align: left; padding: 6px 10px; border: 0; border-radius: 4px; background: transparent; }
-.menu button:hover, .menu button:focus-visible { background: #f3f3f0; outline: none; }
+.menu button:hover, .menu button:focus-visible { background: var(--hover); outline: none; }
 .menu button.danger { color: var(--bad); }
-.menu button.danger:hover, .menu button.danger:focus-visible { background: #fbeeec; }
+.menu button.danger:hover, .menu button.danger:focus-visible { background: var(--danger-bg); }
 .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .note { font-size: 11px; color: var(--muted); line-height: 1.5; }
 .note b { color: var(--text); font-weight: 600; }
 .note a { color: var(--text); }
 
-dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; width: 420px; max-width: 90vw; box-shadow: 0 12px 40px rgba(0,0,0,.18); }
+dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; width: 420px; max-width: 90vw; box-shadow: 0 12px 40px var(--shadow-2); }
 dialog::backdrop { background: rgba(0,0,0,.25); }
 dialog h2 { margin: 0 0 12px; font-size: 14px; }
 dialog form { display: grid; gap: 10px; }
 dialog label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
 dialog label.check { grid-template-columns: auto 1fr; align-items: start; }
-dialog input, dialog select { font: inherit; color: var(--text); background: #fff; border: 1px solid #c6c6c0; border-radius: 5px; padding: 5px 8px; }
+dialog input, dialog select { font: inherit; color: var(--text); background: var(--field); border: 1px solid var(--btn-border); border-radius: 5px; padding: 5px 8px; }
 dialog menu { display: flex; justify-content: flex-end; gap: 8px; margin: 6px 0 0; padding: 0; }
 fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px 10px; margin: 0; display: grid; gap: 8px; }
 legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
@@ -96,7 +142,7 @@ legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
 .mode label.check { color: var(--text); }
 dialog[open] { max-height: 90vh; overflow: auto; }
 /* Placeholder blocks while the first refresh is running. */
-.skel { display: inline-block; height: 10px; border-radius: 3px; background: linear-gradient(90deg, #e6e6e1 0%, #efefeb 50%, #e6e6e1 100%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; vertical-align: middle; }
+.skel { display: inline-block; height: 10px; border-radius: 3px; background: linear-gradient(90deg, var(--skel-a) 0%, var(--skel-b) 50%, var(--skel-a) 100%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; vertical-align: middle; }
 .track.skel { height: 4px; width: 100%; }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }

@@ -9,6 +9,7 @@ type Identity = import('../types').Identity;
 type Usage = import('../types').Usage;
 type Vendor = import('../types').Vendor;
 type BringMode = import('../types').BringMode;
+type Appearance = import('../types').Appearance;
 
 const root = document.getElementById('root') as HTMLElement;
 let state: State | null = null;
@@ -493,6 +494,7 @@ byId('settings').onclick = () => {
   field<HTMLInputElement>(settingsForm, 'pollMinutes').value = String(s.settings.pollMinutes);
   field<HTMLSelectElement>(settingsForm, 'usageMode').value = s.settings.usageMode || 'used';
   field<HTMLInputElement>(settingsForm, 'openAtLogin').checked = !!s.settings.openAtLogin;
+  field<HTMLSelectElement>(settingsForm, 'appearance').value = s.settings.appearance || 'system';
   settingsDialog.showModal();
 };
 byId('settings-cancel').onclick = () => settingsDialog.close();
@@ -504,6 +506,7 @@ settingsForm.onsubmit = (e) => {
       pollMinutes: Number(f.get('pollMinutes')) || 5,
       openAtLogin: f.get('openAtLogin') === 'on',
       usageMode: (f.get('usageMode') as State['settings']['usageMode'] | null) || 'used',
+      appearance: (f.get('appearance') as Appearance | null) || 'system',
     }),
   );
 };
