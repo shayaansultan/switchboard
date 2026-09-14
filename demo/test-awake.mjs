@@ -8,12 +8,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, _electron as electron } from 'playwright';
 import * as fixture from './fixture.js';
+import { PALETTE } from '../out/store.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const output = path.join(root, 'docs', '.work', 'awake');
 await fs.mkdir(output, { recursive: true });
 
 const state = {
+  palette: PALETTE,
   awake: { status: 'ready', value: 'off', notice: null },
   settings: fixture.settings,
   terminals: fixture.terminals,
@@ -102,6 +104,7 @@ try {
       addProfile: noop,
       removeProfile: noop,
       updateProfile: noop,
+      moveProfile: noop,
       bringOver: noop,
       saveSettings: noop,
       launch: noop,
@@ -126,6 +129,11 @@ try {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${server.port}/`);
   await page.waitForSelector('.card');
+  // Profile controls must still work with the keep-awake renderer loaded.
+  await page.getByRole('button', { name: 'Colour', exact: true }).first().click();
+  assert.equal(await page.locator('.swatches button').count(), PALETTE.length);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.menu').count(), 0);
   await page.screenshot({ path: path.join(output, 'header-off.png') });
 
   const awake = page.locator('#awake-toggle');

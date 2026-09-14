@@ -18,6 +18,7 @@ import * as launch from './launch';
 import * as usage from './usage';
 import { AwakeController, isAwakeValue, macAwakeSystem } from './awake';
 import { barPng, meterPng, stripPng } from './trayart';
+import { composeTrayText, type TrayText } from './tray-status';
 import type {
   AddOptions,
   BringOptions,
@@ -344,15 +345,14 @@ function busiestProfile(): { p: Profile; s: Live } | null {
   return best;
 }
 
-function refreshTrayIcon(): void {
-  if (!tray) return;
+function refreshTrayIcon(): TrayText {
+  const fallback = { title: '', tooltip: 'Switchboard' };
+  if (!tray) return fallback;
   const b = busiestProfile();
   const windows = b?.s.usage?.windows ?? [];
   if (!b || !windows.length) {
     tray.setImage(nativeImage.createFromPath(path.join(__dirname, '..', 'build', 'trayTemplate.png')));
-    tray.setTitle('');
-    tray.setToolTip('Switchboard');
-    return;
+    return fallback;
   }
   const stale = !!b.s.usage?.stale;
   const lanes = windows.slice(0, 2).map((w) => ({ fill: laneFill(w) }));
@@ -360,8 +360,10 @@ function refreshTrayIcon(): void {
   const fullest = windows.reduce((a, w) => ((w.pct ?? 0) > (a.pct ?? 0) ? w : a), windows[0]);
   const remaining = data.settings.usageMode === 'remaining';
   const shown = remaining ? 100 - (fullest.pct ?? 0) : (fullest.pct ?? 0);
-  tray.setTitle(data.settings.menuBar === 'percent' ? ` ${shown}%` : '');
-  tray.setToolTip(`${b.p.name}: ${usageLine(b.p)}`);
+  return {
+    title: data.settings.menuBar === 'percent' ? ` ${shown}%` : '',
+    tooltip: `${b.p.name}: ${usageLine(b.p)}`,
+  };
 }
 
 function usageLine(p: Profile): string {
@@ -379,13 +381,14 @@ function usageLine(p: Profile): string {
 
 function rebuildTray(): void {
   if (!tray) return;
-  refreshTrayIcon();
+  const usageText = refreshTrayIcon();
   const remaining = data.settings.usageMode === 'remaining';
   const items: Electron.MenuItemConstructorOptions[] = [];
   const awakeState = awake.snapshot();
   const isAwake = awakeState.status === 'ready' && awakeState.value === 'on';
-  tray.setTitle(isAwake ? ' ☀' : awakeState.status === 'unavailable' ? ' !' : '');
-  tray.setToolTip(isAwake ? 'Switchboard · Keep awake is on' : 'Switchboard');
+  const text = composeTrayText(usageText, awakeState);
+  tray.setTitle(text.title);
+  tray.setToolTip(text.tooltip);
   items.push({
     label:
       awakeState.status === 'changing' ? 'Changing sleep setting…' : isAwake ? 'Turn keep awake off' : 'Keep awake…',
