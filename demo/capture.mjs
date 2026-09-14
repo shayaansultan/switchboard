@@ -19,7 +19,7 @@ const WORK = path.join(ROOT, 'docs', '.work');
 // The setup dialog's checklist comes from the app itself, so the demo cannot
 // drift from what the app actually offers.
 process.env.HOME = fs.mkdtempSync('/tmp/switchboard-demo-');
-const { SETUP_ITEMS } = await import(path.join(ROOT, 'src', 'profiles.ts'));
+const { SETUP_ITEMS, PALETTE } = await import(path.join(ROOT, 'src', 'profiles.ts'));
 const fixture = await import(path.join(ROOT, 'demo', 'fixture.js'));
 
 const VIEWPORT = { width: 920, height: 700 };
@@ -50,7 +50,7 @@ function bridge(state) {
       measureSizes: () => Promise.resolve(window.__state),
       onState: (fn) => { window.__push = fn; },
       refresh: noop, addProfile: () => Promise.resolve({ result: { done: [], skipped: [] } }),
-      removeProfile: noop, updateProfile: noop, bringOver: () => Promise.resolve({ done: [], skipped: [] }),
+      removeProfile: noop, updateProfile: noop, moveProfile: () => Promise.resolve(true), bringOver: () => Promise.resolve({ done: [], skipped: [] }),
       saveSettings: noop, launch: noop, quit: noop, quitOthers: () => Promise.resolve(0),
       login: noop, shell: noop, reveal: noop, copyCommand: noop,
     };
@@ -62,6 +62,7 @@ function bridge(state) {
 
 const state = {
   awake: { status: 'ready', value: 'off', notice: null },
+  palette: PALETTE,
   settings: fixture.settings,
   terminals: fixture.terminals,
   vendors: fixture.vendors,

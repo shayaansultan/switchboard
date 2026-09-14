@@ -17,6 +17,7 @@ import * as profiles from './profiles';
 import * as launch from './launch';
 import * as usage from './usage';
 import { AwakeController, isAwakeValue, macAwakeSystem } from './awake';
+import { barPng, meterPng, stripPng } from './trayart';
 import type {
   AddOptions,
   BringOptions,
@@ -111,7 +112,34 @@ function saveCache(): void {
   }
 }
 loadCache();
-let pollTimer: ReturnType<typeof setInterval> | null = null;
+// ---- polling cadence ----
+// The interval in Settings is the steady rate while Switchboard is in use.
+// Away from it the app polls less, so an idle Mac does not hit the usage
+// endpoints every few minutes all day, and it stops entirely while asleep
+// or locked. Anything you do in the window or the tray counts as use.
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let lastInteractionAt = Date.now();
+let pollingPaused = false;
+
+function nextPollDelay(): number {
+  const base = Math.max(1, Number(data.settings.pollMinutes) || 5) * 60_000;
+  const idle = Date.now() - lastInteractionAt;
+  let delay: number;
+  if (idle <= 5 * 60_000) delay = Math.min(base, 2 * 60_000); // just used it: keep it fresh
+  else if (idle <= 60 * 60_000) delay = base;
+  else if (idle <= 4 * 3600_000) delay = Math.max(base, 15 * 60_000);
+  else delay = Math.max(base, 30 * 60_000);
+  // On battery, never faster than the configured rate.
+  if (delay < base && powerMonitor.isOnBatteryPower()) delay = base;
+  return delay;
+}
+
+function noteInteraction(): void {
+  const wasIdle = Date.now() - lastInteractionAt > 5 * 60_000;
+  lastInteractionAt = Date.now();
+  // Coming back after a while: bring the numbers up to date soon.
+  if (wasIdle) schedulePolling();
+}
 
 function byVendor<T>(fn: (v: Vendor) => T): Record<Vendor, T> {
   return Object.fromEntries(profiles.VENDOR_IDS.map((v) => [v, fn(v)])) as Record<Vendor, T>;
@@ -121,6 +149,7 @@ function stateSnapshot(): State {
   return {
     awake: awake.snapshot(),
     settings: data.settings,
+    palette: profiles.PALETTE,
     terminals: launch.installedTerminals().map((t) => ({ id: t.id, label: t.label })),
     setupItems: byVendor((v) =>
       profiles.SETUP_ITEMS[v].map(({ id, label, hint, kind, on, warn, copyOnly }): SetupItemView => ({
@@ -166,12 +195,27 @@ async function refreshRunning(): Promise<void> {
   for (const p of data.profiles) liveFor(p).running = !!launch.instanceFor(p, instances);
 }
 
+// Whether the last usage answer suggests the sign-in itself changed.
+function looksSignedOut(u: Usage | undefined): boolean {
+  return !!u?.error && /not signed in|expired|401|403/i.test(u.error);
+}
+
+const IDENTITY_TTL = 60 * 60 * 1000;
+
 // `force` is a person clicking refresh; scheduled polls respect the backoff
 // a 429 imposed and keep showing the last good numbers meanwhile.
+//
+// Identity is asked for rarely: for Claude it means spawning the CLI, and
+// who is signed in does not change between polls. It is re-read on a manual
+// refresh, once an hour, or when the usage call says the token is gone.
 async function refreshProfile(p: Profile, force: boolean): Promise<void> {
   const cur = liveFor(p);
-  cur.identity = await usage.identity(p);
-  if (!cur.identity.loggedIn) {
+  const known = cur.identity && cur.identityAt && Date.now() - cur.identityAt < IDENTITY_TTL;
+  if (force || !known || looksSignedOut(cur.usage)) {
+    cur.identity = await usage.identity(p);
+    cur.identityAt = Date.now();
+  }
+  if (!cur.identity || !cur.identity.loggedIn) {
     cur.usage = { error: 'not signed in via CLI' };
     return;
   }
@@ -203,9 +247,24 @@ async function refreshRunningOnly(): Promise<void> {
 }
 
 function schedulePolling(): void {
-  if (pollTimer) clearInterval(pollTimer);
-  const mins = Math.max(1, Number(data.settings.pollMinutes) || 5);
-  pollTimer = setInterval(() => refreshAll().catch(() => {}), mins * 60 * 1000);
+  if (pollTimer) clearTimeout(pollTimer);
+  pollTimer = null;
+  if (pollingPaused) return;
+  pollTimer = setTimeout(async () => {
+    await refreshAll().catch(() => {});
+    schedulePolling();
+  }, nextPollDelay());
+}
+
+function pausePolling(): void {
+  pollingPaused = true;
+  schedulePolling();
+}
+
+async function resumePolling(): Promise<void> {
+  pollingPaused = false;
+  await refreshAll().catch(() => {});
+  schedulePolling();
 }
 
 // The window's own background, painted before the page loads and behind it
@@ -238,7 +297,11 @@ function createWindow(): BrowserWindow {
   w.on('closed', () => {
     win = null;
   });
-  w.on('focus', () => void awake.refresh());
+  w.on('focus', () => {
+    noteInteraction();
+    void awake.refresh();
+  });
+  w.on('show', noteInteraction);
   win = w;
   return w;
 }
@@ -247,6 +310,58 @@ function showWindow(): void {
   const w = win ?? createWindow();
   w.show();
   w.focus();
+}
+
+// The fill of a bar for a window, honouring the used/remaining setting.
+function laneFill(w: { pct: number | null }): number {
+  const pct = (w.pct ?? 0) / 100;
+  return data.settings.usageMode === 'remaining' ? 1 - pct : pct;
+}
+
+// Drawn images are cached by their pixels' inputs; a rebuild happens on
+// every state change and re-encoding the same PNG each time is wasteful.
+const artCache = new Map<string, Electron.NativeImage>();
+function art(key: string, draw: () => Buffer): Electron.NativeImage {
+  let img = artCache.get(key);
+  if (!img) {
+    img = nativeImage.createFromBuffer(draw(), { scaleFactor: 2 });
+    img.setTemplateImage(true);
+    if (artCache.size > 256) artCache.clear();
+    artCache.set(key, img);
+  }
+  return img;
+}
+
+// The profile whose fullest window is fullest of all: what the status item
+// shows when there is nothing more specific to say.
+function busiestProfile(): { p: Profile; s: Live } | null {
+  let best: { p: Profile; s: Live; pct: number } | null = null;
+  for (const p of data.profiles) {
+    const s = live.get(p.id);
+    const pct = Math.max(-1, ...(s?.usage?.windows ?? []).map((w) => w.pct ?? 0));
+    if (pct >= 0 && (!best || pct > best.pct)) best = { p, s: s as Live, pct };
+  }
+  return best;
+}
+
+function refreshTrayIcon(): void {
+  if (!tray) return;
+  const b = busiestProfile();
+  const windows = b?.s.usage?.windows ?? [];
+  if (!b || !windows.length) {
+    tray.setImage(nativeImage.createFromPath(path.join(__dirname, '..', 'build', 'trayTemplate.png')));
+    tray.setTitle('');
+    tray.setToolTip('Switchboard');
+    return;
+  }
+  const stale = !!b.s.usage?.stale;
+  const lanes = windows.slice(0, 2).map((w) => ({ fill: laneFill(w) }));
+  tray.setImage(art(`meter:${lanes.map((l) => l.fill.toFixed(2)).join(',')}:${stale}`, () => meterPng(lanes, stale)));
+  const fullest = windows.reduce((a, w) => ((w.pct ?? 0) > (a.pct ?? 0) ? w : a), windows[0]);
+  const remaining = data.settings.usageMode === 'remaining';
+  const shown = remaining ? 100 - (fullest.pct ?? 0) : (fullest.pct ?? 0);
+  tray.setTitle(data.settings.menuBar === 'percent' ? ` ${shown}%` : '');
+  tray.setToolTip(`${b.p.name}: ${usageLine(b.p)}`);
 }
 
 function usageLine(p: Profile): string {
@@ -264,6 +379,8 @@ function usageLine(p: Profile): string {
 
 function rebuildTray(): void {
   if (!tray) return;
+  refreshTrayIcon();
+  const remaining = data.settings.usageMode === 'remaining';
   const items: Electron.MenuItemConstructorOptions[] = [];
   const awakeState = awake.snapshot();
   const isAwake = awakeState.status === 'ready' && awakeState.value === 'on';
@@ -283,9 +400,30 @@ function rebuildTray(): void {
     items.push({ label: profiles.VENDORS[vendor].label, enabled: false });
     for (const p of data.profiles.filter((x) => x.vendor === vendor)) {
       const s = live.get(p.id) ?? {};
+      const windows = s.usage?.windows ?? [];
+      const stale = !!s.usage?.stale;
+      // One line per window, each with its own bar, ahead of the actions.
+      const windowLines: Electron.MenuItemConstructorOptions[] = windows.map((w) => {
+        const shown = remaining ? 100 - (w.pct ?? 0) : (w.pct ?? 0);
+        const reset = w.resetsAt ? ` · resets ${relTime(w.resetsAt)}` : '';
+        return {
+          label: `${w.label}  ${shown}%${remaining ? ' left' : ''}${reset}`,
+          icon: art(`bar:${laneFill(w).toFixed(2)}:${stale}`, () => barPng(laneFill(w), stale)),
+          enabled: false,
+        };
+      });
+      const summary = windows.length
+        ? `${windows[0].label} ${remaining ? 100 - (windows[0].pct ?? 0) : (windows[0].pct ?? 0)}%`
+        : usageLine(p);
+      const fills = windows.slice(0, 4).map((w) => ({ fill: laneFill(w) }));
       items.push({
-        label: `${s.running ? '● ' : '○ '}${p.name} — ${usageLine(p)}`,
+        label: `${p.name}  ${summary}${s.running ? '' : '  (not running)'}`,
+        icon: fills.length
+          ? art(`strip:${fills.map((l) => l.fill.toFixed(2)).join(',')}:${stale}`, () => stripPng(fills, stale))
+          : undefined,
         submenu: [
+          ...windowLines,
+          ...(windowLines.length ? [{ type: 'separator' as const }] : []),
           {
             label: s.running ? 'Quit app' : 'Launch app',
             click: () =>
@@ -313,11 +451,23 @@ function createTray(): void {
   img.setTemplateImage(true);
   tray = new Tray(img);
   tray.setToolTip('Switchboard');
+  tray.on('mouse-enter', noteInteraction);
   rebuildTray();
 }
 
 function applyLoginItem(): void {
   app.setLoginItemSettings({ openAtLogin: !!data.settings.openAtLogin });
+}
+
+// "in 54m", "in 6d", for the tray's window lines.
+function relTime(iso: string): string {
+  const ms = Date.parse(iso) - Date.now();
+  if (Number.isNaN(ms) || ms <= 0) return 'now';
+  const m = Math.round(ms / 60000);
+  if (m < 60) return `in ${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `in ${h}h ${m % 60}m`;
+  return `in ${Math.round(h / 24)}d`;
 }
 
 // ---- IPC ----
@@ -344,7 +494,10 @@ const byId = (id: string): Profile => {
   return p;
 };
 
-ipcMain.handle('state:get', () => stateSnapshot());
+ipcMain.handle('state:get', () => {
+  noteInteraction();
+  return stateSnapshot();
+});
 // Sizing the history folders walks gigabytes, so only do it when the setup
 // dialog is about to show the numbers, and only once.
 let sizesMeasured = false;
@@ -357,6 +510,7 @@ ipcMain.handle('state:measure', async () => {
   return stateSnapshot();
 });
 ipcMain.handle('state:refresh', async (_e, id?: string) => {
+  noteInteraction();
   await refreshAll(id || undefined, true);
   return stateSnapshot();
 });
@@ -405,6 +559,11 @@ ipcMain.handle('profiles:update', (_e, id: string, patch: { name?: string; color
   profiles.update(data, id, patch);
   broadcast();
 });
+ipcMain.handle('profiles:move', (_e, id: string, delta: -1 | 1) => {
+  const moved = profiles.move(data, id, delta);
+  if (moved) broadcast();
+  return moved;
+});
 ipcMain.handle('settings:save', (_e, s: Partial<Settings>) => {
   data.settings = { ...data.settings, ...s };
   profiles.save(data);
@@ -450,6 +609,11 @@ app.whenReady().then(async () => {
   // Launched at login: stay in the menu bar, don't pop the window.
   const hidden = app.getLoginItemSettings().wasOpenedAtLogin;
   if (!hidden) createWindow();
+  // Asleep or locked, there is nobody to show numbers to.
+  powerMonitor.on('suspend', pausePolling);
+  powerMonitor.on('lock-screen', pausePolling);
+  powerMonitor.on('resume', () => void resumePolling());
+  powerMonitor.on('unlock-screen', () => void resumePolling());
   schedulePolling();
   await refreshAll().catch(() => {});
   // Dev aid: `electron . --screenshot=/tmp/x.png` captures the window and exits.

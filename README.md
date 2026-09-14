@@ -91,7 +91,11 @@ Worth knowing before you run an unsigned app that touches your accounts.
   instead, so they produce no prompt.
 - **One network call per signed-in profile, on a timer.** The same endpoints
   the two CLIs use for their own usage screens, authorised with that profile's
-  existing CLI token. Codex tries a second URL only if the first answers 404.
+  existing CLI token. The interval in Settings is the rate while you are using
+  Switchboard; left alone it slows to every 15 and then 30 minutes, never
+  polls faster than the setting on battery, and stops while the Mac is asleep
+  or locked. Who is signed in is only re-checked hourly, on a manual refresh,
+  or when a usage call says the token is gone. Codex tries a second URL only if the first answers 404.
   Neither endpoint is documented by its vendor, so both can change without
   notice and the bars can go blank. Nothing else is sent anywhere and there is
   no telemetry.
