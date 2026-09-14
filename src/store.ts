@@ -49,7 +49,7 @@ export function slugify(name: string): string {
 
 function defaults(): Store {
   return {
-    settings: { terminal: 'Terminal', pollMinutes: 5, usageMode: 'used', appearance: 'system' },
+    settings: { terminal: 'Terminal', pollMinutes: 5, usageMode: 'used', appearance: 'system', menuBar: 'icon' },
     profiles: [
       { id: 'claude-default', vendor: 'claude', name: 'Default', isDefault: true, color: '#d97757' },
       { id: 'codex-default', vendor: 'codex', name: 'Default', isDefault: true, color: '#10a37f' },
@@ -117,7 +117,7 @@ export function ensureDirs(profile: Profile): Dirs {
   return d;
 }
 
-const PALETTE = ['#d97757', '#10a37f', '#3b82f6', '#a855f7', '#f59e0b', '#ec4899', '#14b8a6', '#64748b'];
+export const PALETTE = ['#d97757', '#10a37f', '#3b82f6', '#a855f7', '#f59e0b', '#ec4899', '#14b8a6', '#64748b'];
 
 // A new, empty profile. Bringing things into it is setup.ts's job.
 export function create(data: Store, { vendor, name }: { vendor: Vendor; name: string }): Profile {
@@ -155,6 +155,26 @@ export function remove(data: Store, id: string): void {
   save(data);
   const base = path.join(ROOT, p.vendor, p.id);
   if (base.startsWith(ROOT + path.sep)) fs.rmSync(base, { recursive: true, force: true });
+}
+
+// Move a profile one step left or right among its vendor's added profiles.
+// The Default profile stays first; the order of the other vendor's profiles
+// is untouched. Returns false when there was nowhere to move.
+export function move(data: Store, id: string, delta: -1 | 1): boolean {
+  const p = data.profiles.find((x) => x.id === id);
+  if (!p) throw new Error('no such profile');
+  if (p.isDefault) return false;
+  const row = data.profiles.filter((x) => x.vendor === p.vendor && !x.isDefault);
+  const i = row.indexOf(p);
+  const j = i + delta;
+  if (j < 0 || j >= row.length) return false;
+  row.splice(i, 1);
+  row.splice(j, 0, p);
+  // Refill this vendor's slots in the new order; every other entry stays put.
+  const queue = [...row];
+  data.profiles = data.profiles.map((x) => (x.vendor === p.vendor && !x.isDefault ? (queue.shift() as Profile) : x));
+  save(data);
+  return true;
 }
 
 export function update(data: Store, id: string, patch: { name?: string; color?: string }): Profile {

@@ -13,6 +13,7 @@ const api: SwitchboardApi = {
   addProfile: (p: AddOptions) => ipcRenderer.invoke('profiles:add', p),
   removeProfile: (id: string) => ipcRenderer.invoke('profiles:remove', id),
   updateProfile: (id: string, patch) => ipcRenderer.invoke('profiles:update', id, patch),
+  moveProfile: (id: string, delta: -1 | 1) => ipcRenderer.invoke('profiles:move', id, delta),
   bringOver: (id: string, sourceId: string, opts: BringOptions) =>
     ipcRenderer.invoke('profiles:bringOver', id, sourceId, opts),
   saveSettings: (s: Partial<Settings>) => ipcRenderer.invoke('settings:save', s),

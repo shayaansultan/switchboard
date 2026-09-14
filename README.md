@@ -91,7 +91,11 @@ Worth knowing before you run an unsigned app that touches your accounts.
   instead, so they produce no prompt.
 - **One network call per signed-in profile, on a timer.** The same endpoints
   the two CLIs use for their own usage screens, authorised with that profile's
-  existing CLI token. Codex tries a second URL only if the first answers 404.
+  existing CLI token. The interval in Settings is the rate while you are using
+  Switchboard; left alone it slows to every 15 and then 30 minutes, never
+  polls faster than the setting on battery, and stops while the Mac is asleep
+  or locked. Who is signed in is only re-checked hourly, on a manual refresh,
+  or when a usage call says the token is gone. Codex tries a second URL only if the first answers 404.
   Neither endpoint is documented by its vendor, so both can change without
   notice and the bars can go blank. Nothing else is sent anywhere and there is
   no telemetry.
@@ -194,5 +198,12 @@ bun run icons     # re-render the icon PNGs from build/icon.svg
 The screenshot is produced by rendering the app's own UI against
 [`demo/fixture.js`](demo/fixture.js), so it never contains anyone's real
 accounts and stays current when the interface changes.
+
+## OpenCode terminal profiles
+
+The terminal-first `oc` CLI adds isolated OpenCode profiles with separate service
+connections and per-profile ChatGPT account pools. It runs without the Electron
+app. See [OpenCode profiles](docs/opencode-profiles.md) for installation, selective
+imports, the six service adapters, routing behaviour, and verification.
 
 MIT licensed. See [LICENSE](LICENSE).

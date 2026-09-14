@@ -31,6 +31,7 @@ export interface Profile {
 export type UsageMode = 'used' | 'remaining';
 
 export type Appearance = 'system' | 'light' | 'dark';
+export type MenuBarStyle = 'icon' | 'percent';
 
 export interface Settings {
   terminal: string;
@@ -38,6 +39,7 @@ export interface Settings {
   usageMode: UsageMode;
   openAtLogin?: boolean;
   appearance?: Appearance;
+  menuBar?: MenuBarStyle;
 }
 
 export interface Store {
@@ -114,6 +116,7 @@ export interface Live {
   usage?: Usage;
   cached?: boolean;
   backoffUntil?: number | null;
+  identityAt?: number;
 }
 
 export interface Instance {
@@ -142,6 +145,7 @@ export interface ProfileView extends Profile, Live {
 export interface State {
   awake: AwakeState;
   settings: Settings;
+  palette: string[];
   terminals: { id: string; label: string }[];
   setupItems: Record<Vendor, SetupItemView[]>;
   vendors: Record<Vendor, { label: string; installed: boolean }>;
@@ -159,6 +163,7 @@ export interface SwitchboardApi {
   addProfile(p: AddOptions): Promise<{ profile: Profile; result: BringResult }>;
   removeProfile(id: string): Promise<boolean>;
   updateProfile(id: string, patch: { name?: string; color?: string }): Promise<void>;
+  moveProfile(id: string, delta: -1 | 1): Promise<boolean>;
   bringOver(id: string, sourceId: string, opts: BringOptions): Promise<BringResult>;
   saveSettings(s: Partial<Settings>): Promise<void>;
   launch(id: string): Promise<void>;

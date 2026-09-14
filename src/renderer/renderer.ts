@@ -10,6 +10,7 @@ type Usage = import('../types').Usage;
 type Vendor = import('../types').Vendor;
 type BringMode = import('../types').BringMode;
 type Appearance = import('../types').Appearance;
+type MenuBarStyle = import('../types').MenuBarStyle;
 
 const root = document.getElementById('root') as HTMLElement;
 let state: State | null = null;
@@ -72,8 +73,17 @@ function icon(name: keyof typeof ICONS): HTMLSpanElement {
 // window. It lives on <body>, outside the re-rendered tree, follows its
 // button when the page scrolls or the window resizes, and goes away on a
 // choice, a click elsewhere or Escape.
-type MenuItem = { label: string; danger?: boolean; run: () => unknown } | 'separator';
-let openMenu: { el: HTMLDivElement; anchor: HTMLElement } | null = null;
+type MenuItem =
+  | { label: string; danger?: boolean; disabled?: boolean; run: () => unknown }
+  | { colors: string[]; current: string; pick: (color: string) => unknown }
+  | 'separator';
+type MenuPlacement = { prefer?: 'above' | 'below'; align?: 'left' | 'right' };
+let openMenu: { el: HTMLDivElement; anchor: HTMLElement; place: MenuPlacement } | null = null;
+// Pressing the button that opened the menu sends a mousedown first, which
+// counts as a click outside and closes it, and then a click, which would
+// open it again. Remember the anchor of a menu closed that way so the click
+// that follows toggles it shut instead.
+let closedByAnchor: HTMLElement | null = null;
 function closeMenu(): void {
   if (!openMenu) return;
   openMenu.el.remove();
@@ -88,7 +98,7 @@ function closeMenu(): void {
 // close to the top that above would not fit, and never past an edge.
 function placeMenu(): void {
   if (!openMenu) return;
-  const { el: menu, anchor } = openMenu;
+  const { el: menu, anchor, place } = openMenu;
   if (!anchor.isConnected) {
     closeMenu();
     return;
@@ -99,22 +109,59 @@ function placeMenu(): void {
   const gap = 4;
   const margin = 8;
   const fitsAbove = r.top - gap - h >= margin;
-  const top = fitsAbove ? r.top - gap - h : r.bottom + gap;
+  const fitsBelow = r.bottom + gap + h <= window.innerHeight - margin;
+  const above = place.prefer === 'below' ? !fitsBelow && fitsAbove : fitsAbove || !fitsBelow;
+  const top = above ? r.top - gap - h : r.bottom + gap;
+  const left = place.align === 'left' ? r.left : r.right - w;
   menu.style.top = `${Math.max(margin, Math.min(top, window.innerHeight - h - margin))}px`;
-  menu.style.left = `${Math.max(margin, Math.min(r.right - w, window.innerWidth - w - margin))}px`;
+  menu.style.left = `${Math.max(margin, Math.min(left, window.innerWidth - w - margin))}px`;
 }
 function onOutside(e: MouseEvent): void {
-  if (openMenu && !openMenu.el.contains(e.target as Node)) closeMenu();
+  if (!openMenu || openMenu.el.contains(e.target as Node)) return;
+  closedByAnchor = openMenu.anchor.contains(e.target as Node) ? openMenu.anchor : null;
+  closeMenu();
 }
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'Escape') closeMenu();
 }
-function showMenu(anchor: HTMLElement, items: MenuItem[]): void {
+function showMenu(anchor: HTMLElement, items: MenuItem[], place: MenuPlacement = {}): void {
   closeMenu();
+  if (closedByAnchor === anchor) {
+    closedByAnchor = null;
+    return;
+  }
+  closedByAnchor = null;
   const menu = el('div', { class: 'menu', role: 'menu' });
   for (const it of items) {
     if (it === 'separator') {
       menu.append(el('hr'));
+      continue;
+    }
+    if ('colors' in it) {
+      // A row of swatches, plus one that opens the system colour panel.
+      const custom = el('input', { type: 'color', value: it.current, title: 'Any colour' });
+      custom.addEventListener('change', () => {
+        closeMenu();
+        act(() => it.pick(custom.value), anchor);
+      });
+      menu.append(
+        el(
+          'div',
+          { class: 'swatches', role: 'group', title: 'Colour' },
+          ...it.colors.map((c) =>
+            el('button', {
+              class: `swatch ${c.toLowerCase() === it.current.toLowerCase() ? 'on' : ''}`,
+              style: `background:${c}`,
+              title: c,
+              onclick: () => {
+                closeMenu();
+                act(() => it.pick(c), anchor);
+              },
+            }),
+          ),
+          el('label', { class: 'swatch custom', title: 'Any colour' }, custom),
+        ),
+      );
       continue;
     }
     menu.append(
@@ -123,6 +170,7 @@ function showMenu(anchor: HTMLElement, items: MenuItem[]): void {
         {
           class: it.danger ? 'danger' : '',
           role: 'menuitem',
+          disabled: it.disabled ? 'true' : null,
           onclick: () => {
             closeMenu();
             act(it.run, anchor);
@@ -133,13 +181,13 @@ function showMenu(anchor: HTMLElement, items: MenuItem[]): void {
     );
   }
   document.body.append(menu);
-  openMenu = { el: menu, anchor };
+  openMenu = { el: menu, anchor, place };
   placeMenu();
   document.addEventListener('mousedown', onOutside, true);
   document.addEventListener('keydown', onKey, true);
   window.addEventListener('scroll', placeMenu, true);
   window.addEventListener('resize', placeMenu);
-  (menu.querySelector('button') as HTMLButtonElement | null)?.focus();
+  (menu.querySelector('button[role=menuitem]:not([disabled])') as HTMLButtonElement | null)?.focus();
 }
 
 async function act(fn: () => unknown, btn?: EventTarget | null): Promise<void> {
@@ -275,14 +323,26 @@ function card(p: ProfileView): HTMLDivElement {
     el(
       'button',
       {
-        onclick: (e: Event) =>
-          showMenu(e.currentTarget as HTMLElement, [
-            ...(p.isDefault ? [] : [{ label: 'Bring over', run: () => openSetup({ target: p }) } satisfies MenuItem]),
+        onclick: (e: Event) => {
+          // Position among this vendor's added profiles, for the move items.
+          const row = s.profiles.filter((x) => x.vendor === p.vendor && !x.isDefault);
+          const at = row.findIndex((x) => x.id === p.id);
+          const items: MenuItem[] = [
+            ...(p.isDefault
+              ? []
+              : [
+                  { label: 'Move left', disabled: at <= 0, run: () => window.sb.moveProfile(p.id, -1) },
+                  { label: 'Move right', disabled: at >= row.length - 1, run: () => window.sb.moveProfile(p.id, 1) },
+                  'separator' as const,
+                  { label: 'Bring over', run: () => openSetup({ target: p }) },
+                ]),
             { label: 'Show in Finder', run: () => window.sb.reveal(p.id) },
             ...(p.isDefault
               ? []
               : ['separator' as const, { label: 'Remove', danger: true, run: () => window.sb.removeProfile(p.id) }]),
-          ]),
+          ];
+          showMenu(e.currentTarget as HTMLElement, items);
+        },
         title: 'More',
       },
       '⋯',
@@ -321,12 +381,24 @@ function card(p: ProfileView): HTMLDivElement {
     );
   }
 
+  const colorBtn = el('button', {
+    class: 'color',
+    title: 'Colour',
+    onclick: (e: Event) =>
+      showMenu(
+        e.currentTarget as HTMLElement,
+        [{ colors: s.palette, current: p.color, pick: (color) => window.sb.updateProfile(p.id, { color }) }],
+        { prefer: 'below', align: 'left' },
+      ),
+  });
+
   return el(
     'div',
     { class: 'card', style: `--card-color:${p.color}` },
     el(
       'div',
       { class: 'head' },
+      colorBtn,
       el('span', { class: `dot ${p.running ? 'on' : ''}`, title: p.running ? 'App running' : 'App not running' }),
       nameEl,
       p.isDefault ? el('span', { class: 'badge' }, 'default dirs') : null,
@@ -495,6 +567,7 @@ byId('settings').onclick = () => {
   field<HTMLSelectElement>(settingsForm, 'usageMode').value = s.settings.usageMode || 'used';
   field<HTMLInputElement>(settingsForm, 'openAtLogin').checked = !!s.settings.openAtLogin;
   field<HTMLSelectElement>(settingsForm, 'appearance').value = s.settings.appearance || 'system';
+  field<HTMLSelectElement>(settingsForm, 'menuBar').value = s.settings.menuBar || 'icon';
   settingsDialog.showModal();
 };
 byId('settings-cancel').onclick = () => settingsDialog.close();
@@ -507,6 +580,7 @@ settingsForm.onsubmit = (e) => {
       openAtLogin: f.get('openAtLogin') === 'on',
       usageMode: (f.get('usageMode') as State['settings']['usageMode'] | null) || 'used',
       appearance: (f.get('appearance') as Appearance | null) || 'system',
+      menuBar: (f.get('menuBar') as MenuBarStyle | null) || 'icon',
     }),
   );
 };

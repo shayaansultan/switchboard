@@ -94,6 +94,35 @@ test('removing a profile deletes its data, and only inside the Switchboard root'
   expect(fs.readFileSync(path.join(CLAUDE_HOME, 'CLAUDE.md'), 'utf8')).toBe('personal instructions');
 });
 
+test("a profile moves one step among its vendor's added profiles, and Default stays first", () => {
+  const data = profiles.load();
+  const a = profiles.add(data, { vendor: 'claude', name: 'A' }).profile;
+  const b = profiles.add(data, { vendor: 'claude', name: 'B' }).profile;
+  const c = profiles.add(data, { vendor: 'claude', name: 'C' }).profile;
+  const x = profiles.add(data, { vendor: 'codex', name: 'X' }).profile;
+  const claude = () =>
+    profiles
+      .load()
+      .profiles.filter((p) => p.vendor === 'claude')
+      .map((p) => p.id);
+
+  expect(profiles.move(data, b.id, 1)).toBe(true);
+  expect(claude()).toEqual(['claude-default', a.id, c.id, b.id]);
+  expect(profiles.move(data, b.id, 1)).toBe(false); // already last
+  expect(profiles.move(data, a.id, -1)).toBe(false); // never ahead of Default
+  expect(profiles.move(data, 'claude-default', 1)).toBe(false);
+  expect(profiles.move(data, c.id, -1)).toBe(true);
+  expect(claude()).toEqual(['claude-default', c.id, a.id, b.id]);
+  // The other vendor's row is untouched, and so is the store's overall shape.
+  expect(
+    profiles
+      .load()
+      .profiles.filter((p) => p.vendor === 'codex')
+      .map((p) => p.id),
+  ).toEqual(['codex-default', x.id]);
+  expect(profiles.load().profiles.length).toBe(6);
+});
+
 test('a Default profile cannot be removed', () => {
   const data = profiles.load();
   expect(() => profiles.remove(data, 'claude-default')).toThrow();

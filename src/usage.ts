@@ -35,6 +35,13 @@ export function keychainService(configDir: string): string {
   return `Claude Code-credentials-${h}`;
 }
 
+// Read through Apple's `security` tool on purpose, and never through an
+// in-process keychain call. Claude Code writes its credential item with the
+// same tool, and items written that way stay readable by it without a
+// password dialog. An app reading the item from its own binary gets the
+// dialog instead, and gets it again every time Claude Code refreshes its
+// token and rewrites the item's permissions. That recurring prompt is the
+// single most hated behaviour of similar apps; keep this path as it is.
 async function readKeychain(service: string): Promise<string | null> {
   try {
     const { stdout } = await run('security', [
