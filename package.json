@@ -1,10 +1,13 @@
 {
   "name": "switchboard",
   "version": "0.1.0",
-  "description": "Run and monitor multiple Claude and Codex accounts side by side on macOS",
-  "main": "out/main.js",
   "private": true,
+  "description": "Run and monitor multiple Claude and Codex accounts side by side on macOS",
+  "license": "MIT",
+  "author": "Shayaan Sultan",
+  "main": "out/main.js",
   "scripts": {
+    "oc": "bun src/opencode/cli.ts",
     "start": "bun run build && electron .",
     "icons": "electron build/render-icons.js",
     "dist": "bun run build && electron-builder --mac --dir",
@@ -17,7 +20,10 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc && mkdir -p out/renderer && cp src/renderer/index.html src/renderer/style.css out/renderer/"
   },
-  "license": "MIT",
+  "dependencies": {
+    "jsonc-parser": "^3.3.1",
+    "zod": "^4.6.5"
+  },
   "devDependencies": {
     "@types/node": "^22.20.2",
     "electron": "^44.3.0",
@@ -51,6 +57,5 @@
     "electron",
     "electron-builder",
     "@electron/rebuild"
-  ],
-  "author": "Shayaan Sultan"
+  ]
 }

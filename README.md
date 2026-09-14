@@ -199,4 +199,11 @@ The screenshot is produced by rendering the app's own UI against
 [`demo/fixture.js`](demo/fixture.js), so it never contains anyone's real
 accounts and stays current when the interface changes.
 
+## OpenCode terminal profiles
+
+The terminal-first `oc` CLI adds isolated OpenCode profiles with separate service
+connections and per-profile ChatGPT account pools. It runs without the Electron
+app. See [OpenCode profiles](docs/opencode-profiles.md) for installation, selective
+imports, the six service adapters, routing behaviour, and verification.
+
 MIT licensed. See [LICENSE](LICENSE).
