@@ -73,6 +73,31 @@ button:disabled { opacity: .45; cursor: default; }
 .titlebar .actions { -webkit-app-region: no-drag; display: flex; gap: 6px; }
 .brand { font-weight: 600; font-size: 13px; }
 
+#awake-toggle { white-space: nowrap; }
+#awake-toggle.is-awake { color: var(--run); border-color: var(--run); }
+#awake-toggle.needs-attention { color: var(--warn); border-color: var(--warn); }
+#awake-popover {
+  position: fixed; inset: auto; margin: 0; width: 300px; max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 76px); overflow: auto; padding: 16px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line);
+  border-radius: 8px; box-shadow: 0 8px 28px var(--shadow-2);
+  font: 12px/1.5 -apple-system, "SF Pro Text", system-ui, sans-serif;
+}
+.awake-heading-row { display: flex; align-items: center; justify-content: space-between; }
+.awake-heading-row h2 { margin: 0; font-size: 13px; font-weight: 600; }
+.awake-close { border: 0; background: transparent; color: var(--muted); padding: 0 5px; font-size: 18px; }
+#awake-status { font-weight: 500; margin: 10px 0; }
+#awake-notice { color: var(--muted); margin: 12px 0 0; }
+#awake-error { color: var(--bad); margin: 12px 0 0; }
+.awake-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+#awake-popover button:focus-visible, #awake-toggle:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+@media (max-width: 620px) {
+  .titlebar { gap: 8px; }
+  .titlebar .actions { gap: 4px; }
+  .titlebar .actions button { padding-left: 6px; padding-right: 6px; }
+}
+
 main { padding: 18px 16px 24px; display: grid; gap: 26px; }
 section h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--text); display: flex; justify-content: space-between; align-items: baseline; }
 section h3 .na { font-weight: 400; color: var(--muted); font-size: 12px; }

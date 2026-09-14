@@ -46,6 +46,7 @@ function bridge(state) {
     const noop = () => Promise.resolve();
     window.sb = {
       getState: () => Promise.resolve(window.__state),
+      refreshAwake: noop, setAwake: noop, onAwakeState: () => {},
       measureSizes: () => Promise.resolve(window.__state),
       onState: (fn) => { window.__push = fn; },
       refresh: noop, addProfile: () => Promise.resolve({ result: { done: [], skipped: [] } }),
@@ -60,6 +61,7 @@ function bridge(state) {
 }
 
 const state = {
+  awake: { status: 'ready', value: 'off', notice: null },
   settings: fixture.settings,
   terminals: fixture.terminals,
   vendors: fixture.vendors,
