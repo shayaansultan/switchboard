@@ -6,7 +6,8 @@ import * as profiles from '../src/opencode/profiles';
 import * as imports from '../src/opencode/imports';
 import { launchEnv, runtimeConfig } from '../src/opencode/launch';
 import { Identity, Profile, Service } from '../src/opencode/types';
-import { quotaWeight } from '../src/opencode/proxy';
+import { quotaWeight, control, ensureWorker } from '../src/opencode/proxy';
+import { acquireWorkerLease } from '../src/opencode/worker-lease';
 import { gitEnvironment } from '../src/opencode/github';
 import { refreshModelInfo } from '../src/opencode/models';
 import * as http from 'node:http';
@@ -29,6 +30,66 @@ test('profiles reject path traversal, orphan adoption, and invalid manifest stat
   expect(Profile.safeParse({ ...profile, projectConfig: 'maybe' }).success).toBe(false);
   expect(Profile.safeParse({ ...profile, connections: { imaginary: {} } }).success).toBe(false);
   expect(Identity.safeParse({ status: 'verified', label: 'Only a name' }).success).toBe(false);
+});
+
+test('reconnecting a service does not rewrite an existing window identity snapshot', () => {
+  const profile = profiles.create('Snapshot binding');
+  const original = { status: 'verified' as const, subject: 'user-a', scopes: ['workspace-a'], label: 'A' };
+  const next = { ...original, subject: 'user-b', scopes: ['workspace-b'], label: 'B' };
+  const first = profiles.identitySnapshot(profile.id, 'notion', original);
+  const second = profiles.identitySnapshot(profile.id, 'notion', next);
+
+  expect(first).not.toBe(second);
+  expect(profiles.readJson(first)).toEqual(original);
+  expect(profiles.readJson(second)).toEqual(next);
+  expect(profiles.identitySnapshot(profile.id, 'notion', original)).toBe(first);
+});
+
+test('worker ownership lasts until release and cannot remove another owner', () => {
+  const file = path.join(temporary, 'worker-lease');
+  const release = acquireWorkerLease(file);
+  expect(() => acquireWorkerLease(file)).toThrow();
+  release();
+  const nextRelease = acquireWorkerLease(file);
+  release();
+  expect(fs.existsSync(file)).toBe(true);
+  nextRelease();
+  expect(fs.existsSync(file)).toBe(false);
+});
+
+test('an unreachable live worker is not replaced', async () => {
+  const profile = profiles.create('Unreachable worker');
+  profiles.writeJson(path.join(profiles.paths(profile.id).runtime, 'worker.json'), {
+    profileId: profile.id,
+    instance: 'existing-worker',
+    controlPort: 1,
+    proxyPort: 1,
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+  });
+  await expect(ensureWorker(profile.id, '/unused-cli')).rejects.toThrow('alive but unreachable');
+  expect(fs.existsSync(path.join(profiles.paths(profile.id).proxy, 'config.yaml'))).toBe(false);
+});
+
+test('worker control failures are not reported as a stopped worker', async () => {
+  const profile = profiles.create('Control errors');
+  const server = http.createServer((_request, response) => response.writeHead(401).end());
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Missing fixture port');
+  profiles.writeJson(path.join(profiles.paths(profile.id).runtime, 'worker.json'), {
+    profileId: profile.id,
+    instance: 'fixture',
+    controlPort: address.port,
+    proxyPort: 1,
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+  });
+  try {
+    await expect(control(profile.id, 'status')).rejects.toThrow('HTTP 401');
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
 
 test('profile launches scrub inherited OpenCode state and give each service its own binding', () => {

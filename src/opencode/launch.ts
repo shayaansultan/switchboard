@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Profile, type Connection, type ReasoningEffort } from './types';
-import { paths, secrets, writeJson } from './profiles';
+import { paths, secrets, identitySnapshot } from './profiles';
 import { cachedModelInfo } from './models';
 
 interface LocalMcp {
@@ -108,8 +108,7 @@ export function runtimeConfig(profile: Profile, port: number, cwd: string): Runt
   for (const service of Service.options) {
     const connection = profile.connections[service];
     if (connection) {
-      const identityFile = path.join(paths(profile.id).runtime, `${service}-identity.json`);
-      writeJson(identityFile, connection.identity);
+      const identityFile = identitySnapshot(profile.id, service, connection.identity);
       connections[service] = {
         type: 'local',
         enabled: true,

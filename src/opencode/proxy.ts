@@ -10,6 +10,7 @@ import { root, paths, load, readJson, writeJson, secrets } from './profiles';
 import { ProfileId } from './types';
 import { parseCodexUsage } from '../usage';
 import type { UsageWindow } from '../types';
+import { acquireWorkerLease } from './worker-lease';
 
 const execute = promisify(execFile);
 const VERSION = '7.3.2';
@@ -231,43 +232,58 @@ export function receipt(id: string): Receipt | undefined {
 export async function control(id: string, action: 'status' | 'refresh' | 'stop'): Promise<WorkerStatus | undefined> {
   const current = receipt(id);
   if (!current || current.profileId !== id) return undefined;
+  let response: Response;
   try {
-    const response = await fetch(`http://127.0.0.1:${current.controlPort}/${action}`, {
+    response = await fetch(`http://127.0.0.1:${current.controlPort}/${action}`, {
       method: action === 'status' ? 'GET' : 'POST',
       headers: { Authorization: `Bearer ${secrets(id).managementKey}`, 'X-Switchboard-Instance': current.instance },
       signal: AbortSignal.timeout(action === 'refresh' ? 90000 : 3000),
     });
-    if (!response.ok) return undefined;
-    const value = WorkerStatus.parse(await response.json());
-    if (value.receipt.instance !== current.instance || value.receipt.profileId !== id)
-      throw new Error('Worker identity mismatch');
-    return value;
   } catch {
     return undefined;
   }
+
+  if (!response.ok) throw new Error(`Worker ${action} failed: HTTP ${response.status}`);
+  const value = WorkerStatus.parse(await response.json());
+  if (value.receipt.instance !== current.instance || value.receipt.profileId !== id)
+    throw new Error('Worker identity mismatch');
+  return value;
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+async function assertWorkerAbsent(id: string): Promise<void> {
+  const previous = receipt(id);
+  if (!previous) return;
+  if (processAlive(previous.pid))
+    throw new Error(`Profile ${id}'s worker is alive but unreachable or stopping. A second worker was not started.`);
+
+  let orphaned = false;
+  try {
+    await accounts(id, previous.proxyPort);
+    orphaned = true;
+  } catch {
+    /* No authenticated proxy remains at the old address. */
+  }
+
+  if (orphaned)
+    throw new Error(
+      `Profile ${id} has a live proxy without its controller. Inspect ${paths(id).runtime} before recovery.`,
+    );
 }
 export async function ensureWorker(id: string, cli: string): Promise<WorkerStatus> {
   load(id);
   const running = await control(id, 'status');
   if (running?.ready) return running;
 
-  // SIGKILL can leave the proxy child alive after its supervisor is gone.
-  // Refuse to create a second token-refresh owner in that situation.
-  const previous = receipt(id);
-  if (previous) {
-    let orphaned = false;
-    try {
-      await accounts(id, previous.proxyPort);
-      orphaned = true;
-    } catch {
-      /* No authenticated proxy remains at the old address. */
-    }
-
-    if (orphaned)
-      throw new Error(
-        `Profile ${id} has a live proxy without its controller. Inspect ${paths(id).runtime} before restarting; a second refresh owner was not started.`,
-      );
-  }
+  await assertWorkerAbsent(id);
 
   if (!fs.existsSync(binary())) throw new Error('Install the routing worker first: oc proxy-install');
   const lock = path.join(paths(id).runtime, 'starting.lock');
@@ -291,6 +307,9 @@ export async function ensureWorker(id: string, cli: string): Promise<WorkerStatu
   }
   try {
     if (owner) {
+      const startedMeanwhile = await control(id, 'status');
+      if (startedMeanwhile?.ready) return startedMeanwhile;
+      await assertWorkerAbsent(id);
       const log = path.join(paths(id).runtime, 'worker.log');
       if (fs.existsSync(log) && fs.statSync(log).size > 4 * 1024 * 1024) fs.renameSync(log, `${log}.previous`);
       const fd = fs.openSync(log, 'a', 0o600);
@@ -315,6 +334,20 @@ export async function ensureWorker(id: string, cli: string): Promise<WorkerStatu
 }
 
 export async function runWorker(id: string): Promise<void> {
+  load(id);
+  const release = acquireWorkerLease(path.join(paths(id).runtime, 'worker.lock'));
+
+  try {
+    const existing = await control(id, 'status');
+    if (existing?.ready) throw new Error(`Profile ${id} already has a running worker`);
+    await assertWorkerAbsent(id);
+    await serveWorker(id);
+  } finally {
+    release();
+  }
+}
+
+async function serveWorker(id: string): Promise<void> {
   const profile = load(id);
   const directory = paths(id);
   const proxyPort = await freePort();

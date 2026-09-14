@@ -378,8 +378,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
 
       if (!connection) throw new Error(`${service} is not connected in ${profile.name}`);
 
-      const identityFile = path.join(profiles.paths(profile.id).runtime, `${service}-identity.json`);
-      profiles.writeJson(identityFile, connection.identity);
+      const identityFile = profiles.identitySnapshot(profile.id, service, connection.identity);
       process.exitCode = await terminal(process.env.SWITCHBOARD_BUN || 'bun', [
         connection.bridge,
         method,
@@ -437,7 +436,9 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       const id = required(rest[0], 'Profile');
       profiles.load(id);
       const status = await proxy.control(id, command === 'status' ? 'status' : command);
-      console.log(JSON.stringify(status ?? { profile: id, status: 'stopped' }, null, 2));
+      const unresolved = !status && proxy.receipt(id);
+      console.log(JSON.stringify(status ?? { profile: id, status: unresolved ? 'unreachable' : 'stopped' }, null, 2));
+      if (unresolved) process.exitCode = 1;
       break;
     }
     case 'login': {

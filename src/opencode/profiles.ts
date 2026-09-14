@@ -1,8 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { randomBytes, randomUUID } from 'node:crypto';
-import { Profile, ProfileId, ModelId, Secrets, Connection, Service } from './types';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { Profile, ProfileId, ModelId, Secrets, Connection, Service, Identity } from './types';
 
 export function root(): string {
   return path.resolve(process.env.SWITCHBOARD_ROOT || path.join(os.homedir(), '.switchboard'));
@@ -114,6 +114,26 @@ export function create(name: string): Profile {
 export function secrets(id: string): Secrets {
   return Secrets.parse(readJson(path.join(paths(id).base, 'secrets.json')));
 }
+
+export function identitySnapshot(id: string, service: Service, identity: Identity): string {
+  const value = Identity.parse(identity);
+  const content = JSON.stringify(value);
+  const digest = createHash('sha256').update(content).digest('hex');
+  const file = path.join(paths(id).runtime, 'identities', `${service}-${digest}.json`);
+
+  // Every launch retains its own binding even if another window reconnects
+  // this service. Keep old snapshots while their MCP processes may reference them.
+  if (fs.existsSync(file)) {
+    if (JSON.stringify(Identity.parse(readJson(file))) !== content) {
+      throw new Error('An existing service identity snapshot has changed');
+    }
+  } else {
+    writeJson(file, value);
+  }
+
+  return file;
+}
+
 export function connect(id: string, service: Service, input: Connection): void {
   const connection = Connection.parse(input);
   for (const file of [connection.bridge, path.join(connection.codexHome, 'auth.json')]) {

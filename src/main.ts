@@ -19,6 +19,7 @@ import * as usage from './usage';
 import { AwakeController, isAwakeValue, macAwakeSystem } from './awake';
 import { barPng, meterPng, stripPng } from './trayart';
 import { composeTrayText, type TrayText } from './tray-status';
+import { PollingPause, type PauseReason } from './polling-pause';
 import type {
   AddOptions,
   BringOptions,
@@ -120,7 +121,7 @@ loadCache();
 // or locked. Anything you do in the window or the tray counts as use.
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let lastInteractionAt = Date.now();
-let pollingPaused = false;
+const pollingPause = new PollingPause();
 
 function nextPollDelay(): number {
   const base = Math.max(1, Number(data.settings.pollMinutes) || 5) * 60_000;
@@ -250,20 +251,20 @@ async function refreshRunningOnly(): Promise<void> {
 function schedulePolling(): void {
   if (pollTimer) clearTimeout(pollTimer);
   pollTimer = null;
-  if (pollingPaused) return;
+  if (pollingPause.paused) return;
   pollTimer = setTimeout(async () => {
     await refreshAll().catch(() => {});
     schedulePolling();
   }, nextPollDelay());
 }
 
-function pausePolling(): void {
-  pollingPaused = true;
+function pausePolling(reason: PauseReason): void {
+  pollingPause.pause(reason);
   schedulePolling();
 }
 
-async function resumePolling(): Promise<void> {
-  pollingPaused = false;
+async function resumePolling(reason: PauseReason): Promise<void> {
+  if (!pollingPause.resume(reason)) return;
   await refreshAll().catch(() => {});
   schedulePolling();
 }
@@ -613,12 +614,13 @@ app.whenReady().then(async () => {
   const hidden = app.getLoginItemSettings().wasOpenedAtLogin;
   if (!hidden) createWindow();
   // Asleep or locked, there is nobody to show numbers to.
-  powerMonitor.on('suspend', pausePolling);
-  powerMonitor.on('lock-screen', pausePolling);
-  powerMonitor.on('resume', () => void resumePolling());
-  powerMonitor.on('unlock-screen', () => void resumePolling());
+  powerMonitor.on('suspend', () => pausePolling('sleep'));
+  powerMonitor.on('lock-screen', () => pausePolling('lock'));
+  powerMonitor.on('resume', () => void resumePolling('sleep'));
+  powerMonitor.on('unlock-screen', () => void resumePolling('lock'));
+  if (powerMonitor.getSystemIdleState(1) === 'locked') pollingPause.pause('lock');
   schedulePolling();
-  await refreshAll().catch(() => {});
+  if (!pollingPause.paused) await refreshAll().catch(() => {});
   // Dev aid: `electron . --screenshot=/tmp/x.png` captures the window and exits.
   const shot = process.argv.find((a) => a.startsWith('--screenshot='));
   if (shot) {

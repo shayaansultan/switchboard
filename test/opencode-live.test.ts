@@ -109,6 +109,10 @@ live(
       expect(first.receipt.instance).toBe(second.receipt.instance);
       expect(other.receipt.proxyPort).not.toBe(first.receipt.proxyPort);
       expect(first.accounts).toEqual([]);
+      // A direct internal-worker invocation must not overwrite an active worker's
+      // config or start a second refresh owner, even outside ensureWorker's lock.
+      await expect(execute(process.execPath, [cli, 'worker', a.id], { timeout: 10000 })).rejects.toThrow();
+      expect((await control(a.id, 'status'))?.receipt.instance).toBe(first.receipt.instance);
 
       const blocked = await fetch(`http://127.0.0.1:${other.receipt.proxyPort}/v1/models`, {
         headers: { Authorization: `Bearer ${secrets(a.id).apiKey}` },

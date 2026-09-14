@@ -91,6 +91,8 @@ Changing the inference account never changes these bindings.
 Verified identities are compared during discovery and before tool dispatch. A
 changed identity fails before the requested operation runs. Display-name changes
 do not count as an identity change. Reconnect explicitly to adopt a different identity.
+Each launch references a content-addressed identity snapshot, so reconnecting from
+another window cannot rewrite an existing window's expected identity.
 
 `source-only` is a distinct typed state, not a successful service-identity check.
 It is shown by `probe`, `connect` and `show`. Hosted connector availability can
@@ -196,7 +198,11 @@ oc stop work
 Workers remain available until stopped and do not require the Electron app. Stopping
 a worker interrupts requests using it. A crashed controller with a surviving proxy
 is detected on the next launch and blocks a duplicate refresh owner. Inspect its
-runtime receipt/log before recovery. Cross-profile sharing of an AI account's
+runtime receipt/log before recovery. The controller holds `runtime/worker.lock`
+for its lifetime; an abrupt crash leaves that lease for explicit recovery after
+confirming both controller and proxy have stopped. Unreachable controllers and
+failed control requests are reported as failures, not as successful stops.
+Cross-profile sharing of an AI account's
 credentials is not implemented; never symlink pool auth directories.
 
 Runtime overrides for development: `SWITCHBOARD_ROOT`, `SWITCHBOARD_OPENCODE`,
