@@ -115,12 +115,16 @@ function awakeRequestError(): void {
 async function refreshAwake(reason: AwakeRefresh = 'observe'): Promise<void> {
   try {
     await window.sb.refreshAwake(reason);
+    // Successful IPC can return an unchanged value without a state event.
+    // Clear any earlier transport error on the response itself as well.
+    awakeElement<HTMLParagraphElement>('awake-error').hidden = true;
   } catch {
     awakeRequestError();
   }
 }
 
 window.sb.onAwakeState((state) => {
+  awakeElement<HTMLParagraphElement>('awake-error').hidden = true;
   awakeInitialized = true;
   renderAwake(state);
 });

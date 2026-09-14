@@ -5,7 +5,8 @@ system-wide `SleepDisabled` setting. It uses `/usr/bin/pmset -g` for reads and
 `/usr/bin/osascript` to request administrator authorization for one of two fixed
 commands: `pmset disablesleep 1` or `pmset disablesleep 0`.
 
-There is no native helper, daemon, timer, auto-start policy, or new dependency.
+There is no native helper, daemon, duration-based shutoff, auto-start policy,
+or new dependency. The observation timer only reads the current setting.
 The setting stays enabled when Switchboard closes or crashes. Reopening the app
 reads the actual setting and offers Turn off. Normal quitting also leaves it as
 set; quitting is not a second, implicit toggle.

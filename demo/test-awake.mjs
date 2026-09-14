@@ -56,6 +56,7 @@ try {
     let awakeListener = () => {};
     let appListener = () => {};
     let outcome = 'success';
+    let failNextRefresh = false;
     const publish = (awake) => {
       initial.awake = awake;
       awakeListener(awake);
@@ -67,6 +68,9 @@ try {
       outcome: (next) => {
         outcome = next;
       },
+      failRefresh: () => {
+        failNextRefresh = true;
+      },
     };
     window.sb = {
       getState: async () => initial,
@@ -77,6 +81,10 @@ try {
         awakeListener = listener;
       },
       refreshAwake: async (reason) => {
+        if (failNextRefresh) {
+          failNextRefresh = false;
+          throw new Error('Simulated IPC interruption');
+        }
         if (reason === 'recheck' && initial.awake.status === 'ready') publish({ ...initial.awake, notice: null });
       },
       setAwake: async (target) => {
@@ -158,6 +166,16 @@ try {
   await change.click();
   await waitStatus('Off ·');
   await page.waitForFunction(() => !document.querySelector('#awake-change').disabled);
+
+  // Reopening after a transient IPC error must clear that stale error even if
+  // the system value is unchanged and therefore produces no state push.
+  await awake.click();
+  await page.evaluate(() => window.__awakeTest.failRefresh());
+  await open();
+  await page.waitForFunction(() => !document.querySelector('#awake-error').hidden);
+  await awake.click();
+  await open();
+  await page.waitForFunction(() => document.querySelector('#awake-error').hidden, null, { timeout: 3000 });
 
   // Cancellation can be retried, and explicit Check again clears the notice.
   await page.evaluate(() => window.__awakeTest.outcome('cancelled'));
