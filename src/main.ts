@@ -1,10 +1,22 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, nativeTheme, clipboard, dialog } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Tray,
+  Menu,
+  nativeImage,
+  nativeTheme,
+  clipboard,
+  dialog,
+  powerMonitor,
+} from 'electron';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as profiles from './profiles';
 import * as launch from './launch';
 import * as usage from './usage';
+import { AwakeController, isAwakeValue, macAwakeSystem } from './awake';
 import type {
   AddOptions,
   BringOptions,
@@ -56,6 +68,10 @@ async function measureItemSizes(): Promise<void> {
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 const data: Store = profiles.load();
+const awake = new AwakeController(macAwakeSystem, (state) => {
+  if (win && !win.isDestroyed()) win.webContents.send('awake:state', state);
+  rebuildTray();
+});
 // Per-profile live state: what is running, who is signed in, last usage.
 const live = new Map<string, Live>();
 
@@ -103,6 +119,7 @@ function byVendor<T>(fn: (v: Vendor) => T): Record<Vendor, T> {
 
 function stateSnapshot(): State {
   return {
+    awake: awake.snapshot(),
     settings: data.settings,
     terminals: launch.installedTerminals().map((t) => ({ id: t.id, label: t.label })),
     setupItems: byVendor((v) =>
@@ -221,6 +238,7 @@ function createWindow(): BrowserWindow {
   w.on('closed', () => {
     win = null;
   });
+  w.on('focus', () => void awake.refresh());
   win = w;
   return w;
 }
@@ -247,6 +265,20 @@ function usageLine(p: Profile): string {
 function rebuildTray(): void {
   if (!tray) return;
   const items: Electron.MenuItemConstructorOptions[] = [];
+  const awakeState = awake.snapshot();
+  const isAwake = awakeState.status === 'ready' && awakeState.value === 'on';
+  tray.setTitle(isAwake ? ' ☀' : awakeState.status === 'unavailable' ? ' !' : '');
+  tray.setToolTip(isAwake ? 'Switchboard · Keep awake is on' : 'Switchboard');
+  items.push({
+    label:
+      awakeState.status === 'changing' ? 'Changing sleep setting…' : isAwake ? 'Turn keep awake off' : 'Keep awake…',
+    enabled: awakeState.status !== 'changing',
+    click: () => {
+      if (isAwake) void awake.set('off');
+      else showWindow();
+    },
+  });
+  items.push({ type: 'separator' });
   for (const vendor of profiles.VENDOR_IDS) {
     items.push({ label: profiles.VENDORS[vendor].label, enabled: false });
     for (const p of data.profiles.filter((x) => x.vendor === vendor)) {
@@ -289,6 +321,23 @@ function applyLoginItem(): void {
 }
 
 // ---- IPC ----
+function validateAwakeSender(event: Electron.IpcMainInvokeEvent): void {
+  if (!win || event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame) {
+    throw new Error('Untrusted keep-awake request');
+  }
+}
+
+ipcMain.handle('awake:set', (event, value: unknown) => {
+  validateAwakeSender(event);
+  if (!isAwakeValue(value)) throw new Error('Invalid keep-awake value');
+  return awake.set(value);
+});
+ipcMain.handle('awake:refresh', (event, reason: unknown) => {
+  validateAwakeSender(event);
+  if (reason !== 'observe' && reason !== 'recheck') throw new Error('Invalid keep-awake refresh');
+  return awake.refresh(reason);
+});
+
 const byId = (id: string): Profile => {
   const p = data.profiles.find((x) => x.id === id);
   if (!p) throw new Error('no such profile');
@@ -393,6 +442,11 @@ app.whenReady().then(async () => {
   await launch.adoptLoginShellPath();
   applyAppearance();
   createTray();
+  void awake.refresh();
+  // Reads only. The toggle remains a macOS setting when Switchboard exits.
+  const awakePoll = setInterval(() => void awake.refresh(), 15_000);
+  awakePoll.unref();
+  powerMonitor.on('resume', () => void awake.refresh());
   // Launched at login: stay in the menu bar, don't pop the window.
   const hidden = app.getLoginItemSettings().wasOpenedAtLogin;
   if (!hidden) createWindow();

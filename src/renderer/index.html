@@ -10,11 +10,27 @@
   <header class="titlebar">
     <div class="brand">Switchboard</div>
     <div class="actions">
+      <button id="awake-toggle" popovertarget="awake-popover" aria-haspopup="dialog" aria-expanded="false">Keep awake ▾</button>
       <button id="refresh" title="Refresh usage">↻ Refresh</button>
       <button id="add">+ Profile</button>
       <button id="settings" title="Settings">⚙</button>
     </div>
   </header>
+
+  <div id="awake-popover" popover role="dialog" aria-labelledby="awake-heading">
+    <div class="awake-heading-row">
+      <h2 id="awake-heading">Keep awake</h2>
+      <button popovertarget="awake-popover" popovertargetaction="hide" aria-label="Close keep awake" class="awake-close">×</button>
+    </div>
+    <p id="awake-status" role="status" aria-live="polite">Checking macOS…</p>
+    <p class="hint">Stays on if Switchboard closes or crashes. Reopen it to turn this off.</p>
+    <p id="awake-notice" role="status" hidden></p>
+    <p id="awake-error" role="alert" hidden></p>
+    <div class="awake-buttons">
+      <button id="awake-retry" class="secondary" hidden>Check again</button>
+      <button id="awake-change" class="primary" disabled>Checking…</button>
+    </div>
+  </div>
 
   <main id="root"></main>
 
@@ -77,6 +93,7 @@
     </form>
   </dialog>
 
+  <script src="awake.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

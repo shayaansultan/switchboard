@@ -2,6 +2,8 @@
 // renderer. The renderer reaches them through `import()` types only, so it
 // stays a plain script with no module wrapper.
 
+import type { AwakeRefresh, AwakeState, AwakeValue } from './awake';
+
 export type Vendor = 'claude' | 'codex';
 
 export interface VendorInfo {
@@ -138,6 +140,7 @@ export interface ProfileView extends Profile, Live {
 
 // Everything the window renders from. Never a token.
 export interface State {
+  awake: AwakeState;
   settings: Settings;
   terminals: { id: string; label: string }[];
   setupItems: Record<Vendor, SetupItemView[]>;
@@ -147,6 +150,9 @@ export interface State {
 
 // The preload bridge, as `window.sb` in the renderer.
 export interface SwitchboardApi {
+  setAwake(value: AwakeValue): Promise<void>;
+  refreshAwake(reason?: AwakeRefresh): Promise<void>;
+  onAwakeState(fn: (s: AwakeState) => void): void;
   getState(): Promise<State>;
   measureSizes(): Promise<State>;
   refresh(id?: string): Promise<State>;

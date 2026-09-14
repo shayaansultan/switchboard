@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AddOptions, BringOptions, Settings, State, SwitchboardApi } from './types';
 
 const api: SwitchboardApi = {
+  setAwake: (value) => ipcRenderer.invoke('awake:set', value),
+  refreshAwake: (reason = 'observe') => ipcRenderer.invoke('awake:refresh', reason),
+  onAwakeState: (fn) => {
+    ipcRenderer.on('awake:state', (_event, state) => fn(state));
+  },
   getState: () => ipcRenderer.invoke('state:get'),
   measureSizes: () => ipcRenderer.invoke('state:measure'),
   refresh: (id?: string) => ipcRenderer.invoke('state:refresh', id),

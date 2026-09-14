@@ -10,6 +10,7 @@
     "dist": "bun run build && electron-builder --mac --dir",
     "install-app": "bun run dist && APP=$(ls -d dist/mac*/Switchboard.app | head -1) && rm -rf /Applications/Switchboard.app && ditto \"$APP\" /Applications/Switchboard.app && codesign --force --deep --sign - /Applications/Switchboard.app && rm -rf dist && open /Applications/Switchboard.app",
     "test": "oxlint && tsc --noEmit && bun test",
+    "test:awake-ui": "bun run build && bun demo/test-awake.mjs",
     "demo": "bun run build && bun demo/capture.mjs",
     "fmt": "oxfmt",
     "lint": "oxlint",

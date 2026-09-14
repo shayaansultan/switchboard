@@ -56,6 +56,16 @@ as a window runs out.
 
 You can read them in the menu bar without opening the window.
 
+## Keep the Mac awake
+
+Use **Keep awake** beside Refresh to turn macOS's system sleep setting on or
+off. macOS handles administrator authorization. The control reads the actual
+setting, including after you reopen Switchboard; closing or crashing the app
+leaves the setting as you chose it.
+
+For implementation details and closed-lid hardware verification, read
+[Keep awake](docs/keep-awake.md).
+
 ## Requirements
 
 - A macOS whose `open` supports `--env`, which is how a profile's config home
