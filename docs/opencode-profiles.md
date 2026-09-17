@@ -1,8 +1,8 @@
 # OpenCode terminal profiles
 
 Switchboard's `oc` CLI runs independently of Electron. Each profile owns its
-OpenCode configuration, history, MCP authentication, selected service connections,
-and one ChatGPT account pool. The desktop application's existing account registry
+OpenCode configuration, history, provider and MCP authentication, selected service
+connections, and an optional ChatGPT account pool. The desktop application's existing account registry
 remains separate; OpenCode cards are a later UI integration.
 
 ## Install and start
@@ -44,6 +44,54 @@ profiles; windows using the same profile reuse its routing worker.
 The installed launcher points at this checkout's compiled CLI. After changing
 the source, run `bun run build`. OpenCode loads configuration at startup, so
 restart the affected OpenCode windows after changing settings, plugins or connections.
+
+## Models and providers
+
+Each profile supports OpenCode's native providers alongside its ChatGPT pool.
+Use `/models` inside OpenCode to change the session's model and `/connect` to add
+a provider to that profile. Provider credentials stay in the profile's isolated
+OpenCode data directory. Shell provider keys and global OpenCode authentication
+are not imported by the launcher.
+
+```sh
+oc models personal                 # List available provider/model IDs
+oc models personal opencode        # OpenCode's currently available models
+oc model personal opencode/MODEL   # Use a real ID from the list
+oc personal
+oc personal --model opencode/MODEL # Override for one launch
+oc personal run -m opencode/MODEL 'Explain this project'
+oc model personal switchboard-chatgpt/gpt-6-astra
+```
+
+Free model availability is controlled by OpenCode's catalog and service, not a
+Switchboard-maintained list. Paid providers require their own authentication.
+Native-provider launches and model discovery work without CLIProxyAPI or a
+ChatGPT pool login. They keep the same service connections, skills and history.
+
+The saved default is set by `oc model`; `/models` retains OpenCode's normal
+session behaviour. Legacy bare names such as `gpt-6-astra` remain pool shorthand.
+The last selected pool model is retained separately when saving a native default,
+so it can remain available in `/models`. Existing profiles keep their defaults.
+
+Selecting a pool model requires a working pool. On native-provider launches, a
+configured pool is prepared best-effort with a four-second budget. If unavailable,
+OpenCode starts without it; restart the window after restoring the pool. Workers
+started during preparation remain reusable. Switching away from an unavailable
+saved pool default is possible with `--model`, including with `--continue`.
+
+Auxiliary requests use OpenCode's native selection for the session's provider,
+rather than a forced ChatGPT model. To pin an auxiliary model explicitly:
+
+```sh
+oc small-model personal opencode/MODEL
+oc small-model personal default    # Return to native auxiliary selection
+```
+
+An explicitly pinned pool auxiliary model requires the pool even if the main
+model is native. Provider-specific variants use OpenCode's normal controls;
+`oc effort` configures only the pool models. Explicit `enabled_providers`,
+`disabled_providers`, auxiliary or agent-model settings in your profile's OpenCode
+configuration still apply under OpenCode's normal configuration precedence.
 
 ## Separate service connections
 
@@ -178,16 +226,18 @@ It does not mark the inference account exhausted.
 Actual inference quota errors, account eligibility, streaming and safe retries are
 handled by CLIProxyAPI. Near-empty observations keep a positive weight to avoid
 evicting healthy sessions. Subagents inherit session affinity by default. Model
-failover is disabled. The main and auxiliary OpenCode model routes both use the
-profile's custom Responses provider.
+failover is disabled. Pool models use the profile's custom Responses provider;
+native-provider requests bypass the pool entirely.
 
 The default model is `gpt-6-astra` at low reasoning effort. Launches load context
 and output limits from the proxy's Codex model catalog and record their provenance
-in `runtime/model-info.json`; there are no guessed limit defaults. The subscription
+in `runtime/models/<model>.json`, with the latest observation also in
+`runtime/model-info.json`; there are no guessed limit defaults. Native providers
+use OpenCode's own model metadata. The subscription
 route's catalog can differ from the model's public API specification. Use
 `oc model PROFILE MODEL` and `oc effort PROFILE low|medium|high|xhigh|max` to change
 the selection. Models still need to be available to
-the signed-in accounts; this command does not grant model access.
+the signed-in pool accounts; this command does not grant model access.
 
 ```sh
 oc status work
@@ -221,6 +271,12 @@ isolated config, worker reuse, cross-profile key rejection and process shutdown.
 A local upstream fixture returns a quota error for one credential and a streamed
 response for another; the real OpenCode CLI must receive the final response.
 No subscription traffic is generated by that test.
+
+The native-provider contract test launches the compiled `oc` CLI against real
+OpenCode with two local provider fixtures. It verifies model discovery, a CLI
+override of a legacy pool default, switching providers while resuming a session,
+profile-local credentials, and successful inference with a missing or unreachable
+pool. It generates no external model traffic.
 
 Bridge tests live in agentfiles. Live `probe` checks exercise existing hosted
 connections. A complete subscription acceptance run still requires fresh OAuth

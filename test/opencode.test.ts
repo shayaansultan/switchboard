@@ -10,6 +10,7 @@ import { quotaWeight, control, ensureWorker } from '../src/opencode/proxy';
 import { acquireWorkerLease } from '../src/opencode/worker-lease';
 import { gitEnvironment } from '../src/opencode/github';
 import { refreshModelInfo } from '../src/opencode/models';
+import { modelArguments, modelRef, saveModel, selectedPoolModel } from '../src/opencode/selection';
 import * as http from 'node:http';
 
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-opencode-'));
@@ -126,7 +127,9 @@ test('profile launches scrub inherited OpenCode state and give each service its 
   expect(a.OPENAI_API_KEY).toBeUndefined();
   expect(a.XDG_DATA_HOME).not.toBe(b.XDG_DATA_HOME);
   expect(a.OPENCODE_TEST_HOME).not.toBe(b.OPENCODE_TEST_HOME);
-  expect(settings.model).toBe(settings.small_model);
+  expect(settings.model).toBe('switchboard-chatgpt/gpt-6-astra');
+  expect(settings.small_model).toBeUndefined();
+  expect(settings.enabled_providers).toBeUndefined();
   expect(Object.keys(settings.mcp)).toEqual(Service.options);
 
   for (const service of Service.options) {
@@ -252,7 +255,7 @@ test('GitHub auth stays process-local and preserves pre-existing Git settings', 
 
 test('model limits come from the selected pool catalog, not placeholder defaults', async () => {
   const profile = profiles.create('Catalog metadata');
-  const model = () => runtimeConfig(profile, 1, temporary).provider['switchboard-chatgpt'].models[profile.model];
+  const model = () => runtimeConfig(profile, 1, temporary).provider['switchboard-chatgpt']!.models[profile.model];
   expect(model().limit).toBeUndefined();
 
   const credentials = profiles.secrets(profile.id);
@@ -289,7 +292,7 @@ test('model limits come from the selected pool catalog, not placeholder defaults
   if (!address || typeof address === 'string') throw new Error('Missing fixture address');
 
   try {
-    const info = await refreshModelInfo(profile.id, address.port, profile.model);
+    const info = await refreshModelInfo(profile.id, address.port, selectedPoolModel(profile));
     expect(model().limit).toEqual({ context: 272000, output: 128000 });
     expect(info.source).toBe('cliproxyapi:codex');
     expect(info.reasoningEfforts).toEqual(['low', 'max']);
@@ -297,4 +300,35 @@ test('model limits come from the selected pool catalog, not placeholder defaults
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+
+test('native defaults preserve the pool selection and do not register a dead proxy', () => {
+  const profile = profiles.create('Multiple providers');
+  saveModel(profile, 'gpt-5.4');
+  saveModel(profile, 'openrouter/company/model');
+  profiles.save(profile);
+  const restored = profiles.load(profile.id);
+  expect(restored.model).toBe('openrouter/company/model');
+  expect(selectedPoolModel(restored)).toBe('gpt-5.4');
+  const native = runtimeConfig(restored, undefined, temporary);
+  expect(native.model).toBe('openrouter/company/model');
+  expect(native.provider).toEqual({});
+  expect(native.small_model).toBeUndefined();
+  const available = runtimeConfig(restored, 1234, temporary);
+  expect(available.provider['switchboard-chatgpt']!.models['gpt-5.4']).toBeDefined();
+  restored.smallModel = 'opencode/free-model';
+  expect(runtimeConfig(restored, undefined, temporary).small_model).toBe('opencode/free-model');
+  expect(modelRef('gpt-6-astra')).toBe('switchboard-chatgpt/gpt-6-astra');
+});
+
+test('model overrides support run, equals syntax, aliases and end-of-options', () => {
+  expect(modelArguments(['run', '-m', 'gpt-5.4', 'hello'])).toEqual({
+    args: ['run', '-m', 'switchboard-chatgpt/gpt-5.4', 'hello'],
+    model: 'switchboard-chatgpt/gpt-5.4',
+  });
+  expect(modelArguments(['--model=opencode/free', '--continue']).model).toBe('opencode/free');
+  expect(modelArguments(['run', '-m=openrouter/org/model']).model).toBe('openrouter/org/model');
+  expect(modelArguments(['run', '--', '--model=literal']).model).toBeUndefined();
+  expect(() => modelArguments(['--model'])).toThrow('requires');
+  expect(() => modelArguments(['-m', '--continue'])).toThrow('requires');
 });

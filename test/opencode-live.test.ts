@@ -11,12 +11,117 @@ import { create, paths, root, writeJson, secrets, save } from '../src/opencode/p
 import { ModelId } from '../src/opencode/types';
 import { launchEnv } from '../src/opencode/launch';
 import { control, ensureWorker } from '../src/opencode/proxy';
+import { saveModel } from '../src/opencode/selection';
 
 const live = process.env.SWITCHBOARD_LIVE_TESTS === '1' ? test : test.skip;
 const execute = promisify(execFile);
 const cli = path.resolve(import.meta.dir, '../out/opencode/cli.js');
 const installed = path.join(os.homedir(), '.switchboard/bin/cliproxyapi-7.3.2/cli-proxy-api');
 const delay = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+
+live(
+  'native providers launch, switch and resume without a proxy; authentication stays profile-local',
+  async () => {
+    const previous = process.env.SWITCHBOARD_ROOT;
+    const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-native-'));
+    process.env.SWITCHBOARD_ROOT = temporary;
+    const seen: string[] = [];
+    const server = http.createServer((request, response) => {
+      request.resume();
+      request.on('end', () => {
+        seen.push(request.headers.authorization ?? 'none');
+        responseStream(response);
+      });
+    });
+    const port = await listen(server);
+    const env = {
+      ...process.env,
+      SWITCHBOARD_PROXY_BINARY: '/missing/proxy',
+      OPENAI_API_KEY: 'inherited-wrong-account',
+    };
+    const run = (args: string[]) => {
+      const running = execute(process.execPath, [cli, ...args], {
+        env,
+        cwd: temporary,
+        timeout: 90000,
+        maxBuffer: 4 * 1024 * 1024,
+      });
+      // OpenCode run consumes piped input before inference.
+      running.child.stdin?.end();
+      return running;
+    };
+    try {
+      const a = create('Native A');
+      const b = create('Native B');
+      for (const [profile, token] of [
+        [a, 'fixture-a'],
+        [b, 'fixture-b'],
+      ] as const) {
+        const provider = {
+          npm: '@ai-sdk/openai',
+          options: { baseURL: `http://127.0.0.1:${port}/v1` },
+          models: { 'gpt-5.4': { limit: { context: 272000, output: 128000 } } },
+        };
+        writeJson(path.join(paths(profile.id).config, 'opencode.json'), {
+          provider: { fixture: provider, second: provider },
+        });
+        writeJson(path.join(paths(profile.id).data, 'auth.json'), {
+          fixture: { type: 'api', key: token },
+          second: { type: 'api', key: `${token}-second` },
+        });
+      }
+      // A retains its legacy pool default; a per-launch override must bypass it.
+      const listing = await run(['models', a.id]);
+      expect(listing.stdout).toContain('fixture/gpt-5.4');
+      expect(listing.stdout).not.toContain('switchboard-chatgpt/');
+      const first = await run([a.id, 'run', '--model=fixture/gpt-5.4', '--format', 'json', 'Reply with fixture text.']);
+      expect(first.stdout).toContain('profile-fixture-ok');
+      expect(seen).toContain('Bearer fixture-a');
+      expect(seen).not.toContain('Bearer inherited-wrong-account');
+      const events = first.stdout
+        .split('\n')
+        .filter((line) => line.startsWith('{'))
+        .map((line) => JSON.parse(line));
+      const session = events.find((event) => event.sessionID)?.sessionID;
+      expect(session).toBeDefined();
+      seen.length = 0;
+      const resumed = await run([a.id, 'run', '-m', 'second/gpt-5.4', '--session', session, 'Reply again.']);
+      expect(resumed.stdout).toContain('profile-fixture-ok');
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.every((token) => token === 'Bearer fixture-a-second')).toBe(true);
+      seen.length = 0;
+      saveModel(b, 'fixture/gpt-5.4');
+      save(b);
+      const other = await run([b.id, 'run', 'Reply with fixture text.']);
+      expect(other.stdout).toContain('profile-fixture-ok');
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.every((token) => token === 'Bearer fixture-b')).toBe(true);
+      // A configured but unreachable pool must not block the native default.
+      env.SWITCHBOARD_PROXY_BINARY = installed;
+      writeJson(path.join(paths(b.id).auth, 'fixture.json'), {});
+      writeJson(path.join(paths(b.id).runtime, 'worker.json'), {
+        profileId: b.id,
+        instance: 'unreachable-fixture',
+        controlPort: 1,
+        proxyPort: 1,
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+      });
+      const degraded = await run([b.id, 'run', 'Reply again.']);
+      expect(degraded.stdout).toContain('profile-fixture-ok');
+      expect(degraded.stderr).toContain('ChatGPT pool unavailable');
+      fs.unlinkSync(path.join(paths(b.id).runtime, 'worker.json'));
+      for (const profile of [a, b])
+        expect(fs.existsSync(path.join(paths(profile.id).runtime, 'worker.json'))).toBe(false);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      if (previous === undefined) delete process.env.SWITCHBOARD_ROOT;
+      else process.env.SWITCHBOARD_ROOT = previous;
+      fs.rmSync(temporary, { recursive: true, force: true });
+    }
+  },
+  300000,
+);
 
 async function listen(server: http.Server): Promise<number> {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));

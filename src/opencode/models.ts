@@ -14,7 +14,8 @@ export const ModelInfo = z.object({
 export type ModelInfo = z.infer<typeof ModelInfo>;
 
 export function cachedModelInfo(profileId: string, model: ModelId): ModelInfo | undefined {
-  const file = path.join(paths(profileId).runtime, 'model-info.json');
+  const specific = path.join(paths(profileId).runtime, 'models', `${model}.json`);
+  const file = fs.existsSync(specific) ? specific : path.join(paths(profileId).runtime, 'model-info.json');
   const info = fs.existsSync(file) ? ModelInfo.parse(readJson(file)) : undefined;
   return info?.model === model ? info : undefined;
 }
@@ -63,5 +64,6 @@ export async function refreshModelInfo(profileId: string, port: number, model: M
   };
 
   writeJson(path.join(paths(profileId).runtime, 'model-info.json'), info);
+  writeJson(path.join(paths(profileId).runtime, 'models', `${model}.json`), info);
   return info;
 }

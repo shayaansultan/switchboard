@@ -11,13 +11,14 @@ import * as imports from './imports';
 import * as proxy from './proxy';
 import { bridgeArgs, launchEnv } from './launch';
 import { bindGitHub } from './github';
-import { refreshModelInfo } from './models';
+import { modelArguments, modelRef, poolId, saveModel, selectedPoolModel } from './selection';
+import { preparePool } from './pool';
 import {
   Access,
   Connection,
   Identity,
   ImportMode,
-  ModelId,
+  ModelRef,
   ReasoningEffort,
   Service,
   unreachable,
@@ -39,8 +40,10 @@ const help = `Switchboard OpenCode profiles
   oc bridge PROFILE SERVICE ...   Run the bound bridge CLI (tools/call/doctor)
   oc native PROFILE AGENT ...     Run claude or codex-computer with the profile's login
   oc probe SERVICE                Inspect a service, using the same connection flags
-  oc model PROFILE MODEL          Select the model for this profile's pool
-  oc effort PROFILE LEVEL         Set low, medium, high, xhigh, or max reasoning
+  oc model PROFILE MODEL          Save a provider/model default (bare names use the pool)
+  oc models PROFILE [PROVIDER]     List this profile's available models
+  oc small-model PROFILE MODEL    Set auxiliary model; default uses native selection
+  oc effort PROFILE LEVEL         Set pool reasoning: low, medium, high, xhigh, max
   oc project-config PROFILE MODE  isolated (default) or inherit
   oc login PROFILE                Sign a ChatGPT account into this profile's pool
   oc status PROFILE               Worker and quota status
@@ -98,31 +101,53 @@ async function terminal(command: string, args: string[], env = process.env): Pro
 }
 
 async function open(profile: Profile, args: string[]): Promise<number> {
+  const selection = modelArguments(args);
+  profile = { ...profile, poolModel: selectedPoolModel(profile), model: selection.model ?? profile.model };
   await verifyPaths(profile);
-  const worker = await proxy.ensureWorker(profile.id, __filename);
-  const accounts = await proxy.accounts(profile.id, worker.receipt.proxyPort);
-
-  if (!accounts.some((account) => !account.disabled)) {
-    throw new Error(`No AI account is connected to ${profile.name}. Run: oc login ${profile.id}`);
-  }
-
-  const modelInfo = await refreshModelInfo(profile.id, worker.receipt.proxyPort, profile.model);
-  if (modelInfo.reasoningEfforts.length && !modelInfo.reasoningEfforts.includes(profile.reasoningEffort)) {
-    throw new Error(`${profile.model} does not advertise ${profile.reasoningEffort} reasoning effort`);
-  }
-
-  const env = await bindGitHub(profile.githubLogin, launchEnv(profile, worker.receipt.proxyPort, process.cwd()));
+  const required = Boolean(poolId(profile.model) || (profile.smallModel && poolId(profile.smallModel)));
+  const pool = required ? await preparePool(profile, __filename) : await optionalPool(profile);
+  const env = await bindGitHub(profile.githubLogin, launchEnv(profile, pool?.port, process.cwd()));
 
   if (process.stdout.isTTY) {
     // Strip terminal control characters before using a user-chosen profile name.
     // eslint-disable-next-line no-control-regex
     process.stdout.write(`\u001b]0;OpenCode · ${profile.name.replace(/[\x00-\x1f\x7f]/g, '')}\u0007`);
     console.error(
-      `${profile.name} · ${accounts.length} AI account(s) · ${Object.keys(profile.connections).length} separate service connection(s)`,
+      `${profile.name} · ${modelRef(profile.model)} · ${pool?.accounts ?? 0} pool account(s) · ${Object.keys(profile.connections).length} separate service connection(s)`,
     );
   }
 
-  return terminal(process.env.SWITCHBOARD_OPENCODE || 'opencode', args, env);
+  return terminal(process.env.SWITCHBOARD_OPENCODE || 'opencode', selection.args, env);
+}
+
+async function optionalPool(profile: Profile): Promise<{ port: number; accounts: number } | undefined> {
+  // The proxy owns credential parsing. Discovery and native-provider launches
+  // must work without a proxy installation or a pool login.
+  if (
+    !fs.existsSync(proxy.binary()) ||
+    !fs.readdirSync(profiles.paths(profile.id).auth).some((file) => file.endsWith('.json'))
+  )
+    return;
+  try {
+    // Bound optional preparation in a subprocess so discovery can finish even
+    // when a controller is unreachable. A started worker remains reusable.
+    const { stdout } = await execute(
+      process.execPath,
+      [__filename, 'prepare-pool', profile.id, selectedPoolModel(profile)],
+      {
+        timeout: 4000,
+        maxBuffer: 1024 * 1024,
+      },
+    );
+    return z
+      .object({ port: z.number().int().positive(), accounts: z.number().int().nonnegative() })
+      .parse(JSON.parse(stdout));
+  } catch {
+    console.error(
+      'ChatGPT pool unavailable for this launch. Other providers are available; restart after restoring the pool.',
+    );
+    return;
+  }
 }
 
 interface ConnectionFlags {
@@ -167,7 +192,15 @@ async function doctor(id: string): Promise<void> {
 
   console.log(
     JSON.stringify(
-      { profile: id, isolatedPathsVerified: true, paths: reportedPaths, connections: Object.keys(profile.connections) },
+      {
+        profile: id,
+        model: modelRef(profile.model),
+        poolModel: selectedPoolModel(profile),
+        poolConfigured: fs.readdirSync(profiles.paths(id).auth).some((file) => file.endsWith('.json')),
+        isolatedPathsVerified: true,
+        paths: reportedPaths,
+        connections: Object.keys(profile.connections),
+      },
       null,
       2,
     ),
@@ -175,7 +208,7 @@ async function doctor(id: string): Promise<void> {
 }
 
 async function verifyPaths(profile: Profile): Promise<string> {
-  const env = launchEnv(profile, 1, process.cwd());
+  const env = launchEnv(profile, undefined, process.cwd());
   const { stdout } = await execute(process.env.SWITCHBOARD_OPENCODE || 'opencode', ['debug', 'paths'], {
     env,
     timeout: 30000,
@@ -219,6 +252,9 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     'native',
     'probe',
     'model',
+    'models',
+    'small-model',
+    'prepare-pool',
     'effort',
     'project-config',
     'login',
@@ -270,15 +306,54 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
         ),
       );
       break;
-    case 'show':
-      console.log(JSON.stringify(profiles.load(required(rest[0], 'Profile')), null, 2));
+    case 'show': {
+      const profile = profiles.load(required(rest[0], 'Profile'));
+      console.log(
+        JSON.stringify(
+          {
+            ...profile,
+            model: modelRef(profile.model),
+            poolModel: selectedPoolModel(profile),
+            smallModel: profile.smallModel ?? 'native selection',
+          },
+          null,
+          2,
+        ),
+      );
       break;
+    }
     case 'model': {
-      const model = ModelId.parse(required(rest[1], 'Model'));
+      const model = ModelRef.parse(required(rest[1], 'Model'));
       profiles.update(required(rest[0], 'Profile'), (profile) => {
-        profile.model = model;
+        saveModel(profile, model);
       });
       console.log('Model saved. Restart this profile’s OpenCode windows to apply it.');
+      break;
+    }
+    case 'small-model': {
+      const model = required(rest[1], 'Model or default');
+      profiles.update(required(rest[0], 'Profile'), (profile) => {
+        if (model === 'default') delete profile.smallModel;
+        else profile.smallModel = modelRef(model);
+      });
+      console.log('Auxiliary model saved. Restart this profile’s OpenCode windows.');
+      break;
+    }
+    case 'prepare-pool': {
+      const profile = profiles.load(required(rest[0], 'Profile'));
+      if (rest[1]) profile.model = modelRef(rest[1]);
+      console.log(JSON.stringify(await preparePool(profile, __filename)));
+      break;
+    }
+    case 'models': {
+      const profile = profiles.load(required(rest[0], 'Profile'));
+      await verifyPaths(profile);
+      const pool = await optionalPool(profile);
+      process.exitCode = await terminal(
+        process.env.SWITCHBOARD_OPENCODE || 'opencode',
+        ['models', ...rest.slice(1)],
+        launchEnv(profile, pool?.port, process.cwd()),
+      );
       break;
     }
     case 'project-config': {

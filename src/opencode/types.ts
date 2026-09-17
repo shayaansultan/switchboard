@@ -10,6 +10,8 @@ export const ModelId = z
   .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]+$/)
   .brand<'ModelId'>();
 export type ModelId = z.infer<typeof ModelId>;
+// Native provider model names can contain slashes (e.g. an organization/model).
+export const ModelRef = z.union([ModelId, z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*\/[^\s]+$/)]);
 export const ReasoningEffort = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 export type ReasoningEffort = z.infer<typeof ReasoningEffort>;
 export const Service = z.enum(['google-workspace', 'slack', 'linear', 'github', 'notion', 'wispr-flow']);
@@ -48,7 +50,9 @@ export const Profile = z.object({
   id: ProfileId,
   name: z.string().min(1),
   createdAt: z.string(),
-  model: ModelId,
+  model: ModelRef,
+  poolModel: ModelId.optional(),
+  smallModel: ModelRef.optional(),
   reasoningEffort: ReasoningEffort.default('low'),
   projectConfig: z.enum(['isolated', 'inherit']),
   connections: z.partialRecord(Service, Connection),
