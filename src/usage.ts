@@ -14,6 +14,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { recoverClaudeToken } from './claude-recovery';
 import { run, haveCommand, type RunError } from './launch';
 import { VENDORS, dirs } from './store';
 import type { Identity, Profile, Usage, UsageWindow } from './types';
@@ -67,6 +68,13 @@ interface ClaudeCredential {
   subscriptionType: string | null;
 }
 
+export interface UsageDependencies {
+  readClaudeCredential?: (home: string) => Promise<ClaudeCredential | null>;
+  recoverClaudeCredential?: (home: string) => Promise<void>;
+  fetch?: typeof fetch;
+  now?: () => number;
+}
+
 async function claudeToken(home: string): Promise<ClaudeCredential | null> {
   let blob = await readKeychain(keychainService(home));
   if (!blob) {
@@ -78,6 +86,10 @@ async function claudeToken(home: string): Promise<ClaudeCredential | null> {
   const o = j.claudeAiOauth || j;
   if (!o.accessToken) return null;
   return { token: o.accessToken, expiresAt: o.expiresAt || null, subscriptionType: o.subscriptionType || null };
+}
+
+async function renewClaudeToken(home: string): Promise<void> {
+  await recoverClaudeToken(home, { readCredential: () => claudeToken(home) });
 }
 
 async function claudeIdentity(profile: Profile): Promise<Identity> {
@@ -143,21 +155,45 @@ function isoOrNull(x: unknown): string | null {
   return Number.isNaN(t) ? null : new Date(t).toISOString();
 }
 
-async function claudeUsage(profile: Profile): Promise<Usage> {
+async function claudeUsage(profile: Profile, dependencies: UsageDependencies = {}): Promise<Usage> {
   const d = dirs(profile);
-  const cred = await claudeToken(d.home);
+  const readCredential = dependencies.readClaudeCredential ?? claudeToken;
+  const recoverCredential = dependencies.recoverClaudeCredential ?? renewClaudeToken;
+  const requestFetch = dependencies.fetch ?? fetch;
+  const now = dependencies.now ?? Date.now;
+  let cred = await readCredential(d.home);
+  let recovered = false;
   if (!cred) return { error: 'not signed in via CLI' };
-  if (cred.expiresAt && cred.expiresAt < Date.now()) {
-    return { error: 'CLI token expired; run claude once to refresh' };
+  if (cred.expiresAt && cred.expiresAt <= now()) {
+    await recoverCredential(d.home);
+    recovered = true;
+    cred = await readCredential(d.home);
+    if (!cred) return { error: 'Claude session renewal did not produce usable credentials' };
   }
-  const res = await fetch(CLAUDE_USAGE_URL, {
-    headers: {
-      Authorization: `Bearer ${cred.token}`,
-      'anthropic-beta': 'oauth-2025-04-20',
-      Accept: 'application/json',
-      'User-Agent': UA,
-    },
-  });
+  const request = (token: string) =>
+    requestFetch(CLAUDE_USAGE_URL, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'anthropic-beta': 'oauth-2025-04-20',
+        Accept: 'application/json',
+        'User-Agent': UA,
+      },
+    });
+  let res = await request(cred.token);
+  if (res.status === 401 && !recovered) {
+    // Another CLI may already have rotated the token. Startup can renew an
+    // expired token, but cannot reliably repair a revoked, unexpired token.
+    const latest = await readCredential(d.home);
+    if (latest?.expiresAt && latest.expiresAt <= now()) {
+      await recoverCredential(d.home);
+      cred = await readCredential(d.home);
+      if (!cred) return { error: 'Claude session renewal did not produce usable credentials' };
+      res = await request(cred.token);
+    } else if (latest && latest.token !== cred.token) {
+      res = await request(latest.token);
+    }
+  }
+  if (res.status === 401) return { error: 'Claude session rejected (401); open this profile in Terminal to sign in' };
   if (res.status === 429) return { error: 'rate limited by the usage API', retryAfterMs: retryDelay(res) };
   if (!res.ok) return { error: `usage API ${res.status}` };
   const windows = parseClaudeUsage(await res.json());
@@ -304,9 +340,9 @@ export async function identity(profile: Profile): Promise<Identity> {
   return profile.vendor === 'claude' ? claudeIdentity(profile) : codexIdentity(profile);
 }
 
-export async function usage(profile: Profile): Promise<Usage> {
+export async function usage(profile: Profile, dependencies: UsageDependencies = {}): Promise<Usage> {
   try {
-    return profile.vendor === 'claude' ? await claudeUsage(profile) : await codexUsage(profile);
+    return profile.vendor === 'claude' ? await claudeUsage(profile, dependencies) : await codexUsage(profile);
   } catch (e) {
     return { error: (e as Error).message || String(e) };
   }

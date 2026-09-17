@@ -202,7 +202,7 @@ async function act(fn: () => unknown, btn?: EventTarget | null): Promise<void> {
   }
 }
 
-function bar(w: UsageWindow): HTMLDivElement {
+function bar(w: UsageWindow, stale = false): HTMLDivElement {
   const pct = w.pct ?? 0;
   // Colour always reflects how close the window is to running out.
   const cls = w.severity === 'critical' || pct >= 90 ? 'bad' : w.severity === 'warning' || pct >= 70 ? 'warn' : '';
@@ -214,7 +214,15 @@ function bar(w: UsageWindow): HTMLDivElement {
     el('span', { class: 'label' }, w.label),
     el('div', { class: 'track' }, el('div', { class: `fill ${cls}`, style: `width:${shown}%` })),
     el('span', { class: 'pct', title: remaining ? `${pct}% used` : `${100 - pct}% left` }, `${shown}%`),
-    w.resetsAt ? el('span', { class: 'reset' }, relTime(w.resetsAt)) : null,
+    w.resetsAt
+      ? el(
+          'span',
+          { class: 'reset' },
+          stale && Date.parse(w.resetsAt) <= Date.now()
+            ? 'Reset time passed; awaiting updated usage'
+            : relTime(w.resetsAt),
+        )
+      : null,
   );
 }
 
@@ -281,7 +289,11 @@ function card(p: ProfileView): HTMLDivElement {
       ),
     );
   } else if (u.windows && u.windows.length) {
-    usageBlock = el('div', { class: 'bars' }, u.windows.map(bar));
+    usageBlock = el(
+      'div',
+      { class: 'bars' },
+      u.windows.map((window) => bar(window, !!u.stale)),
+    );
     const at = u.fetchedAt ? new Date(u.fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
     if (u.stale && u.error)
       usageBlock.append(el('div', { class: 'note' }, `Couldn't refresh (${u.error}). Showing numbers from ${at}.`));

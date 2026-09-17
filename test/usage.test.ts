@@ -9,9 +9,128 @@ const path = require('path');
 
 // usage.js pulls in the profile store, which resolves HOME at import.
 process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-usage-'));
-const { parseClaudeUsage, parseCodexUsage, planName, keychainService } = require('../src/usage');
+const { parseClaudeUsage, parseCodexUsage, planName, keychainService, usage } = require('../src/usage');
 
 // ---- Claude ----
+
+const CLAUDE_PROFILE = { id: 'claude-test', vendor: 'claude', name: 'Claude', isDefault: false, color: '#000' };
+const usageResponse = () => new Response(JSON.stringify({ five_hour: { utilization: 12 } }), { status: 200 });
+
+test('Claude: expired credential is recovered, reread, and fetched with the renewed token', async () => {
+  let credential = { token: 'expired', expiresAt: 1, subscriptionType: 'pro' };
+  const events = [];
+  const result = await usage(CLAUDE_PROFILE, {
+    now: () => 100,
+    readClaudeCredential: async () => {
+      events.push(`read:${credential.token}`);
+      return credential;
+    },
+    recoverClaudeCredential: async () => {
+      events.push('recover');
+      credential = { token: 'renewed', expiresAt: 1_000, subscriptionType: 'pro' };
+    },
+    fetch: async (_url, init) => {
+      events.push(`fetch:${init.headers.Authorization}`);
+      return usageResponse();
+    },
+  });
+  expect(events).toEqual(['read:expired', 'recover', 'read:renewed', 'fetch:Bearer renewed']);
+  expect(result.windows[0].pct).toBe(12);
+});
+
+test('Claude: a 401 retries a token rotated by another CLI without recovery', async () => {
+  let credential = { token: 'first', expiresAt: 1_000, subscriptionType: 'max' };
+  let recoveries = 0;
+  const tokens = [];
+  const result = await usage(CLAUDE_PROFILE, {
+    now: () => 100,
+    readClaudeCredential: async () => credential,
+    recoverClaudeCredential: async () => {
+      recoveries++;
+      credential = { ...credential, token: 'second' };
+    },
+    fetch: async (_url, init) => {
+      tokens.push(init.headers.Authorization);
+      credential = { ...credential, token: 'second' };
+      return tokens.length === 1 ? new Response('', { status: 401 }) : usageResponse();
+    },
+  });
+  expect(result.error).toBeUndefined();
+  expect(recoveries).toBe(0);
+  expect(tokens).toEqual(['Bearer first', 'Bearer second']);
+});
+
+test('Claude: an unexpired rejected token needs sign-in, not a startup attempt', async () => {
+  let credential = { token: 'first', expiresAt: 1_000, subscriptionType: 'pro' };
+  let recoveries = 0;
+  let requests = 0;
+  const result = await usage(CLAUDE_PROFILE, {
+    now: () => 100,
+    readClaudeCredential: async () => credential,
+    recoverClaudeCredential: async () => {
+      recoveries++;
+      credential = { ...credential, token: 'second' };
+    },
+    fetch: async () => {
+      requests++;
+      return new Response('', { status: 401 });
+    },
+  });
+  expect(result.error).toContain('open this profile in Terminal');
+  expect(recoveries).toBe(0);
+  expect(requests).toBe(1);
+});
+
+test('Claude: expiry during a request recovers once, even when retry returns 401', async () => {
+  let credential = { token: 'first', expiresAt: 1_000 };
+  let recoveries = 0;
+  let requests = 0;
+  const result = await usage(CLAUDE_PROFILE, {
+    now: () => 100,
+    readClaudeCredential: async () => credential,
+    recoverClaudeCredential: async () => {
+      recoveries++;
+      credential = { token: 'renewed', expiresAt: 1_000 };
+    },
+    fetch: async () => {
+      requests++;
+      credential = { ...credential, expiresAt: 1 };
+      return new Response('', { status: 401 });
+    },
+  });
+  expect(result.error).toContain('401');
+  expect(recoveries).toBe(1);
+  expect(requests).toBe(2);
+});
+
+test('Claude: recovery failures and 429 responses remain actionable without extra requests', async () => {
+  const failed = await usage(CLAUDE_PROFILE, {
+    now: () => 100,
+    readClaudeCredential: async () => ({ token: 'expired', expiresAt: 1, subscriptionType: 'pro' }),
+    recoverClaudeCredential: async () => {
+      throw new Error('renewal failed; open this profile in Terminal');
+    },
+    fetch: async () => {
+      throw new Error('fetch must not run');
+    },
+  });
+  expect(failed.error).toContain('open this profile in Terminal');
+
+  let requests = 0;
+  const limited = await usage(CLAUDE_PROFILE, {
+    now: () => 100,
+    readClaudeCredential: async () => ({ token: 'valid', expiresAt: 1_000, subscriptionType: 'pro' }),
+    recoverClaudeCredential: async () => {
+      throw new Error('recovery must not run');
+    },
+    fetch: async () => {
+      requests++;
+      return new Response('', { status: 429, headers: { 'retry-after': '7' } });
+    },
+  });
+  expect(limited).toMatchObject({ error: 'rate limited by the usage API', retryAfterMs: 7_000 });
+  expect(requests).toBe(1);
+});
 
 test('Claude: the limits list gives the session, weekly and model-scoped windows', () => {
   const windows = parseClaudeUsage({

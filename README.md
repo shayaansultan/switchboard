@@ -24,10 +24,10 @@ Each profile is isolated twice over, because the two halves hold different
 state. Both desktop apps embed an agent that reads the same config-home
 variable the command-line tool does, so the flag alone is not enough.
 
-| App    | Signed-in session          | Agent home: sessions, plugins, config |
-| ------ | -------------------------- | ------------------------------------- |
-| Claude | `--user-data-dir=<…>/desktop` | `CLAUDE_CONFIG_DIR=<…>/home`       |
-| Codex  | `--user-data-dir=<…>/desktop` | `CODEX_HOME=<…>/home`              |
+| App    | Signed-in session             | Agent home: sessions, plugins, config |
+| ------ | ----------------------------- | ------------------------------------- |
+| Claude | `--user-data-dir=<…>/desktop` | `CLAUDE_CONFIG_DIR=<…>/home`          |
+| Codex  | `--user-data-dir=<…>/desktop` | `CODEX_HOME=<…>/home`                 |
 
 Every account is a profile owning an isolated directory tree under
 `~/.switchboard/<vendor>/<profile>/`. Profiles never share cookies, tokens,
@@ -84,12 +84,12 @@ For implementation details and closed-lid hardware verification, read
 Worth knowing before you run an unsigned app that touches your accounts.
 
 - **Your keychain.** To show Claude usage, Switchboard runs `security
-  find-generic-password` for the entry the Claude Code CLI already created.
+find-generic-password` for the entry the Claude Code CLI already created.
   macOS will ask for your password the first time. It asks again after each
   rebuild, because ad-hoc signing produces a new code hash and the keychain
   entry's permission no longer recognises the app. Codex tokens are read from a file
   instead, so they produce no prompt.
-- **One network call per signed-in profile, on a timer.** The same endpoints
+- **Usage requests per signed-in profile, on a timer.** Normally one call to the same endpoints
   the two CLIs use for their own usage screens, authorised with that profile's
   existing CLI token. The interval in Settings is the rate while you are using
   Switchboard; left alone it slows to every 15 and then 30 minutes, never
@@ -97,15 +97,25 @@ Worth knowing before you run an unsigned app that touches your accounts.
   or locked. Who is signed in is only re-checked hourly, on a manual refresh,
   or when a usage call says the token is gone. Codex tries a second URL only if the first answers 404.
   Neither endpoint is documented by its vendor, so both can change without
-  notice and the bars can go blank. Nothing else is sent anywhere and there is
-  no telemetry.
+  notice and the bars can go blank. Claude usage may retry once after a token
+  change. Switchboard has no telemetry; the Claude CLI has its own network
+  behaviour when started for session renewal.
 - **Tokens never leave the main process.** They are read, used for that one
   request, and dropped. What the window receives is the profile's own name and
   colour, its directory paths and the CLI command to enter it, whether the app
   is running, and from the account: the email address, plan name, organisation
   name, and the usage percentages with their reset times.
 - **Never credentials.** Switchboard does not write logins, and it will not copy
-  API keys or credential helpers between profiles.
+  API keys or credential helpers between profiles. When a Claude subscription
+  token expires, Switchboard briefly starts Claude Code in an isolated empty
+  directory so the CLI can renew that profile's OAuth session, then rereads the
+  credential and fetches usage. The hidden terminal uses macOS `/usr/bin/expect`,
+  safe mode, no tools or MCP servers, and no model prompt. Only the trust menu
+  for that empty directory is accepted. Recovery has a 20-second deadline plus
+  bounded process cleanup; failed attempts have a one-minute cooldown.
+  If Claude requires interactive sign-in, renewal stops and the profile must
+  be opened in Terminal. A rejected token that has not expired also requires
+  sign-in, unless another CLI has already replaced it.
 
 ## Install
 
@@ -175,7 +185,10 @@ Slack, Notion and so on.
   launches that one bundle, so an update to it applies to all of them. macOS
   registers each instance separately, which means one Dock icon per running
   profile rather than one for the app.
-- If a profile's CLI token expires, run that profile's CLI once to refresh it.
+- Claude token renewal depends on the installed CLI's interactive startup
+  behaviour and may break after a CLI update. If automatic renewal reports that
+  sign-in is required, open that profile in Terminal and sign in there.
+  Organisation-managed Claude policies can still affect this isolated startup.
 - `ANTHROPIC_API_KEY` in your shell makes Claude Code bill the API instead of
   your subscription. Switchboard never sets it; check your own shell config.
 
@@ -187,6 +200,7 @@ Electron runs. There is no bundler. Tests import the `.ts` files directly.
 ```bash
 bun test          # profile isolation, setup logic and the usage parsers
 bun run test      # the same, after oxlint and a type check
+bun run test:claude-pty # compiled PTY integration checks under Node, on macOS
 bun run typecheck # tsc --noEmit
 bun run lint      # oxlint
 bun run fmt       # oxfmt, Prettier-compatible; the CSS and HTML are left alone

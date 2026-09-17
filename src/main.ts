@@ -203,6 +203,7 @@ function looksSignedOut(u: Usage | undefined): boolean {
 }
 
 const IDENTITY_TTL = 60 * 60 * 1000;
+const profileRefreshes = new Map<string, Promise<void>>();
 
 // `force` is a person clicking refresh; scheduled polls respect the backoff
 // a 429 imposed and keep showing the last good numbers meanwhile.
@@ -210,7 +211,7 @@ const IDENTITY_TTL = 60 * 60 * 1000;
 // Identity is asked for rarely: for Claude it means spawning the CLI, and
 // who is signed in does not change between polls. It is re-read on a manual
 // refresh, once an hour, or when the usage call says the token is gone.
-async function refreshProfile(p: Profile, force: boolean): Promise<void> {
+async function performProfileRefresh(p: Profile, force: boolean): Promise<void> {
   const cur = liveFor(p);
   const known = cur.identity && cur.identityAt && Date.now() - cur.identityAt < IDENTITY_TTL;
   if (force || !known || looksSignedOut(cur.usage)) {
@@ -232,6 +233,18 @@ async function refreshProfile(p: Profile, force: boolean): Promise<void> {
     cur.usage = fresh;
   }
   cur.cached = false;
+}
+
+// A manual refresh can arrive while a scheduled refresh is still waiting on a
+// CLI or network request. Share that work instead of racing writes to `live`.
+// A click during an active poll joins it, including that poll's backoff policy;
+// clicking again after it finishes performs a forced refresh.
+function refreshProfile(p: Profile, force: boolean): Promise<void> {
+  const running = profileRefreshes.get(p.id);
+  if (running) return running;
+  const refresh = performProfileRefresh(p, force).finally(() => profileRefreshes.delete(p.id));
+  profileRefreshes.set(p.id, refresh);
+  return refresh;
 }
 
 async function refreshAll(onlyId?: string, force = false): Promise<void> {
