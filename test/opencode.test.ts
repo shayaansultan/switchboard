@@ -259,12 +259,21 @@ test('model limits come from the selected pool catalog, not placeholder defaults
   expect(model().limit).toBeUndefined();
 
   const credentials = profiles.secrets(profile.id);
+  let includeSecond = true;
   const server = http.createServer((request, response) => {
     response.setHeader('Content-Type', 'application/json');
     switch (request.url) {
       case '/v1/models':
         expect(request.headers.authorization).toBe(`Bearer ${credentials.apiKey}`);
-        response.end(JSON.stringify({ data: [{ id: profile.model }] }));
+        response.end(
+          JSON.stringify({
+            data: [
+              { id: profile.model },
+              ...(includeSecond ? [{ id: 'second-model' }] : []),
+              { id: 'unrelated-image-model' },
+            ],
+          }),
+        );
         break;
       case '/v0/management/model-definitions/codex':
         expect(request.headers.authorization).toBe(`Bearer ${credentials.managementKey}`);
@@ -277,7 +286,17 @@ test('model limits come from the selected pool catalog, not placeholder defaults
                 context_length: 272000,
                 max_completion_tokens: 128000,
                 thinking: { levels: ['low', 'max'] },
+                supported_parameters: ['tools'],
+                supportedOutputModalities: ['text'],
               },
+              ...['second-model', 'unavailable-model'].map((id) => ({
+                id,
+                context_length: 921000,
+                max_completion_tokens: 128000,
+                thinking: { levels: ['low', 'high'] },
+                supported_parameters: ['tools'],
+                supportedOutputModalities: ['text'],
+              })),
             ],
           }),
         );
@@ -297,6 +316,18 @@ test('model limits come from the selected pool catalog, not placeholder defaults
     expect(info.source).toBe('cliproxyapi:codex');
     expect(info.reasoningEfforts).toEqual(['low', 'max']);
     expect(model().options.reasoningEffort).toBe('low');
+    profile.reasoningEffort = 'max';
+    const catalog = runtimeConfig(profile, 1, temporary).provider['switchboard-chatgpt']!.models;
+    expect(Object.keys(catalog).sort()).toEqual([profile.model, 'second-model'].sort());
+    expect(catalog['second-model'].limit).toEqual({ context: 921000, output: 128000 });
+    expect(catalog['second-model'].options.reasoningEffort).toBe('low');
+    expect(catalog['second-model'].variants!.high).toEqual({ reasoningEffort: 'high' });
+    expect(catalog[profile.model].options.reasoningEffort).toBe('max');
+    includeSecond = false;
+    await refreshModelInfo(profile.id, address.port, selectedPoolModel(profile));
+    expect(Object.keys(runtimeConfig(profile, 1, temporary).provider['switchboard-chatgpt']!.models)).toEqual([
+      profile.model,
+    ]);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

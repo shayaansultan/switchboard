@@ -20,7 +20,12 @@ export function cachedModelInfo(profileId: string, model: ModelId): ModelInfo | 
   return info?.model === model ? info : undefined;
 }
 
-export async function refreshModelInfo(profileId: string, port: number, model: ModelId): Promise<ModelInfo> {
+export function cachedModelCatalog(profileId: string): ModelInfo[] {
+  const file = path.join(paths(profileId).runtime, 'model-catalog.json');
+  return fs.existsSync(file) ? z.array(ModelInfo).parse(readJson(file)) : [];
+}
+
+export async function refreshModelCatalog(profileId: string, port: number): Promise<ModelInfo[]> {
   const credentials = secrets(profileId);
   const base = `http://127.0.0.1:${port}`;
 
@@ -38,32 +43,54 @@ export async function refreshModelInfo(profileId: string, port: number, model: M
   if (!availableResponse.ok || !definitionsResponse.ok) throw new Error('Could not load the pool model catalog');
 
   const available = z.object({ data: z.array(z.object({ id: z.string() })) }).parse(await availableResponse.json());
-  if (!available.data.some((entry) => entry.id === model)) throw new Error(`${model} is not advertised by this pool`);
+  const availableIds = new Set(available.data.map((entry) => entry.id));
 
   const definitions = z
     .object({ models: z.array(z.record(z.string(), z.unknown())) })
     .parse(await definitionsResponse.json());
-  const definition = z
-    .object({
-      id: ModelId,
-      context_length: z.number().int().positive(),
-      max_completion_tokens: z.number().int().positive(),
-      thinking: z.object({ levels: z.array(z.string()) }).optional(),
-    })
-    .parse(definitions.models.find((entry) => entry.id === model));
+  const definitionSchema = z.object({
+    id: ModelId,
+    context_length: z.number().int().positive(),
+    max_completion_tokens: z.number().int().positive(),
+    thinking: z.object({ levels: z.array(z.string()) }).optional(),
+    supported_parameters: z.array(z.string()),
+    supportedOutputModalities: z.array(z.string()),
+  });
 
-  const info: ModelInfo = {
-    model,
-    limits: { context: definition.context_length, output: definition.max_completion_tokens },
-    reasoningEfforts: (definition.thinking?.levels ?? []).flatMap((level) => {
-      const parsed = ReasoningEffort.safeParse(level);
-      return parsed.success ? [parsed.data] : [];
-    }),
-    source: 'cliproxyapi:codex',
-    observedAt: new Date().toISOString(),
-  };
+  const catalog: ModelInfo[] = [];
+  for (const entry of definitions.models) {
+    const parsed = definitionSchema.safeParse(entry);
+    if (!parsed.success) continue;
+    const definition = parsed.data;
+    if (
+      !availableIds.has(definition.id) ||
+      !definition.supported_parameters.includes('tools') ||
+      !definition.supportedOutputModalities.includes('text')
+    )
+      continue;
+    catalog.push({
+      model: definition.id,
+      limits: { context: definition.context_length, output: definition.max_completion_tokens },
+      reasoningEfforts: (definition.thinking?.levels ?? []).flatMap((level) => {
+        const effort = ReasoningEffort.safeParse(level);
+        return effort.success ? [effort.data] : [];
+      }),
+      source: 'cliproxyapi:codex',
+      observedAt: new Date().toISOString(),
+    });
+  }
+  if (!catalog.length) throw new Error('This pool advertises no compatible text/tool models');
+  for (const info of catalog) {
+    writeJson(path.join(paths(profileId).runtime, 'models', `${info.model}.json`), info);
+  }
+  writeJson(path.join(paths(profileId).runtime, 'model-catalog.json'), catalog);
+  return catalog;
+}
 
+export async function refreshModelInfo(profileId: string, port: number, model: ModelId): Promise<ModelInfo> {
+  const catalog = await refreshModelCatalog(profileId, port);
+  const info = catalog.find((entry) => entry.model === model);
+  if (!info) throw new Error(`${model} is not advertised as a compatible text/tool model by this pool`);
   writeJson(path.join(paths(profileId).runtime, 'model-info.json'), info);
-  writeJson(path.join(paths(profileId).runtime, 'models', `${model}.json`), info);
   return info;
 }

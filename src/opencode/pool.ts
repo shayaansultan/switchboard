@@ -1,5 +1,5 @@
 import * as proxy from './proxy';
-import { refreshModelInfo } from './models';
+import { refreshModelCatalog } from './models';
 import { poolId, selectedPoolModel } from './selection';
 import type { Profile } from './types';
 
@@ -12,8 +12,10 @@ export async function preparePool(profile: Profile, cli: string): Promise<{ port
   const models = new Set([selectedPoolModel(profile)]);
   const small = profile.smallModel && poolId(profile.smallModel);
   if (small) models.add(small);
+  const catalog = await refreshModelCatalog(profile.id, worker.receipt.proxyPort);
   for (const model of models) {
-    const info = await refreshModelInfo(profile.id, worker.receipt.proxyPort, model);
+    const info = catalog.find((entry) => entry.model === model);
+    if (!info) throw new Error(`${model} is not advertised as a compatible text/tool model by this pool`);
     if (info.reasoningEfforts.length && !info.reasoningEfforts.includes(profile.reasoningEffort)) {
       throw new Error(`${model} does not advertise ${profile.reasoningEffort} reasoning effort`);
     }

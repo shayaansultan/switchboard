@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Profile, type Connection, type ReasoningEffort } from './types';
 import { paths, secrets, identitySnapshot } from './profiles';
-import { cachedModelInfo } from './models';
+import { cachedModelCatalog, cachedModelInfo } from './models';
 import { modelRef, poolId, selectedPoolModel } from './selection';
 
 interface LocalMcp {
@@ -18,7 +18,8 @@ interface RuntimeModel {
   tool_call: boolean;
   limit?: { context: number; output: number };
   cost: { input: number; output: number };
-  options: { store: false; reasoningEffort: ReasoningEffort };
+  options: { store: false; reasoningEffort?: ReasoningEffort };
+  variants?: Record<string, { reasoningEffort: ReasoningEffort }>;
 }
 
 // The generated subset of OpenCode's public config schema. User-authored config
@@ -137,6 +138,30 @@ export function runtimeConfig(profile: Profile, port: number | undefined, cwd: s
       ...(info ? { limit: info.limits } : {}),
     };
     if (!info) delete pool.models[small].limit;
+  }
+  if (port && pool) {
+    const catalog = cachedModelCatalog(profile.id);
+    if (catalog.length) {
+      pool.models = Object.fromEntries(
+        catalog.map((info) => {
+          const efforts = info.reasoningEfforts;
+          // A profile's effort may exceed another model's supported range.
+          const effort = efforts.includes(profile.reasoningEffort) ? profile.reasoningEffort : efforts[0];
+          return [
+            info.model,
+            {
+              name: info.model,
+              reasoning: efforts.length > 0,
+              tool_call: true,
+              limit: info.limits,
+              cost: { input: 0, output: 0 },
+              options: { store: false, ...(effort ? { reasoningEffort: effort } : {}) },
+              variants: Object.fromEntries(efforts.map((level) => [level, { reasoningEffort: level }])),
+            },
+          ];
+        }),
+      );
+    }
   }
   return config;
 }
