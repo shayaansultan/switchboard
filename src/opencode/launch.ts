@@ -16,7 +16,7 @@ interface RuntimeModel {
   name: string;
   reasoning: boolean;
   tool_call: boolean;
-  limit?: { context: number; output: number };
+  limit?: { context: number; input?: number; output: number };
   cost: { input: number; output: number };
   options: { store: false; reasoningEffort?: ReasoningEffort };
   variants?: Record<string, { reasoningEffort: ReasoningEffort }>;

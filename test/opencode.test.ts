@@ -15,11 +15,15 @@ import * as http from 'node:http';
 
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-opencode-'));
 const originalRoot = process.env.SWITCHBOARD_ROOT;
+const originalCache = process.env.XDG_CACHE_HOME;
 process.env.SWITCHBOARD_ROOT = temporary;
+process.env.XDG_CACHE_HOME = path.join(temporary, 'native-cache');
 
 afterAll(() => {
   if (originalRoot === undefined) delete process.env.SWITCHBOARD_ROOT;
   else process.env.SWITCHBOARD_ROOT = originalRoot;
+  if (originalCache === undefined) delete process.env.XDG_CACHE_HOME;
+  else process.env.XDG_CACHE_HOME = originalCache;
   fs.rmSync(temporary, { recursive: true, force: true });
 });
 
@@ -316,6 +320,24 @@ test('model limits come from the selected pool catalog, not placeholder defaults
     expect(info.source).toBe('cliproxyapi:codex');
     expect(info.reasoningEfforts).toEqual(['low', 'max']);
     expect(model().options.reasoningEffort).toBe('low');
+    expect(info.limitsSource).toBe('cliproxyapi:codex');
+    const nativeCatalog = path.join(profiles.paths(profile.id).base, 'cache', 'opencode', 'models.json');
+    profiles.writeJson(nativeCatalog, {
+      openai: {
+        models: {
+          [profile.model]: { limit: { context: 1050000, input: 922000, output: 128000 } },
+          'second-model': { limit: { context: -1, output: 128000 } },
+          'unavailable-model': { limit: { context: 1050000, output: 128000 } },
+        },
+      },
+    });
+    const updated = await refreshModelInfo(profile.id, address.port, selectedPoolModel(profile));
+    expect(updated.limitsSource).toBe('opencode:openai');
+    expect(model().limit).toEqual({ context: 1050000, input: 922000, output: 128000 });
+    const env = launchEnv(profile, address.port, temporary);
+    expect(
+      JSON.parse(env.OPENCODE_CONFIG_CONTENT!).provider['switchboard-chatgpt'].models[profile.model].limit,
+    ).toEqual({ context: 1050000, input: 922000, output: 128000 });
     profile.reasoningEffort = 'max';
     const catalog = runtimeConfig(profile, 1, temporary).provider['switchboard-chatgpt']!.models;
     expect(Object.keys(catalog).sort()).toEqual([profile.model, 'second-model'].sort());
@@ -328,6 +350,9 @@ test('model limits come from the selected pool catalog, not placeholder defaults
     expect(Object.keys(runtimeConfig(profile, 1, temporary).provider['switchboard-chatgpt']!.models)).toEqual([
       profile.model,
     ]);
+    fs.writeFileSync(nativeCatalog, '{broken');
+    await refreshModelInfo(profile.id, address.port, selectedPoolModel(profile));
+    expect(model().limit).toEqual({ context: 272000, output: 128000 });
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
