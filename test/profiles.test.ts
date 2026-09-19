@@ -2,16 +2,13 @@
 // a profile must never read another profile's login, and Switchboard must
 // never write into a Default profile's real directories.
 //
-// profiles.js resolves the home directory once at import, so HOME is pointed
-// at a scratch directory before the module loads.
+// The test preload points HOME at a scratch directory before any module loads.
 
 const { test, expect, beforeEach, afterEach } = require('bun:test');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 
-const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-test-')));
-process.env.HOME = SANDBOX;
+const { sandboxHome: SANDBOX } = require('./setup');
 
 const profiles = require('../src/profiles');
 

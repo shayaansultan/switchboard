@@ -3,12 +3,6 @@
 // response belongs in one of these fixtures.
 
 const { test, expect } = require('bun:test');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-
-// usage.js pulls in the profile store, which resolves HOME at import.
-process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-usage-'));
 const { parseClaudeUsage, parseCodexUsage, planName, keychainService, usage } = require('../src/usage');
 
 // ---- Claude ----
