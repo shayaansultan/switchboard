@@ -33,7 +33,7 @@ live(
       request.on('end', () => {
         const payload = JSON.parse(body);
         requests.push(payload);
-        const tool = payload.tools?.find((entry: { name: string }) => entry.name.endsWith('exec_command'));
+        const tool = payload.tools?.find((entry: { name: string }) => entry.name === 'exec');
         const hasResult = JSON.stringify(payload.messages).includes('tool_result');
         const useTool = tool && !hasResult;
         const content = useTool
@@ -60,7 +60,9 @@ live(
             delta: useTool
               ? {
                   type: 'input_json_delta',
-                  partial_json: JSON.stringify({ cmd: "printf 'fixture-write-ok' > proof.txt" }),
+                  partial_json: JSON.stringify({
+                    input: 'text(await tools.exec_command({cmd:"printf fixture-write-ok > proof.txt"}));',
+                  }),
                 }
               : { type: 'text_delta', text: 'CLAUDE_FIXTURE_OK' },
           },

@@ -22,11 +22,19 @@ catalog. Switchboard appends those descriptors to the installed Codex binary's e
 catalog for that profile, including any user-supplied catalog. Existing entries are preserved. The resulting snapshot is regenerated on
 each desktop launch and referenced only by that launch wrapper.
 
-Claude uses ordinary function/shell tools and edits files through the shell. The
-installed Codex build offers only freeform `apply_patch`, which the proxy's Claude
-translator omits. Claude descriptors therefore do not advertise it, Responses Lite,
-or GPT-specific code mode. Hosted app features still require individual compatibility
-checks. The existing OpenCode provider continues exposing its ChatGPT models.
+Claude uses Codex's code-mode `exec` tool to call shell tools and connectors.
+Connector definitions stay in Codex's local tool registry; Claude can discover the
+ones it needs through `ALL_TOOLS` rather than receiving the whole catalog on every
+request. The descriptor enables both `supports_search_tool` and
+`tool_mode: code_mode_only`. Search support alone is insufficient because the pinned
+proxy omits the standalone Responses `tool_search` tool. See the
+[context investigation](claude-context-investigation.md) for measurements and tests.
+
+The installed Codex build offers only freeform `apply_patch`, which the proxy's
+Claude translator omits. Claude descriptors therefore do not advertise it or
+Responses Lite. Files are edited through shell tools. Hosted app features still
+require individual compatibility checks. The existing OpenCode provider continues
+exposing its ChatGPT models.
 
 Each Codex card has a model connection menu beside its launch button. Choose
 **Native account** or a bucket. The choice takes effect when that desktop profile is next launched from
@@ -104,6 +112,7 @@ bun run test:model-labels
 node demo/test-claude-models.mjs
 SWITCHBOARD_LIVE_TESTS=1 bun test test/opencode-live.test.ts
 SWITCHBOARD_LIVE_TESTS=1 bun test test/claude-live.test.ts
+SWITCHBOARD_LIVE_TESTS=1 bun test test/claude-context-live.test.ts
 bun run dist
 bun demo/test-buckets.mjs --packaged
 node demo/test-model-labels.mjs --packaged
@@ -120,3 +129,8 @@ The Claude fixture test exercises the actual Codex binary and CLIProxyAPI agains
 a local Anthropic endpoint, including streamed tool calls, a real scratch-file edit,
 tool-result replay and conversation resume. The metadata check asks Codex itself to
 parse the generated catalog and compares GPT entries against its original catalog.
+
+The context fixture test supplies 421 synthetic MCP tools, measures requests before
+and after proxy translation, and exercises deferred discovery, connector execution,
+shell editing, and process-restart/resume. It uses local fixtures, not subscription
+credentials, despite sharing the existing `SWITCHBOARD_LIVE_TESTS` opt-in flag.

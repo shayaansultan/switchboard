@@ -49,6 +49,8 @@ test('Claude metadata is appended without mutating GPT catalog entries', () => {
   expect(combined.models[1].apply_patch_tool_type).toBeNull();
   expect(combined.models[1].use_responses_lite).toBe(false);
   expect(combined.models[1].node_repl_disabled).toBe(true);
+  expect(combined.models[1].supports_search_tool).toBe(true);
+  expect(combined.models[1].tool_mode).toBe('code_mode_only');
   expect(combined.models[1].supported_reasoning_levels).toEqual([
     { effort: 'low', description: 'low reasoning effort' },
     { effort: 'high', description: 'high reasoning effort' },
