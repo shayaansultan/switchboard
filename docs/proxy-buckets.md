@@ -1,8 +1,9 @@
 # Shared proxy buckets
 
-Switchboard's **Proxy buckets** section manages account pools shared with OpenCode.
-Expand it to create a bucket, start or stop its worker, refresh usage, add an account
-through the proxy's OAuth flow, or enable/disable individual accounts. Add one account
+Switchboard's **Buckets** tab manages account pools shared with OpenCode. Use it to
+create a bucket, start or stop its worker, refresh usage, add an account through the
+proxy's OAuth flow, or enable/disable individual accounts. Each account is one row
+with all of its usage windows. Add one account
 at a time because the OAuth callback uses a fixed port. After login completes, refresh
 the bucket to see the account.
 
@@ -27,18 +28,20 @@ translator omits. Claude descriptors therefore do not advertise it, Responses Li
 or GPT-specific code mode. Hosted app features still require individual compatibility
 checks. The existing OpenCode provider continues exposing its ChatGPT models.
 
-Each Codex card has a **Desktop model connection** selector. Choose **Native account**
-or a bucket. The choice takes effect when that desktop profile is next launched from
+Each Codex card has a model connection menu beside its launch button. Choose
+**Native account** or a bucket. The choice takes effect when that desktop profile is next launched from
 Switchboard. Quit the profile first if it is already open. Other desktop profiles
 keep their own choices.
 
 Proxy mode changes model routing only. The profile keeps its Codex home, login,
-local chats, projects, settings and connected-service identities. Its Terminal and
-Sign in CLI buttons continue to use its native account. Sharing a bucket does not
+local chats, projects, settings and connected-service identities. Its terminal and
+Sign in CLI actions continue to use its native account. Sharing a bucket does not
 merge desktop histories. App features that depend on hosted services still depend
 on the desktop login and provider support.
 
-The selected bucket's account usage appears on the card. Native account usage remains
+The card then pools the bucket's usage: one bar per provider and window (Claude 5h,
+GPT 7d and so on), cut into a segment per account, with the mean as its percentage.
+Hover a segment to see which account it is. The Buckets tab lists every account. Native account usage remains
 available on that account's native card and in the menu bar. The model picker belongs
 to Codex; the selected model must be available through the bucket.
 

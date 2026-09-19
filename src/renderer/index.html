@@ -13,6 +13,7 @@
       <button id="awake-toggle" popovertarget="awake-popover" aria-haspopup="dialog" aria-expanded="false">Keep awake ▾</button>
       <button id="refresh" title="Refresh usage">↻ Refresh</button>
       <button id="add">+ Profile</button>
+      <button id="add-bucket" hidden>+ Bucket</button>
       <button id="settings" title="Settings">⚙</button>
     </div>
   </header>
@@ -32,7 +33,12 @@
     </div>
   </div>
 
-  <main id="root"></main>
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button id="tab-accounts" role="tab" aria-selected="true" aria-controls="root">Accounts <span class="count"></span></button>
+    <button id="tab-buckets" role="tab" aria-selected="false" aria-controls="root">Buckets <span class="count"></span></button>
+  </nav>
+
+  <main id="root" role="tabpanel"></main>
 
   <dialog id="bucket-dialog">
     <form id="bucket-form">
