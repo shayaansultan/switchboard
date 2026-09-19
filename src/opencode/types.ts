@@ -1,9 +1,7 @@
 import { z } from 'zod';
+import { ProfileId, Secrets } from '../storage';
+export { ProfileId, Secrets } from '../storage';
 
-export const ProfileId = z
-  .string()
-  .regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
-  .brand<'ProfileId'>();
 export type ProfileId = z.infer<typeof ProfileId>;
 export const ModelId = z
   .string()
@@ -63,7 +61,6 @@ export const Profile = z.object({
     .optional(),
 });
 export type Profile = z.infer<typeof Profile>;
-export const Secrets = z.object({ apiKey: z.string().min(32), managementKey: z.string().min(32) });
 export type Secrets = z.infer<typeof Secrets>;
 export const ObjectValue = z.record(z.string(), z.unknown());
 export type ObjectValue = z.infer<typeof ObjectValue>;

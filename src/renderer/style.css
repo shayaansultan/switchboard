@@ -121,6 +121,17 @@ section h3 .na { font-weight: 400; color: var(--muted); font-size: 12px; }
 .ident.err { color: var(--warn); }
 
 .bars { display: grid; gap: 7px; }
+.connection { border-top: 1px solid var(--line-2); padding-top: 10px; display: grid; gap: 5px; }
+.connection label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); }
+.connection select { width: 100%; min-width: 0; font: inherit; color: var(--text); background: var(--field); border: 1px solid var(--btn-border); border-radius: 5px; padding: 5px 8px; }
+.bucket-usage, .bucket-member { display: grid; gap: 7px; min-width: 0; }
+.bucket-panel { margin-top: 14px; }
+#proxy-buckets > summary { font-weight: 600; color: var(--text); }
+.bucket-member + .bucket-member { border-top: 1px solid var(--line-2); padding-top: 8px; }
+.bucket-account { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; }
+.bucket-account span, .bucket-member .note { overflow-wrap: anywhere; }
+summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+select:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .bar { display: grid; grid-template-columns: 96px 1fr 40px; align-items: center; gap: 10px; font-size: 12px; }
 .bar .label { color: var(--muted); }
 .bar .track { height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; }

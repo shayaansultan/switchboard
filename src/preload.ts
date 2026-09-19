@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AddOptions, BringOptions, Settings, State, SwitchboardApi } from './types';
 
 const api: SwitchboardApi = {
+  setProxyBucket: (id, bucket) => ipcRenderer.invoke('buckets:assign', id, bucket),
+  createBucket: (name) => ipcRenderer.invoke('buckets:create', name),
+  bucketAction: (id, action, provider) => ipcRenderer.invoke('buckets:action', id, action, provider),
+  setBucketAccount: (id, name, enabled) => ipcRenderer.invoke('buckets:account', id, name, enabled),
   setAwake: (value) => ipcRenderer.invoke('awake:set', value),
   refreshAwake: (reason = 'observe') => ipcRenderer.invoke('awake:refresh', reason),
   onAwakeState: (fn) => {

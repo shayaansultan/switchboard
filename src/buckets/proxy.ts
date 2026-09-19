@@ -6,16 +6,15 @@ import { spawn, execFile } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import { root, paths, load, readJson, writeJson, secrets } from './profiles';
-import { ProfileId } from './types';
-import { parseCodexUsage } from '../usage';
+import { root, paths, load, readJson, writeJson, secrets, BucketId } from './store';
+import { parseClaudeUsage, parseCodexUsage } from '../usage-parsers';
 import type { UsageWindow } from '../types';
 import { acquireWorkerLease } from './worker-lease';
 
 const execute = promisify(execFile);
 const VERSION = '7.3.2';
 const Receipt = z.object({
-  profileId: ProfileId,
+  profileId: BucketId,
   instance: z.string(),
   controlPort: z.number().int().positive(),
   proxyPort: z.number().int().positive(),
@@ -39,6 +38,7 @@ const AuthFile = z.object({
 type AuthFile = z.infer<typeof AuthFile>;
 const AccountUsage = z.object({
   name: z.string(),
+  provider: z.enum(['codex', 'claude']).default('codex'),
   email: z.string().optional(),
   status: z.enum(['fresh', 'unknown', 'cooldown', 'disabled']),
   windows: z.array(
@@ -153,7 +153,7 @@ export function proxyConfig(id: string, port: number): string {
 async function management(
   id: string,
   port: number,
-  endpoint: 'auth-files' | 'api-call' | 'auth-files/fields',
+  endpoint: 'auth-files' | 'api-call' | 'auth-files/fields' | 'auth-files/status',
   method: 'GET' | 'POST' | 'PATCH' = 'GET',
   body?: unknown,
 ): Promise<unknown> {
@@ -169,7 +169,26 @@ async function management(
 
 export async function accounts(id: string, port: number): Promise<AuthFile[]> {
   const result = z.object({ files: z.array(AuthFile) }).parse(await management(id, port, 'auth-files'));
-  return result.files.filter((file) => (file.provider ?? file.type) === 'codex');
+  return result.files.filter((file) => ['codex', 'claude'].includes(file.provider ?? file.type ?? ''));
+}
+
+export async function setAccountEnabled(id: string, port: number, name: string, enabled: boolean): Promise<void> {
+  if (!(await accounts(id, port)).some((account) => account.name === name))
+    throw new Error('Account is not in this bucket');
+  await management(id, port, 'auth-files/status', 'PATCH', { name, disabled: !enabled });
+}
+
+export function usageRequest(account: AuthFile) {
+  const provider = account.provider ?? account.type;
+  const header: Record<string, string> = { Authorization: 'Bearer $TOKEN$', Accept: 'application/json' };
+  if (provider === 'claude') {
+    header['anthropic-beta'] = 'oauth-2025-04-20';
+    return { url: 'https://api.anthropic.com/api/oauth/usage', header };
+  }
+  if (provider !== 'codex') throw new Error('Unsupported bucket provider');
+  const accountId = account.account_id ?? account.id_token?.chatgpt_account_id;
+  if (accountId) header['ChatGPT-Account-Id'] = accountId;
+  return { url: 'https://chatgpt.com/backend-api/wham/usage', header };
 }
 
 export function quotaWeight(windows: readonly UsageWindow[]): number {
@@ -182,6 +201,7 @@ export function quotaWeight(windows: readonly UsageWindow[]): number {
 async function observe(id: string, port: number, account: AuthFile, previous?: AccountUsage): Promise<AccountUsage> {
   const base: AccountUsage = {
     name: account.name,
+    provider: account.provider === 'claude' || account.type === 'claude' ? 'claude' : 'codex',
     email: account.email,
     status: 'unknown',
     windows: [],
@@ -190,9 +210,6 @@ async function observe(id: string, port: number, account: AuthFile, previous?: A
   if (account.disabled) return { ...base, status: 'disabled' };
   if (previous?.nextProbeAt && previous.nextProbeAt > Date.now()) return previous;
   try {
-    const header: Record<string, string> = { Authorization: 'Bearer $TOKEN$', Accept: 'application/json' };
-    const accountId = account.account_id ?? account.id_token?.chatgpt_account_id;
-    if (accountId) header['ChatGPT-Account-Id'] = accountId;
     const result = z
       .object({
         status_code: z.number(),
@@ -203,13 +220,12 @@ async function observe(id: string, port: number, account: AuthFile, previous?: A
         await management(id, port, 'api-call', 'POST', {
           auth_index: account.auth_index,
           method: 'GET',
-          url: 'https://chatgpt.com/backend-api/wham/usage',
-          header,
+          ...usageRequest(account),
         }),
       );
     switch (result.status_code) {
       case 200: {
-        const windows = parseCodexUsage(JSON.parse(result.body));
+        const windows = (base.provider === 'claude' ? parseClaudeUsage : parseCodexUsage)(JSON.parse(result.body));
         if (!windows.length) return previous ? { ...previous, status: 'unknown' } : base;
         const weight = quotaWeight(windows);
         if (weight !== account.weight)
@@ -278,7 +294,7 @@ async function assertWorkerAbsent(id: string): Promise<void> {
       `Profile ${id} has a live proxy without its controller. Inspect ${paths(id).runtime} before recovery.`,
     );
 }
-export async function ensureWorker(id: string, cli: string): Promise<WorkerStatus> {
+export async function ensureWorker(id: string, cli = path.join(__dirname, 'cli.js')): Promise<WorkerStatus> {
   load(id);
   const running = await control(id, 'status');
   if (running?.ready) return running;
@@ -314,6 +330,7 @@ export async function ensureWorker(id: string, cli: string): Promise<WorkerStatu
       if (fs.existsSync(log) && fs.statSync(log).size > 4 * 1024 * 1024) fs.renameSync(log, `${log}.previous`);
       const fd = fs.openSync(log, 'a', 0o600);
       const child = spawn(process.execPath, [cli, 'worker', id], {
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
         detached: true,
         stdio: ['ignore', fd, fd],
         cwd: paths(id).runtime,

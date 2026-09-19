@@ -8,7 +8,7 @@ import { parseArgs, promisify } from 'node:util';
 import { z } from 'zod';
 import * as profiles from './profiles';
 import * as imports from './imports';
-import * as proxy from './proxy';
+import * as proxy from '../buckets/proxy';
 import { bridgeArgs, launchEnv } from './launch';
 import { bindGitHub } from './github';
 import { modelArguments, modelRef, poolId, saveModel, selectedPoolModel } from './selection';

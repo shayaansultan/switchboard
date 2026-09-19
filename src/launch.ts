@@ -11,6 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { VENDORS, VENDOR_IDS, dirs, ensureDirs } from './store';
 import type { Instance, Profile, Settings } from './types';
+import { desktopEnvironment } from './buckets/desktop';
 
 // What a failed command throws: the exec error plus whatever it printed.
 export interface RunError extends Error {
@@ -92,21 +93,36 @@ export async function haveCommand(cmd: string): Promise<boolean> {
 //
 // `alreadyRunning` is only consulted for the Default profile, where `open -a`
 // on its own would focus the existing window instead of starting a second one.
-export function launchArgs(profile: Profile, alreadyRunning: boolean): string[] {
+export function launchArgs(
+  profile: Profile,
+  alreadyRunning: boolean,
+  environment: Record<string, string> = {},
+): string[] {
   const v = VENDORS[profile.vendor];
   const d = dirs(profile);
+  const env = Object.entries(environment).flatMap(([key, value]) => ['--env', `${key}=${value}`]);
   if (d.isDefault) {
-    return [...(alreadyRunning ? [] : ['-n']), '-a', v.appPath];
+    return [...(alreadyRunning ? [] : ['-n']), ...env, '-a', v.appPath];
   }
-  return ['-n', '--env', `${v.homeEnv}=${d.home}`, '-a', v.appPath, '--args', `--user-data-dir=${d.desktop}`];
+  return ['-n', ...env, '--env', `${v.homeEnv}=${d.home}`, '-a', v.appPath, '--args', `--user-data-dir=${d.desktop}`];
 }
 
 export async function launchDesktop(profile: Profile): Promise<void> {
   const v = VENDORS[profile.vendor];
   if (!fs.existsSync(v.appPath)) throw new Error(`${v.appPath} is not installed`);
   ensureDirs(profile);
-  const already = dirs(profile).isDefault ? !!instanceFor(profile, await runningInstances()) : false;
-  await run('open', launchArgs(profile, already));
+  const already = !!instanceFor(profile, await runningInstances());
+  if (already && profile.proxyBucket)
+    throw new Error('Quit this desktop profile before launching with a proxy bucket.');
+  const environment = await desktopEnvironment(profile, dirs(profile).home);
+  try {
+    await run('open', launchArgs(profile, already, environment));
+  } catch (error) {
+    // execFile errors include argv; a proxy launch includes a local bearer key.
+    if (profile.proxyBucket)
+      throw new Error('Could not open the desktop app with its proxy connection. Retry from Switchboard.');
+    throw error;
+  }
 }
 
 // Snapshot of running desktop-app main processes.

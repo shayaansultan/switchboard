@@ -232,6 +232,7 @@ function card(p: ProfileView): HTMLDivElement {
   const u: Usage = p.usage ?? {};
   const vendorLabel = s.vendors[p.vendor].label;
   const installed = s.vendors[p.vendor].installed;
+  const bucket = s.buckets?.find((b) => b.id === p.proxyBucket);
 
   const nameEl = el(
     'span',
@@ -300,6 +301,14 @@ function card(p: ProfileView): HTMLDivElement {
     else if (p.cached) usageBlock.append(el('div', { class: 'note' }, `Numbers from ${at}, updating…`));
   } else if (u.error) usageBlock = el('div', { class: 'note' }, `Usage: ${u.error}`);
   else usageBlock = el('div', { class: 'note' }, 'Usage: loading…');
+  if (p.proxyBucket) {
+    usageBlock = el(
+      'div',
+      { class: 'bars' },
+      el('div', { class: 'note' }, `Selected bucket → ${bucket?.name ?? p.proxyBucket}`),
+      bucket ? bucketUsage(bucket) : el('div', { class: 'note' }, 'Bucket unavailable. Choose another connection.'),
+    );
+  }
 
   const launchBtn = el(
     'button',
@@ -420,11 +429,205 @@ function card(p: ProfileView): HTMLDivElement {
       ? el('div', { class: 'ident' }, el('span', { class: 'skel', style: 'width:180px' }))
       : el('div', { class: `ident ${id.loggedIn ? '' : 'err'}` }, identText),
     usageBlock,
+    p.vendor === 'codex' ? connectionControl(p) : null,
     buttons,
     cliBox(p),
     notes,
   );
 }
+
+function connectionControl(p: ProfileView): HTMLElement {
+  const select = el(
+    'select',
+    { 'aria-label': `Model connection for ${p.name}` },
+    el('option', { value: '' }, 'Native account'),
+    (current().buckets ?? []).map((bucket) => el('option', { value: bucket.id }, `Proxy · ${bucket.name}`)),
+  );
+  if (p.proxyBucket && !(current().buckets ?? []).some((b) => b.id === p.proxyBucket)) {
+    select.append(el('option', { value: p.proxyBucket }, `Unavailable · ${p.proxyBucket}`));
+  }
+  select.value = p.proxyBucket ?? '';
+  select.addEventListener('change', () => {
+    const value = select.value;
+    select.disabled = true;
+    void act(async () => {
+      try {
+        await window.sb.setProxyBucket(p.id, value || null);
+      } catch (error) {
+        select.value = p.proxyBucket ?? '';
+        throw error;
+      } finally {
+        select.disabled = false;
+      }
+    });
+  });
+  return el(
+    'div',
+    { class: 'connection' },
+    el('label', {}, 'Desktop model connection', select),
+    el(
+      'div',
+      { class: 'note' },
+      p.running
+        ? 'Connection changes take effect on the next launch from Switchboard.'
+        : 'Applies when launched from Switchboard. Terminal uses its native account.',
+    ),
+  );
+}
+
+function bucketUsage(bucket: import('../types').BucketView): HTMLElement {
+  return el(
+    'div',
+    { class: 'bucket-usage' },
+    bucket.status !== 'running'
+      ? el(
+          'div',
+          { class: 'note' },
+          bucket.status === 'stopped'
+            ? 'Starts when an assigned desktop profile launches.'
+            : 'Worker is unreachable. Check its status before restarting.',
+        )
+      : null,
+    bucket.accounts.map((account) =>
+      el(
+        'div',
+        { class: 'bucket-member' },
+        el(
+          'div',
+          { class: 'note' },
+          `${account.provider === 'claude' ? 'Claude' : 'ChatGPT'} · ${account.email ?? account.name}${account.status !== 'fresh' ? ` · ${account.status}` : ''}`,
+        ),
+        account.windows.map((w) => bar(w, account.status !== 'fresh')),
+      ),
+    ),
+    bucket.status === 'running' && !bucket.accounts.length
+      ? el('div', { class: 'note' }, 'No accounts reported yet. Refresh or add an account.')
+      : null,
+    bucket.error ? el('div', { class: 'note' }, bucket.error) : null,
+  );
+}
+
+function bucketSection(): HTMLElement {
+  return el(
+    'details',
+    { id: 'proxy-buckets' },
+    el('summary', {}, `Proxy buckets · ${(current().buckets ?? []).length} · Manage accounts`),
+    el(
+      'section',
+      { class: 'bucket-panel' },
+      el('h3', {}, 'Proxy buckets', el('button', { onclick: openBucketCreate }, '+ Bucket')),
+      el(
+        'p',
+        { class: 'hint' },
+        'Shared model capacity for Codex desktop and OpenCode. Connected services keep their own identities.',
+      ),
+      current().bucketsError ? el('p', { class: 'note' }, current().bucketsError) : null,
+      el(
+        'div',
+        { class: 'grid' },
+        (current().buckets ?? []).map((bucket) =>
+          el(
+            'div',
+            { class: 'card bucket-card', 'data-bucket': bucket.id },
+            el(
+              'div',
+              { class: 'head' },
+              el('span', { class: 'name' }, bucket.name),
+              el('span', { class: 'badge' }, bucket.status),
+            ),
+            el(
+              'div',
+              { class: 'note' },
+              `${bucket.status === 'running' ? `${bucket.accounts.length} accounts` : 'Start to load accounts'} · ${current().profiles.filter((p) => p.proxyBucket === bucket.id).length} desktop profiles`,
+            ),
+            bucketUsage(bucket),
+            el(
+              'div',
+              { class: 'buttons' },
+              el(
+                'button',
+                {
+                  onclick: (e: Event) =>
+                    act(
+                      () => window.sb.bucketAction(bucket.id, bucket.status === 'running' ? 'refresh' : 'start'),
+                      e.currentTarget,
+                    ),
+                },
+                bucket.status === 'running' ? 'Refresh bucket' : 'Start bucket',
+              ),
+              el(
+                'button',
+                {
+                  onclick: (e: Event) =>
+                    showMenu(e.currentTarget as HTMLElement, [
+                      { label: 'Add ChatGPT account', run: () => window.sb.bucketAction(bucket.id, 'login', 'codex') },
+                      { label: 'Add Claude account', run: () => window.sb.bucketAction(bucket.id, 'login', 'claude') },
+                    ]),
+                },
+                'Add account ▾',
+              ),
+              el(
+                'button',
+                {
+                  onclick: (e: Event) =>
+                    act(async () => {
+                      if (
+                        confirm(`Stop ${bucket.name}? This interrupts model requests from every app using this bucket.`)
+                      )
+                        await window.sb.bucketAction(bucket.id, 'stop');
+                    }, e.currentTarget),
+                  disabled: bucket.status === 'stopped' ? 'true' : null,
+                },
+                'Stop',
+              ),
+            ),
+            bucket.accounts.length
+              ? el(
+                  'details',
+                  { 'data-account-management': bucket.id },
+                  el('summary', {}, 'Manage accounts'),
+                  bucket.accounts.map((account) =>
+                    el(
+                      'div',
+                      { class: 'bucket-account' },
+                      el('span', {}, account.email ?? account.name),
+                      el(
+                        'button',
+                        {
+                          onclick: (e: Event) =>
+                            act(
+                              () => window.sb.setBucketAccount(bucket.id, account.name, account.status === 'disabled'),
+                              e.currentTarget,
+                            ),
+                        },
+                        account.status === 'disabled' ? 'Enable' : 'Disable',
+                      ),
+                    ),
+                  ),
+                )
+              : null,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+function openBucketCreate(): void {
+  const dialog = document.getElementById('bucket-dialog') as HTMLDialogElement;
+  (document.getElementById('bucket-name') as HTMLInputElement).value = '';
+  dialog.showModal();
+}
+document.getElementById('bucket-form')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  void act(async () => {
+    await window.sb.createBucket((document.getElementById('bucket-name') as HTMLInputElement).value);
+    (document.getElementById('bucket-dialog') as HTMLDialogElement).close();
+  }, document.getElementById('bucket-submit'));
+});
+document
+  .getElementById('bucket-cancel')
+  ?.addEventListener('click', () => (document.getElementById('bucket-dialog') as HTMLDialogElement).close());
 
 // The command that enters this profile, as selectable text, with a button
 // that copies it. The icon flips to a tick for a moment so the click is seen
@@ -453,8 +656,18 @@ function render(): void {
   if (!state) return;
   // A poll or the minute tick must not wipe out a rename in progress. The
   // next render after editing ends picks up whatever state arrived meanwhile.
-  if (root.querySelector('.name input')) return;
+  if (root.querySelector('.name input, .connection select:focus')) return;
+  const bucketsOpen = (document.getElementById('proxy-buckets') as HTMLDetailsElement | null)?.open;
+  const openAccounts = new Set(
+    [...root.querySelectorAll('details[data-account-management][open]')].map((node) =>
+      node.getAttribute('data-account-management'),
+    ),
+  );
   root.replaceChildren();
+  root.append(bucketSection());
+  (document.getElementById('proxy-buckets') as HTMLDetailsElement).open = !!bucketsOpen;
+  for (const node of root.querySelectorAll<HTMLDetailsElement>('details[data-account-management]'))
+    node.open = openAccounts.has(node.getAttribute('data-account-management'));
   for (const [vendor, v] of Object.entries(state.vendors)) {
     const list = state.profiles.filter((p) => p.vendor === vendor);
     root.append(
