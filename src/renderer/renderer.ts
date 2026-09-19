@@ -263,7 +263,8 @@ function bar(w: UsageWindow, stale = false): HTMLDivElement {
     el(
       'span',
       { class: 'label', title: [w.label, hint].filter(Boolean).join(', ') },
-      el('span', { class: 'window' }, w.label, reset ? el('span', { class: 'reset' }, ` · ${reset}`) : null),
+      w.label,
+      reset ? el('span', { class: 'reset' }, ` · ${reset}`) : null,
     ),
     el('div', { class: 'track' }, el('div', { class: `fill ${cls}`, style: `width:${shown}%` })),
     el('span', { class: 'pct', title: remaining ? `${pct}% used` : `${100 - pct}% left` }, `${shown}%`),
@@ -564,32 +565,27 @@ function bucketNotes(bucket: BucketView): (HTMLElement | null)[] {
 // much of the pool is gone, not a count of requests. The Buckets tab has
 // every account on its own.
 function pooledBars(bucket: BucketView): HTMLElement[] {
-  const pools = new Map<string, { label: string; parts: { who: string; w: UsageWindow }[] }>();
+  type Part = { who: string; pct: number; w: UsageWindow };
+  const pools = new Map<string, Part[]>();
   for (const account of bucket.accounts) {
     if (account.status === 'disabled') continue;
     for (const w of account.windows) {
       if (w.pct === null || w.pct === undefined) continue;
       const label = account.provider === 'claude' ? `Claude ${w.label}` : `GPT ${w.label.replace(/^gpt-/, '')}`;
-      const pool = pools.get(label) ?? { label, parts: [] };
-      pool.parts.push({ who: account.email ?? account.name, w });
-      pools.set(label, pool);
+      pools.set(label, [...(pools.get(label) ?? []), { who: account.email ?? account.name, pct: w.pct, w }]);
     }
   }
   const remaining = current().settings.usageMode === 'remaining';
-  return [...pools.values()].map(({ label, parts }) => {
-    const used = Math.round(parts.reduce((sum, part) => sum + (part.w.pct ?? 0), 0) / parts.length);
-    const resets = parts
-      .map((part) => part.w.resetsAt)
-      .filter((at): at is string => !!at && Date.parse(at) > Date.now())
-      .sort();
-    // The reset that matters is the next one among accounts that are running low.
-    const tight = parts
-      .filter((part) => severityClass(part.w) && part.w.resetsAt && Date.parse(part.w.resetsAt) > Date.now())
-      .map((part) => part.w.resetsAt as string)
-      .sort();
-    const reset = relShort(tight[0] ?? resets[0] ?? null);
-    const about = (part: (typeof parts)[number]): string =>
-      [`${part.w.pct}% used`, relTime(part.w.resetsAt)].filter(Boolean).join(' · ');
+  const shown = (pct: number): number => (remaining ? 100 - pct : pct);
+  const about = (part: Part): string => [`${part.pct}% used`, relTime(part.w.resetsAt)].filter(Boolean).join(' · ');
+  return [...pools].map(([label, parts]) => {
+    const used = Math.round(parts.reduce((sum, part) => sum + part.pct, 0) / parts.length);
+    // The reset that matters is the next one among accounts that are running
+    // low; failing that, the next one at all.
+    const upcoming = parts.filter((part) => part.w.resetsAt && Date.parse(part.w.resetsAt) > Date.now());
+    const low = upcoming.filter((part) => severityClass(part.w));
+    const next = (low.length ? low : upcoming).map((part) => part.w.resetsAt as string).sort()[0];
+    const reset = relShort(next ?? null);
     return el(
       'div',
       { class: 'bar' },
@@ -597,13 +593,9 @@ function pooledBars(bucket: BucketView): HTMLElement[] {
         el(
           'span',
           { class: 'label' },
-          el(
-            'span',
-            { class: 'window' },
-            label,
-            parts.length > 1 ? el('span', { class: 'reset' }, ` ×${parts.length}`) : null,
-            reset ? el('span', { class: 'reset' }, ` · ${reset}`) : null,
-          ),
+          label,
+          parts.length > 1 ? el('span', { class: 'reset' }, ` ×${parts.length}`) : null,
+          reset ? el('span', { class: 'reset' }, ` · ${reset}`) : null,
         ),
         [label, ...parts.map((part) => `${part.who} · ${about(part)}`)],
       ),
@@ -619,17 +611,14 @@ function pooledBars(bucket: BucketView): HTMLElement[] {
               el(
                 'div',
                 { class: 'seg-track' },
-                el('div', {
-                  class: `fill ${severityClass(part.w)}`,
-                  style: `width:${remaining ? 100 - (part.w.pct ?? 0) : (part.w.pct ?? 0)}%`,
-                }),
+                el('div', { class: `fill ${severityClass(part.w)}`, style: `width:${shown(part.pct)}%` }),
               ),
             ),
             [part.who, about(part)],
           ),
         ),
       ),
-      el('span', { class: 'pct' }, `${remaining ? 100 - used : used}%`),
+      el('span', { class: 'pct' }, `${shown(used)}%`),
     );
   });
 }

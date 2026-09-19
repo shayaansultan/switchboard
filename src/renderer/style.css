@@ -134,8 +134,7 @@ section h3 .na { font-weight: 400; color: var(--muted); font-size: 12px; }
 select:focus-visible, button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .bar { display: grid; grid-template-columns: 140px 1fr 40px; align-items: center; gap: 10px; font-size: 12px; min-width: 0; }
 .bucket-usage .bar { grid-template-columns: 172px 1fr 40px; }
-.bar .label { display: flex; gap: 4px; min-width: 0; white-space: nowrap; }
-.bar .label .window { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.bar .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar .reset { color: var(--muted); font-size: 11px; }
 .bar .track { height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; }
 .bar .track.pooled { display: flex; gap: 2px; background: transparent; border-radius: 0; overflow: visible; }
