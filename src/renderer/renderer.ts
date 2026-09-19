@@ -53,12 +53,19 @@ function relTime(iso: string | null): string {
   const m = Math.round(ms / 60000);
   if (m < 60) return `resets in ${m}m`;
   const h = Math.floor(m / 60);
-  if (h < 48) return `resets in ${h}h ${m % 60}m`;
+  if (h < 48) return m % 60 ? `resets in ${h}h ${m % 60}m` : `resets in ${h}h`;
   return `resets in ${Math.round(h / 24)}d`;
+}
+
+// The same moment without the words, for the space beside a bar's label.
+function relShort(iso: string | null): string {
+  return relTime(iso).replace(/^resets (in )?/, '');
 }
 
 // Small stroke icons, coloured by the surrounding text.
 const ICONS = {
+  terminal:
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l3.5-3L3 5"/><path d="M8.5 12h4.5"/></svg>',
   copy: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>',
   check:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3 3 7-7"/></svg>',
@@ -190,6 +197,40 @@ function showMenu(anchor: HTMLElement, items: MenuItem[], place: MenuPlacement =
   (menu.querySelector('button[role=menuitem]:not([disabled])') as HTMLButtonElement | null)?.focus();
 }
 
+// A small dark label above whatever is hovered or focused, for detail that
+// has no room on the card. Like the menu it lives on <body>; it goes away
+// when the pointer leaves, focus moves on, or a render removes its anchor.
+let tipEl: HTMLDivElement | null = null;
+function hideTip(): void {
+  tipEl?.remove();
+  tipEl = null;
+}
+function showTip(anchor: HTMLElement, lines: string[]): void {
+  hideTip();
+  tipEl = el(
+    'div',
+    { class: 'tip', role: 'tooltip' },
+    lines.map((line, i) => el('div', { class: i ? 'sub' : '' }, line)),
+  );
+  document.body.append(tipEl);
+  const r = anchor.getBoundingClientRect();
+  const w = tipEl.offsetWidth;
+  const h = tipEl.offsetHeight;
+  const gap = 6;
+  const margin = 8;
+  const top = r.top - gap - h >= margin ? r.top - gap - h : r.bottom + gap;
+  const left = r.left + r.width / 2 - w / 2;
+  tipEl.style.top = `${top}px`;
+  tipEl.style.left = `${Math.max(margin, Math.min(left, window.innerWidth - w - margin))}px`;
+}
+function withTip<T extends HTMLElement>(node: T, lines: string[]): T {
+  node.addEventListener('mouseenter', () => showTip(node, lines));
+  node.addEventListener('focus', () => showTip(node, lines));
+  node.addEventListener('mouseleave', hideTip);
+  node.addEventListener('blur', hideTip);
+  return node;
+}
+
 async function act(fn: () => unknown, btn?: EventTarget | null): Promise<void> {
   const b = btn instanceof HTMLButtonElement ? btn : null;
   if (b) b.disabled = true;
@@ -202,27 +243,31 @@ async function act(fn: () => unknown, btn?: EventTarget | null): Promise<void> {
   }
 }
 
+// Colour always reflects how close the window is to running out.
+function severityClass(w: UsageWindow): string {
+  const pct = w.pct ?? 0;
+  return w.severity === 'critical' || pct >= 90 ? 'bad' : w.severity === 'warning' || pct >= 70 ? 'warn' : '';
+}
+
 function bar(w: UsageWindow, stale = false): HTMLDivElement {
   const pct = w.pct ?? 0;
-  // Colour always reflects how close the window is to running out.
-  const cls = w.severity === 'critical' || pct >= 90 ? 'bad' : w.severity === 'warning' || pct >= 70 ? 'warn' : '';
+  const cls = severityClass(w);
   const remaining = current().settings.usageMode === 'remaining';
   const shown = remaining ? 100 - pct : pct;
+  const passed = stale && !!w.resetsAt && Date.parse(w.resetsAt) <= Date.now();
+  const reset = passed ? 'reset passed' : relShort(w.resetsAt);
+  const hint = passed ? 'Reset time passed; awaiting updated usage' : relTime(w.resetsAt);
   return el(
     'div',
     { class: 'bar' },
-    el('span', { class: 'label' }, w.label),
+    el(
+      'span',
+      { class: 'label', title: [w.label, hint].filter(Boolean).join(', ') },
+      w.label,
+      reset ? el('span', { class: 'reset' }, ` · ${reset}`) : null,
+    ),
     el('div', { class: 'track' }, el('div', { class: `fill ${cls}`, style: `width:${shown}%` })),
     el('span', { class: 'pct', title: remaining ? `${pct}% used` : `${100 - pct}% left` }, `${shown}%`),
-    w.resetsAt
-      ? el(
-          'span',
-          { class: 'reset' },
-          stale && Date.parse(w.resetsAt) <= Date.now()
-            ? 'Reset time passed; awaiting updated usage'
-            : relTime(w.resetsAt),
-        )
-      : null,
   );
 }
 
@@ -305,8 +350,7 @@ function card(p: ProfileView): HTMLDivElement {
     usageBlock = el(
       'div',
       { class: 'bars' },
-      el('div', { class: 'note' }, `Selected bucket → ${bucket?.name ?? p.proxyBucket}`),
-      bucket ? bucketUsage(bucket) : el('div', { class: 'note' }, 'Bucket unavailable. Choose another connection.'),
+      bucket ? bucketSummary(bucket) : el('div', { class: 'note' }, 'Bucket unavailable. Choose another connection.'),
     );
   }
 
@@ -317,57 +361,62 @@ function card(p: ProfileView): HTMLDivElement {
       disabled: installed ? null : 'true',
       onclick: (e: Event) => act(() => (p.running ? window.sb.quit(p.id) : window.sb.launch(p.id)), e.target),
     },
-    p.running ? 'Quit app' : `Launch ${vendorLabel} app`,
+    p.running ? 'Quit app' : 'Launch app',
   );
 
+  const more = el(
+    'button',
+    {
+      class: 'icon-btn',
+      'aria-label': `More actions for ${p.name}`,
+      onclick: (e: Event) => {
+        // Position among this vendor's added profiles, for the move items.
+        const row = s.profiles.filter((x) => x.vendor === p.vendor && !x.isDefault);
+        const at = row.findIndex((x) => x.id === p.id);
+        const items: MenuItem[] = [
+          { label: 'Refresh usage', run: () => window.sb.refresh(p.id) },
+          { label: id.loggedIn ? 'Sign in CLI again' : 'Sign in CLI', run: () => window.sb.login(p.id) },
+          'separator' as const,
+          ...(p.isDefault
+            ? []
+            : [
+                { label: 'Move left', disabled: at <= 0, run: () => window.sb.moveProfile(p.id, -1) },
+                { label: 'Move right', disabled: at >= row.length - 1, run: () => window.sb.moveProfile(p.id, 1) },
+                'separator' as const,
+                { label: 'Bring over', run: () => openSetup({ target: p }) },
+              ]),
+          { label: 'Show in Finder', run: () => window.sb.reveal(p.id) },
+          ...(p.isDefault
+            ? []
+            : ['separator' as const, { label: 'Remove', danger: true, run: () => window.sb.removeProfile(p.id) }]),
+        ];
+        showMenu(e.currentTarget as HTMLElement, items);
+      },
+      title: 'More',
+    },
+    '⋯',
+  );
+
+  // One row: the launch button, the model connection where there is a
+  // choice, then the small tools pushed to the right.
   const buttons = el(
     'div',
     { class: 'buttons' },
     launchBtn,
+    p.vendor === 'codex' ? connectionControl(p) : null,
+    el('span', { class: 'spacer' }),
     el(
       'button',
       {
-        onclick: (e: Event) => act(() => window.sb.shell(p.id), e.target),
+        class: 'icon-btn',
+        'aria-label': `Terminal for ${p.name}`,
+        onclick: (e: Event) => act(() => window.sb.shell(p.id), e.currentTarget),
         title: 'Open a terminal already pointed at this profile',
       },
-      'Terminal',
+      icon('terminal'),
     ),
-    el(
-      'button',
-      {
-        onclick: (e: Event) => act(() => window.sb.login(p.id), e.target),
-        title: 'Sign the CLI into this profile (needed for usage). Run again if the token expires.',
-      },
-      'Sign in CLI',
-    ),
-    el('button', { onclick: (e: Event) => act(() => window.sb.refresh(p.id), e.target), title: 'Refresh usage' }, '↻'),
-    el(
-      'button',
-      {
-        onclick: (e: Event) => {
-          // Position among this vendor's added profiles, for the move items.
-          const row = s.profiles.filter((x) => x.vendor === p.vendor && !x.isDefault);
-          const at = row.findIndex((x) => x.id === p.id);
-          const items: MenuItem[] = [
-            ...(p.isDefault
-              ? []
-              : [
-                  { label: 'Move left', disabled: at <= 0, run: () => window.sb.moveProfile(p.id, -1) },
-                  { label: 'Move right', disabled: at >= row.length - 1, run: () => window.sb.moveProfile(p.id, 1) },
-                  'separator' as const,
-                  { label: 'Bring over', run: () => openSetup({ target: p }) },
-                ]),
-            { label: 'Show in Finder', run: () => window.sb.reveal(p.id) },
-            ...(p.isDefault
-              ? []
-              : ['separator' as const, { label: 'Remove', danger: true, run: () => window.sb.removeProfile(p.id) }]),
-          ];
-          showMenu(e.currentTarget as HTMLElement, items);
-        },
-        title: 'More',
-      },
-      '⋯',
-    ),
+    copyButton(p),
+    more,
   );
 
   const notes: HTMLElement[] = [];
@@ -377,10 +426,7 @@ function card(p: ProfileView): HTMLDivElement {
       el(
         'div',
         { class: 'note' },
-        el('b', {}, 'First sign-in tip: '),
-        'the login link opens in whichever instance is running, so quit the other ',
-        vendorLabel,
-        ' windows before signing into this one. ',
+        `Before the first sign-in, quit the other ${vendorLabel} windows: the login link opens in whichever is running. `,
         el(
           'a',
           {
@@ -427,11 +473,30 @@ function card(p: ProfileView): HTMLDivElement {
     ),
     pending
       ? el('div', { class: 'ident' }, el('span', { class: 'skel', style: 'width:180px' }))
-      : el('div', { class: `ident ${id.loggedIn ? '' : 'err'}` }, identText),
+      : el(
+          'div',
+          { class: `ident ${id.loggedIn ? '' : 'err'}` },
+          identText,
+          id.loggedIn
+            ? null
+            : [
+                ' · ',
+                el(
+                  'a',
+                  {
+                    href: '#',
+                    title: 'Sign the CLI into this profile (needed for usage).',
+                    onclick: (e: Event) => {
+                      e.preventDefault();
+                      act(() => window.sb.login(p.id));
+                    },
+                  },
+                  'Sign in CLI',
+                ),
+              ],
+        ),
     usageBlock,
-    p.vendor === 'codex' ? connectionControl(p) : null,
     buttons,
-    cliBox(p),
     notes,
   );
 }
@@ -461,24 +526,22 @@ function connectionControl(p: ProfileView): HTMLElement {
       }
     });
   });
-  return el(
-    'div',
-    { class: 'connection' },
-    el('label', {}, 'Desktop model connection', select),
-    el(
-      'div',
-      { class: 'note' },
-      p.running
-        ? 'Connection changes take effect on the next launch from Switchboard.'
-        : 'Applies when launched from Switchboard. Terminal uses its native account.',
-    ),
-  );
+  select.title = p.running
+    ? 'Model connection. Changes take effect on the next launch from Switchboard.'
+    : 'Model connection. Applies when launched from Switchboard; Terminal uses the native account.';
+  return el('div', { class: 'connection' }, select);
 }
 
-function bucketUsage(bucket: import('../types').BucketView): HTMLElement {
-  return el(
-    'div',
-    { class: 'bucket-usage' },
+type BucketView = import('../types').BucketView;
+type BucketAccount = BucketView['accounts'][number];
+
+function providerLabel(account: BucketAccount): string {
+  return account.provider === 'claude' ? 'Claude' : 'ChatGPT';
+}
+
+// Why a bucket shows no bars, or fewer than expected.
+function bucketNotes(bucket: BucketView): (HTMLElement | null)[] {
+  return [
     bucket.status !== 'running'
       ? el(
           'div',
@@ -488,128 +551,205 @@ function bucketUsage(bucket: import('../types').BucketView): HTMLElement {
             : 'Worker is unreachable. Check its status before restarting.',
         )
       : null,
-    bucket.accounts.map((account) =>
-      el(
-        'div',
-        { class: 'bucket-member' },
-        el(
-          'div',
-          { class: 'note' },
-          `${account.provider === 'claude' ? 'Claude' : 'ChatGPT'} · ${account.email ?? account.name}${account.status !== 'fresh' ? ` · ${account.status}` : ''}`,
-        ),
-        account.windows.map((w) => bar(w, account.status !== 'fresh')),
-      ),
-    ),
     bucket.status === 'running' && !bucket.accounts.length
       ? el('div', { class: 'note' }, 'No accounts reported yet. Refresh or add an account.')
       : null,
     bucket.error ? el('div', { class: 'note' }, bucket.error) : null,
+  ];
+}
+
+// On a profile card a bucket is pooled: one bar per provider and window,
+// cut into a segment per account, so "GPT 7d" reads as one quota while a
+// spent account still shows as a full segment. The number is the mean, which
+// treats the accounts as equal in size; plans differ, so it is a guide to how
+// much of the pool is gone, not a count of requests. The Buckets tab has
+// every account on its own.
+function pooledBars(bucket: BucketView): HTMLElement[] {
+  type Part = { who: string; pct: number; w: UsageWindow };
+  const pools = new Map<string, Part[]>();
+  for (const account of bucket.accounts) {
+    if (account.status === 'disabled') continue;
+    for (const w of account.windows) {
+      if (w.pct === null || w.pct === undefined) continue;
+      const label = account.provider === 'claude' ? `Claude ${w.label}` : `GPT ${w.label.replace(/^gpt-/, '')}`;
+      pools.set(label, [...(pools.get(label) ?? []), { who: account.email ?? account.name, pct: w.pct, w }]);
+    }
+  }
+  const remaining = current().settings.usageMode === 'remaining';
+  const shown = (pct: number): number => (remaining ? 100 - pct : pct);
+  const about = (part: Part): string => [`${part.pct}% used`, relTime(part.w.resetsAt)].filter(Boolean).join(' · ');
+  return [...pools].map(([label, parts]) => {
+    const used = Math.round(parts.reduce((sum, part) => sum + part.pct, 0) / parts.length);
+    // The reset that matters is the next one among accounts that are running
+    // low; failing that, the next one at all.
+    const upcoming = parts.filter((part) => part.w.resetsAt && Date.parse(part.w.resetsAt) > Date.now());
+    const low = upcoming.filter((part) => severityClass(part.w));
+    const next = (low.length ? low : upcoming).map((part) => part.w.resetsAt as string).sort()[0];
+    const reset = relShort(next ?? null);
+    return el(
+      'div',
+      { class: 'bar' },
+      withTip(
+        el(
+          'span',
+          { class: 'label' },
+          label,
+          parts.length > 1 ? el('span', { class: 'reset' }, ` ×${parts.length}`) : null,
+          reset ? el('span', { class: 'reset' }, ` · ${reset}`) : null,
+        ),
+        [label, ...parts.map((part) => `${part.who} · ${about(part)}`)],
+      ),
+      el(
+        'div',
+        { class: 'track pooled' },
+        // Each segment answers for its own account when hovered or tabbed to.
+        parts.map((part) =>
+          withTip(
+            el(
+              'div',
+              { class: 'seg', tabindex: '0', 'aria-label': `${part.who}, ${about(part)}` },
+              el(
+                'div',
+                { class: 'seg-track' },
+                el('div', { class: `fill ${severityClass(part.w)}`, style: `width:${shown(part.pct)}%` }),
+              ),
+            ),
+            [part.who, about(part)],
+          ),
+        ),
+      ),
+      el('span', { class: 'pct' }, `${shown(used)}%`),
+    );
+  });
+}
+
+function bucketSummary(bucket: BucketView): HTMLElement {
+  return el(
+    'div',
+    { class: 'bucket-usage' },
+    el('div', { class: 'note' }, `Usage from the ${bucket.name} bucket`),
+    pooledBars(bucket),
+    bucketNotes(bucket),
+  );
+}
+
+function accountRow(bucket: BucketView, account: BucketAccount): HTMLElement {
+  const off = account.status === 'disabled';
+  return el(
+    'div',
+    { class: `acct ${off ? 'off' : ''}` },
+    el(
+      'span',
+      { class: 'who', title: account.email ?? account.name },
+      el('span', { class: 'prov' }, `${providerLabel(account)} `),
+      account.email ?? account.name,
+      account.status !== 'fresh' ? el('span', { class: 'prov' }, ` · ${account.status}`) : null,
+    ),
+    el(
+      'div',
+      { class: 'acct-windows' },
+      account.windows.map((w) => bar(w, account.status !== 'fresh')),
+    ),
+    el(
+      'button',
+      { onclick: (e: Event) => act(() => window.sb.setBucketAccount(bucket.id, account.name, off), e.currentTarget) },
+      off ? 'Enable' : 'Disable',
+    ),
+  );
+}
+
+// A tinted band with the bucket's name, state and actions, then one row per
+// account.
+function bucketPanel(bucket: BucketView): HTMLElement {
+  const users = current().profiles.filter((p) => p.proxyBucket === bucket.id);
+  const running = bucket.status === 'running';
+  return el(
+    'div',
+    { class: 'bucket', 'data-bucket': bucket.id },
+    el(
+      'div',
+      { class: 'bucket-head' },
+      el('span', { class: 'name' }, bucket.name),
+      el('span', { class: `status ${running ? 'on' : ''}` }, bucket.status),
+      el(
+        'span',
+        { class: 'badge used-by' },
+        users.length
+          ? `Used by ${users.map((p) => `${current().vendors[p.vendor].label} ${p.name}`).join(', ')}`
+          : 'No desktop profiles assigned',
+      ),
+      el(
+        'div',
+        { class: 'buttons' },
+        el(
+          'button',
+          {
+            onclick: (e: Event) =>
+              showMenu(e.currentTarget as HTMLElement, [
+                { label: 'Add ChatGPT account', run: () => window.sb.bucketAction(bucket.id, 'login', 'codex') },
+                { label: 'Add Claude account', run: () => window.sb.bucketAction(bucket.id, 'login', 'claude') },
+              ]),
+          },
+          'Add account ▾',
+        ),
+        running
+          ? el(
+              'button',
+              {
+                class: 'icon-btn',
+                'aria-label': 'Refresh bucket',
+                title: 'Refresh bucket',
+                onclick: (e: Event) => act(() => window.sb.bucketAction(bucket.id, 'refresh'), e.currentTarget),
+              },
+              '↻',
+            )
+          : el(
+              'button',
+              {
+                class: 'primary',
+                onclick: (e: Event) => act(() => window.sb.bucketAction(bucket.id, 'start'), e.currentTarget),
+              },
+              'Start bucket',
+            ),
+        bucket.status === 'stopped'
+          ? null
+          : el(
+              'button',
+              {
+                class: 'quiet',
+                onclick: (e: Event) =>
+                  act(async () => {
+                    if (
+                      confirm(`Stop ${bucket.name}? This interrupts model requests from every app using this bucket.`)
+                    )
+                      await window.sb.bucketAction(bucket.id, 'stop');
+                  }, e.currentTarget),
+              },
+              'Stop',
+            ),
+      ),
+    ),
+    el(
+      'div',
+      { class: 'bucket-body' },
+      bucket.accounts.map((account) => accountRow(bucket, account)),
+      bucketNotes(bucket),
+    ),
   );
 }
 
 function bucketSection(): HTMLElement {
+  const buckets = current().buckets ?? [];
   return el(
-    'details',
-    { id: 'proxy-buckets' },
-    el('summary', {}, `Proxy buckets · ${(current().buckets ?? []).length} · Manage accounts`),
+    'section',
+    { class: 'bucket-list' },
     el(
-      'section',
-      { class: 'bucket-panel' },
-      el('h3', {}, 'Proxy buckets', el('button', { onclick: openBucketCreate }, '+ Bucket')),
-      el(
-        'p',
-        { class: 'hint' },
-        'Shared model capacity for Codex desktop and OpenCode. Connected services keep their own identities.',
-      ),
-      current().bucketsError ? el('p', { class: 'note' }, current().bucketsError) : null,
-      el(
-        'div',
-        { class: 'grid' },
-        (current().buckets ?? []).map((bucket) =>
-          el(
-            'div',
-            { class: 'card bucket-card', 'data-bucket': bucket.id },
-            el(
-              'div',
-              { class: 'head' },
-              el('span', { class: 'name' }, bucket.name),
-              el('span', { class: 'badge' }, bucket.status),
-            ),
-            el(
-              'div',
-              { class: 'note' },
-              `${bucket.status === 'running' ? `${bucket.accounts.length} accounts` : 'Start to load accounts'} · ${current().profiles.filter((p) => p.proxyBucket === bucket.id).length} desktop profiles`,
-            ),
-            bucketUsage(bucket),
-            el(
-              'div',
-              { class: 'buttons' },
-              el(
-                'button',
-                {
-                  onclick: (e: Event) =>
-                    act(
-                      () => window.sb.bucketAction(bucket.id, bucket.status === 'running' ? 'refresh' : 'start'),
-                      e.currentTarget,
-                    ),
-                },
-                bucket.status === 'running' ? 'Refresh bucket' : 'Start bucket',
-              ),
-              el(
-                'button',
-                {
-                  onclick: (e: Event) =>
-                    showMenu(e.currentTarget as HTMLElement, [
-                      { label: 'Add ChatGPT account', run: () => window.sb.bucketAction(bucket.id, 'login', 'codex') },
-                      { label: 'Add Claude account', run: () => window.sb.bucketAction(bucket.id, 'login', 'claude') },
-                    ]),
-                },
-                'Add account ▾',
-              ),
-              el(
-                'button',
-                {
-                  onclick: (e: Event) =>
-                    act(async () => {
-                      if (
-                        confirm(`Stop ${bucket.name}? This interrupts model requests from every app using this bucket.`)
-                      )
-                        await window.sb.bucketAction(bucket.id, 'stop');
-                    }, e.currentTarget),
-                  disabled: bucket.status === 'stopped' ? 'true' : null,
-                },
-                'Stop',
-              ),
-            ),
-            bucket.accounts.length
-              ? el(
-                  'details',
-                  { 'data-account-management': bucket.id },
-                  el('summary', {}, 'Manage accounts'),
-                  bucket.accounts.map((account) =>
-                    el(
-                      'div',
-                      { class: 'bucket-account' },
-                      el('span', {}, account.email ?? account.name),
-                      el(
-                        'button',
-                        {
-                          onclick: (e: Event) =>
-                            act(
-                              () => window.sb.setBucketAccount(bucket.id, account.name, account.status === 'disabled'),
-                              e.currentTarget,
-                            ),
-                        },
-                        account.status === 'disabled' ? 'Enable' : 'Disable',
-                      ),
-                    ),
-                  ),
-                )
-              : null,
-          ),
-        ),
-      ),
+      'p',
+      { class: 'hint' },
+      'Shared model capacity for Codex desktop and OpenCode. Assign a bucket from the connection menu on a Codex card.',
     ),
+    current().bucketsError ? el('p', { class: 'note' }, current().bucketsError) : null,
+    buckets.length ? buckets.map(bucketPanel) : el('div', { class: 'empty' }, 'No buckets yet'),
   );
 }
 
@@ -629,16 +769,17 @@ document
   .getElementById('bucket-cancel')
   ?.addEventListener('click', () => (document.getElementById('bucket-dialog') as HTMLDialogElement).close());
 
-// The command that enters this profile, as selectable text, with a button
-// that copies it. The icon flips to a tick for a moment so the click is seen
-// to have done something.
-function cliBox(p: ProfileView): HTMLDivElement {
+// Copies the command that enters this profile. The tooltip shows it, and
+// the icon flips to a tick for a moment so the click is seen to have done
+// something.
+function copyButton(p: ProfileView): HTMLButtonElement {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const btn = el(
     'button',
     {
-      class: 'copy-btn',
-      title: 'Copy command',
+      class: 'icon-btn copy-btn',
+      'aria-label': `Copy CLI command for ${p.name}`,
+      title: `Copy command: ${p.cli}`,
       onclick: () => {
         window.sb.copyCommand(p.id);
         btn.classList.add('copied');
@@ -649,7 +790,15 @@ function cliBox(p: ProfileView): HTMLDivElement {
     icon('copy'),
     icon('check'),
   );
-  return el('div', { class: 'cli' }, el('span', { class: 'cmd' }, p.cli), btn);
+  return btn;
+}
+
+// Accounts or Buckets. Every launch starts on Accounts.
+let tab: 'accounts' | 'buckets' = 'accounts';
+function showTab(next: typeof tab): void {
+  tab = next;
+  closeMenu();
+  render();
 }
 
 function render(): void {
@@ -657,17 +806,22 @@ function render(): void {
   // A poll or the minute tick must not wipe out a rename in progress. The
   // next render after editing ends picks up whatever state arrived meanwhile.
   if (root.querySelector('.name input, .connection select:focus')) return;
-  const bucketsOpen = (document.getElementById('proxy-buckets') as HTMLDetailsElement | null)?.open;
-  const openAccounts = new Set(
-    [...root.querySelectorAll('details[data-account-management][open]')].map((node) =>
-      node.getAttribute('data-account-management'),
-    ),
-  );
+  for (const [name, count] of [
+    ['accounts', state.profiles.length],
+    ['buckets', (state.buckets ?? []).length],
+  ] as const) {
+    const button = byId(`tab-${name}`);
+    button.setAttribute('aria-selected', String(tab === name));
+    button.querySelector('.count')!.textContent = String(count);
+  }
+  byId('add').hidden = tab !== 'accounts';
+  byId('add-bucket').hidden = tab !== 'buckets';
+  hideTip();
   root.replaceChildren();
-  root.append(bucketSection());
-  (document.getElementById('proxy-buckets') as HTMLDetailsElement).open = !!bucketsOpen;
-  for (const node of root.querySelectorAll<HTMLDetailsElement>('details[data-account-management]'))
-    node.open = openAccounts.has(node.getAttribute('data-account-management'));
+  if (tab === 'buckets') {
+    root.append(bucketSection());
+    return;
+  }
   for (const [vendor, v] of Object.entries(state.vendors)) {
     const list = state.profiles.filter((p) => p.vendor === vendor);
     root.append(
@@ -746,6 +900,9 @@ function openSetup({ target }: { target?: ProfileView } = {}): void {
 }
 
 byId('add').onclick = () => openSetup();
+byId('add-bucket').onclick = openBucketCreate;
+byId('tab-accounts').onclick = () => showTab('accounts');
+byId('tab-buckets').onclick = () => showTab('buckets');
 field(addForm, 'vendor').onchange = renderSetupOptions;
 field(addForm, 'source').onchange = () => {
   byId('add-items').hidden = !field<HTMLSelectElement>(addForm, 'source').value;

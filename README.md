@@ -43,7 +43,7 @@ them itself.
 
 Yes. Each profile gets its own CLI login, and the **Terminal** button opens a
 shell already inside that account, so `claude` or `codex` in that window uses
-it. The one-line command on each card can be copied into an alias.
+it. The copy icon on each card copies the one-line command, which can go into an alias.
 
 Signing a profile's CLI in is also what enables its usage bars.
 
@@ -140,12 +140,13 @@ switch; started that way it stays in the menu bar until you click it.
 
 1. Click **+ Profile**, pick the app and name it, then choose which existing
    profile to start from and what to bring over.
-2. Click **Launch … app**. A fresh window opens with no session. Quit the other
+2. Click **Launch app**. A fresh window opens with no session. Quit the other
    windows of that app first, using the "Quit others now" link on the card. The
    sign-in link is delivered to whichever window macOS picks.
-3. Click **Sign in CLI**. A terminal opens running `claude auth login` or
+3. Click **Sign in CLI** on the card's warning line (or in its **⋯** menu). A
+   terminal opens running `claude auth login` or
    `codex login` inside that profile. This is what enables the usage bars.
-4. **Terminal** opens a shell already inside the profile, in whichever terminal
+4. The terminal icon opens a shell already inside the profile, in whichever terminal
    you choose in Settings. Terminal.app, iTerm2, Ghostty, Warp, kitty, Alacritty
    and WezTerm are supported, and only the installed ones are listed.
 
