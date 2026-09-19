@@ -1,11 +1,13 @@
-import * as proxy from './proxy';
+import * as proxy from '../buckets/proxy';
 import { refreshModelCatalog } from './models';
 import { poolId, selectedPoolModel } from './selection';
 import type { Profile } from './types';
 
 export async function preparePool(profile: Profile, cli: string): Promise<{ port: number; accounts: number }> {
   const worker = await proxy.ensureWorker(profile.id, cli);
-  const accounts = await proxy.accounts(profile.id, worker.receipt.proxyPort);
+  const accounts = (await proxy.accounts(profile.id, worker.receipt.proxyPort)).filter(
+    (account) => (account.provider ?? account.type) === 'codex',
+  );
   if (!accounts.some((account) => !account.disabled)) {
     throw new Error(`No AI account is connected to ${profile.name}. Run: oc login ${profile.id}`);
   }

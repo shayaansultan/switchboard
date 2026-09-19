@@ -1,12 +1,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { root, readJson, writeJson } from '../storage';
+export { root, readJson, writeJson } from '../storage';
 import { Profile, ProfileId, ModelId, Secrets, Connection, Service, Identity } from './types';
 
-export function root(): string {
-  return path.resolve(process.env.SWITCHBOARD_ROOT || path.join(os.homedir(), '.switchboard'));
-}
 export function paths(value: string) {
   const id = ProfileId.parse(value);
   const base = path.join(root(), 'opencode', id);
@@ -19,19 +17,6 @@ export function paths(value: string) {
     proxy: path.join(base, 'proxy'),
     auth: path.join(base, 'proxy', 'auth'),
   };
-}
-export function writeJson(file: string, value: unknown): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const temporary = `${file}.${randomUUID()}.tmp`;
-  try {
-    fs.writeFileSync(temporary, JSON.stringify(value, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
-    fs.renameSync(temporary, file);
-  } finally {
-    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
-  }
-}
-export function readJson(file: string): unknown {
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 export function load(id: string): Profile {
   const profile = Profile.parse(readJson(path.join(paths(id).base, 'profile.json')));
@@ -73,6 +58,7 @@ export function create(name: string): Profile {
       .slice(0, 64),
   );
   const directory = paths(id);
+  if (fs.existsSync(path.join(root(), 'buckets', id))) throw new Error('A shared bucket with that name already exists');
   fs.mkdirSync(path.dirname(directory.base), { recursive: true, mode: 0o700 });
   // Exclusive creation must never adopt old credentials left in an orphan folder.
   fs.mkdirSync(directory.base, { mode: 0o700 });

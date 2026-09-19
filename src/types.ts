@@ -24,6 +24,7 @@ export interface Profile {
   name: string;
   isDefault: boolean;
   color: string;
+  proxyBucket?: string;
   createdAt?: string;
   setup?: { from: string; items: string[]; mode: BringMode; at: string };
 }
@@ -141,6 +142,14 @@ export interface ProfileView extends Profile, Live {
   cli: string;
 }
 
+export interface BucketView {
+  id: string;
+  name: string;
+  status: 'running' | 'stopped' | 'unreachable';
+  accounts: import('./buckets/proxy').AccountUsage[];
+  error?: string;
+}
+
 // Everything the window renders from. Never a token.
 export interface State {
   awake: AwakeState;
@@ -150,6 +159,8 @@ export interface State {
   setupItems: Record<Vendor, SetupItemView[]>;
   vendors: Record<Vendor, { label: string; installed: boolean }>;
   profiles: ProfileView[];
+  buckets: BucketView[];
+  bucketsError?: string;
 }
 
 // The preload bridge, as `window.sb` in the renderer.
@@ -158,6 +169,14 @@ export interface SwitchboardApi {
   refreshAwake(reason?: AwakeRefresh): Promise<void>;
   onAwakeState(fn: (s: AwakeState) => void): void;
   getState(): Promise<State>;
+  setProxyBucket(id: string, bucket: string | null): Promise<void>;
+  createBucket(name: string): Promise<void>;
+  bucketAction(
+    id: string,
+    action: 'start' | 'refresh' | 'stop' | 'login',
+    provider?: 'codex' | 'claude',
+  ): Promise<void>;
+  setBucketAccount(id: string, name: string, enabled: boolean): Promise<void>;
   measureSizes(): Promise<State>;
   refresh(id?: string): Promise<State>;
   addProfile(p: AddOptions): Promise<{ profile: Profile; result: BringResult }>;

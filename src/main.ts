@@ -16,6 +16,9 @@ import * as path from 'node:path';
 import * as profiles from './profiles';
 import * as launch from './launch';
 import * as usage from './usage';
+import * as buckets from './buckets';
+import { shellQuote } from './buckets/desktop';
+import { z } from 'zod';
 import { AwakeController, isAwakeValue, macAwakeSystem } from './awake';
 import { barPng, meterPng, stripPng } from './trayart';
 import { composeTrayText, type TrayText } from './tray-status';
@@ -77,6 +80,21 @@ const awake = new AwakeController(macAwakeSystem, (state) => {
 });
 // Per-profile live state: what is running, who is signed in, last usage.
 const live = new Map<string, Live>();
+let bucketViews: State['buckets'] = [];
+let bucketsError: string | undefined;
+let bucketRefresh = 0;
+async function refreshBuckets(): Promise<void> {
+  const version = ++bucketRefresh;
+  try {
+    const next = await buckets.snapshot();
+    if (version !== bucketRefresh) return;
+    bucketViews = next;
+    bucketsError = undefined;
+  } catch (error) {
+    if (version !== bucketRefresh) return;
+    bucketsError = error instanceof Error ? error.message : 'Cannot read proxy buckets';
+  }
+}
 
 // Last known identity and usage per profile, so the window has numbers the
 // moment it opens instead of blanks while the first refresh runs.
@@ -150,6 +168,8 @@ function byVendor<T>(fn: (v: Vendor) => T): Record<Vendor, T> {
 function stateSnapshot(): State {
   return {
     awake: awake.snapshot(),
+    buckets: bucketViews,
+    bucketsError,
     settings: data.settings,
     palette: profiles.PALETTE,
     terminals: launch.installedTerminals().map((t) => ({ id: t.id, label: t.label })),
@@ -249,6 +269,7 @@ function refreshProfile(p: Profile, force: boolean): Promise<void> {
 
 async function refreshAll(onlyId?: string, force = false): Promise<void> {
   await refreshRunning();
+  await refreshBuckets();
   const list = onlyId ? data.profiles.filter((p) => p.id === onlyId) : data.profiles;
   await Promise.all(list.map((p) => refreshProfile(p, force).catch(() => {})));
   saveCache();
@@ -257,7 +278,7 @@ async function refreshAll(onlyId?: string, force = false): Promise<void> {
 
 // Launching or quitting an app only changes what's running, not the quota.
 async function refreshRunningOnly(): Promise<void> {
-  await refreshRunning();
+  await Promise.all([refreshRunning(), refreshBuckets()]);
   broadcast();
 }
 
@@ -444,9 +465,9 @@ function rebuildTray(): void {
           {
             label: s.running ? 'Quit app' : 'Launch app',
             click: () =>
-              (s.running ? launch.quitDesktop(p) : launch.launchDesktop(p)).then(() =>
-                setTimeout(() => refreshRunningOnly(), 1500),
-              ),
+              (s.running ? launch.quitDesktop(p) : launch.launchDesktop(p))
+                .then(() => setTimeout(() => refreshRunningOnly(), 1500))
+                .catch((error: Error) => dialog.showErrorBox('Could not launch app', error.message)),
           },
           { label: 'Open terminal here', click: () => launch.openShell(p, data.settings) },
           { label: 'Refresh usage', click: () => refreshAll(p.id, true) },
@@ -488,19 +509,19 @@ function relTime(iso: string): string {
 }
 
 // ---- IPC ----
-function validateAwakeSender(event: Electron.IpcMainInvokeEvent): void {
+function validateSender(event: Electron.IpcMainInvokeEvent): void {
   if (!win || event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame) {
-    throw new Error('Untrusted keep-awake request');
+    throw new Error('Untrusted Switchboard request');
   }
 }
 
 ipcMain.handle('awake:set', (event, value: unknown) => {
-  validateAwakeSender(event);
+  validateSender(event);
   if (!isAwakeValue(value)) throw new Error('Invalid keep-awake value');
   return awake.set(value);
 });
 ipcMain.handle('awake:refresh', (event, reason: unknown) => {
-  validateAwakeSender(event);
+  validateSender(event);
   if (reason !== 'observe' && reason !== 'recheck') throw new Error('Invalid keep-awake refresh');
   return awake.refresh(reason);
 });
@@ -510,6 +531,50 @@ const byId = (id: string): Profile => {
   if (!p) throw new Error('no such profile');
   return p;
 };
+
+ipcMain.handle('buckets:assign', (event, id: string, bucket: unknown) => {
+  validateSender(event);
+  const p = byId(id);
+  if (p.vendor !== 'codex') throw new Error('Proxy routing is available for Codex desktop profiles');
+  const target = z.string().nullable().parse(bucket);
+  if (target !== null) buckets.load(target);
+  const next = { ...p };
+  if (target === null) delete next.proxyBucket;
+  else next.proxyBucket = target;
+  const updated = data.profiles.map((profile) => (profile.id === id ? next : profile));
+  profiles.save({ ...data, profiles: updated });
+  data.profiles = updated;
+  broadcast();
+});
+ipcMain.handle('buckets:create', async (event, name: unknown) => {
+  validateSender(event);
+  buckets.create(z.string().parse(name));
+  await refreshBuckets();
+  broadcast();
+});
+ipcMain.handle('buckets:action', async (event, id: string, input: unknown, provider: unknown) => {
+  validateSender(event);
+  const action = z.enum(['start', 'refresh', 'stop', 'login']).parse(input);
+  buckets.load(id);
+  try {
+    if (action === 'login') {
+      const command = await buckets.loginCommand(id, z.enum(['codex', 'claude']).default('codex').parse(provider));
+      await launch.openTerminal(command.map(shellQuote).join(' '), { terminal: data.settings.terminal });
+    } else await buckets[action](id);
+  } finally {
+    await refreshBuckets();
+    broadcast();
+  }
+});
+ipcMain.handle('buckets:account', async (event, id: string, name: unknown, enabled: unknown) => {
+  validateSender(event);
+  try {
+    await buckets.setAccountEnabled(id, z.string().parse(name), z.boolean().parse(enabled));
+  } finally {
+    await refreshBuckets();
+    broadcast();
+  }
+});
 
 ipcMain.handle('state:get', () => {
   noteInteraction();

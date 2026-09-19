@@ -10,8 +10,9 @@ import { promisify } from 'node:util';
 import { create, paths, root, writeJson, secrets, save } from '../src/opencode/profiles';
 import { ModelId } from '../src/opencode/types';
 import { launchEnv } from '../src/opencode/launch';
-import { control, ensureWorker } from '../src/opencode/proxy';
+import { control, ensureWorker } from '../src/buckets/proxy';
 import { saveModel } from '../src/opencode/selection';
+import { wrapperScript, codexBinary } from '../src/buckets/desktop';
 
 const live = process.env.SWITCHBOARD_LIVE_TESTS === '1' ? test : test.skip;
 const execute = promisify(execFile);
@@ -243,7 +244,7 @@ live(
 );
 
 live(
-  'real OpenCode receives a streamed response through the real proxy after account failover',
+  'real desktop Codex and OpenCode share a proxy, stream, resume and survive account failover',
   async () => {
     const previous = process.env.SWITCHBOARD_ROOT;
     const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-inference-'));
@@ -321,6 +322,38 @@ live(
       }
       expect(ready).toBe(true);
 
+      const codexHome = path.join(temporary, 'codex-home');
+      fs.mkdirSync(codexHome);
+      fs.writeFileSync(path.join(codexHome, 'config.toml'), 'model = "gpt-5.4"\n');
+      const wrapper = path.join(temporary, 'codex-desktop-wrapper');
+      fs.writeFileSync(wrapper, wrapperScript(codexBinary, `http://127.0.0.1:${proxyPort}/v1`), { mode: 0o700 });
+      const codexEnv = { ...process.env, CODEX_HOME: codexHome, SWITCHBOARD_PROXY_API_KEY: secrets(profile.id).apiKey };
+      const firstCodex = execute(
+        wrapper,
+        ['exec', '--skip-git-repo-check', '--json', '-m', 'gpt-5.4', 'Reply briefly.'],
+        { env: codexEnv, cwd: temporary, timeout: 60000 },
+      );
+      firstCodex.child.stdin?.end();
+      const codexResult = await firstCodex;
+      expect(codexResult.stdout).toContain('profile-fixture-ok');
+      expect(calls).toContain('Bearer fixture-exhausted');
+      expect(calls).toContain('Bearer fixture-healthy');
+      const thread = codexResult.stdout
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+        .find((event) => event.type === 'thread.started').thread_id;
+      calls.length = 0;
+      const resumedCodex = execute(
+        wrapper,
+        ['exec', 'resume', '--skip-git-repo-check', '--json', thread, 'Reply again.'],
+        { env: codexEnv, cwd: temporary, timeout: 60000 },
+      );
+      resumedCodex.child.stdin?.end();
+      expect((await resumedCodex).stdout).toContain('profile-fixture-ok');
+      expect(calls.length).toBeGreaterThan(0);
+      expect(calls.every((account) => account === 'Bearer fixture-healthy')).toBe(true);
+
       const env = launchEnv(profile, proxyPort, temporary);
       const running = execute(
         'opencode',
@@ -337,7 +370,6 @@ live(
       running.child.stdin?.end();
       const result = await running;
       expect(result.stdout).toContain('profile-fixture-ok');
-      expect(calls).toContain('Bearer fixture-exhausted');
       expect(calls).toContain('Bearer fixture-healthy');
     } finally {
       child.kill('SIGTERM');

@@ -17,7 +17,9 @@ import * as path from 'node:path';
 import { recoverClaudeToken } from './claude-recovery';
 import { run, haveCommand, type RunError } from './launch';
 import { VENDORS, dirs } from './store';
-import type { Identity, Profile, Usage, UsageWindow } from './types';
+import type { Identity, Profile, Usage } from './types';
+import { parseClaudeUsage, parseCodexUsage } from './usage-parsers';
+export { parseClaudeUsage, parseCodexUsage } from './usage-parsers';
 
 const CLAUDE_USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
 const CODEX_USAGE_URLS = [
@@ -143,18 +145,6 @@ function retryDelay(res: Response): number {
   return ra > 0 ? ra * 1000 : 15 * 60 * 1000;
 }
 
-function pct(x: unknown): number | null {
-  const n = Number(x);
-  return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : null;
-}
-
-function isoOrNull(x: unknown): string | null {
-  if (!x) return null;
-  if (typeof x === 'number') return new Date(x < 1e12 ? x * 1000 : x).toISOString();
-  const t = Date.parse(String(x));
-  return Number.isNaN(t) ? null : new Date(t).toISOString();
-}
-
 async function claudeUsage(profile: Profile, dependencies: UsageDependencies = {}): Promise<Usage> {
   const d = dirs(profile);
   const readCredential = dependencies.readClaudeCredential ?? claudeToken;
@@ -198,34 +188,6 @@ async function claudeUsage(profile: Profile, dependencies: UsageDependencies = {
   if (!res.ok) return { error: `usage API ${res.status}` };
   const windows = parseClaudeUsage(await res.json());
   return { windows, plan: planName(cred.subscriptionType), fetchedAt: new Date().toISOString() };
-}
-
-// The usage endpoint's JSON, as a list of windows for the bars. Pure, so the
-// shapes the endpoint has been seen to return can be pinned down in tests.
-export function parseClaudeUsage(j: Json): UsageWindow[] {
-  const windows: UsageWindow[] = [];
-  if (Array.isArray(j.limits) && j.limits.length) {
-    // `limits` is the complete list: the session window, the weekly window,
-    // and any model- or surface-scoped weekly windows (e.g. a Fable pool).
-    for (const l of j.limits) {
-      if (l.percent == null) continue;
-      const scope = l.scope || {};
-      const scopeName = (scope.model && scope.model.display_name) || scope.surface || null;
-      let label: string;
-      if (l.kind === 'session') label = '5h';
-      else if (l.kind === 'weekly_all') label = '7d';
-      else label = `${l.group === 'session' ? '5h' : '7d'} ${scopeName || l.kind}`;
-      windows.push({ label, pct: pct(l.percent), resetsAt: isoOrNull(l.resets_at), severity: l.severity || null });
-    }
-  } else {
-    const push = (label: string, w: Json) => {
-      if (w && w.utilization != null)
-        windows.push({ label, pct: pct(w.utilization), resetsAt: isoOrNull(w.resets_at) });
-    };
-    push('5h', j.five_hour);
-    push('7d', j.seven_day);
-  }
-  return windows;
 }
 
 function decodeJwt(t: string): Json | null {
@@ -298,42 +260,6 @@ async function codexUsage(profile: Profile): Promise<Usage> {
     return { windows: parseCodexUsage(j), plan: planName(j.plan_type) || a.plan, fetchedAt: new Date().toISOString() };
   }
   return { error: last || 'usage API unavailable' };
-}
-
-// The usage endpoint's JSON, as a list of windows for the bars. `now` is only
-// consulted when a window gives its reset as seconds from now.
-export function parseCodexUsage(j: Json, now: number = Date.now()): UsageWindow[] {
-  const windows: UsageWindow[] = [];
-  const windowLabel = (w: Json): string => {
-    const secs = w.limit_window_seconds || (w.limit_window_minutes || 0) * 60;
-    if (!secs) return 'window';
-    return secs >= 86400 ? `${Math.round(secs / 86400)}d` : `${Math.round(secs / 3600)}h`;
-  };
-  const push = (w: Json, prefix = '') => {
-    if (!w || w.used_percent == null) return;
-    const resetsAt =
-      w.reset_at != null
-        ? isoOrNull(w.reset_at)
-        : w.resets_at != null
-          ? isoOrNull(w.resets_at)
-          : w.reset_after_seconds != null
-            ? new Date(now + w.reset_after_seconds * 1000).toISOString()
-            : null;
-    windows.push({ label: (prefix + windowLabel(w)).trim(), pct: pct(w.used_percent), resetsAt });
-  };
-  const rl = j.rate_limit || {};
-  push(rl.primary_window);
-  push(rl.secondary_window);
-  // Model-specific limits (e.g. a separate pool for a fast model).
-  for (const extra of j.additional_rate_limits || []) {
-    const name = String(extra.limit_name || '')
-      .replace(/^GPT-/, '')
-      .replace(/-?Codex-?/i, '-')
-      .replace(/^-|-$/g, '');
-    push(extra.rate_limit && extra.rate_limit.primary_window, name ? `${name} ` : '');
-    push(extra.rate_limit && extra.rate_limit.secondary_window, name ? `${name} ` : '');
-  }
-  return windows;
 }
 
 export async function identity(profile: Profile): Promise<Identity> {

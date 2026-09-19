@@ -34,6 +34,18 @@
 
   <main id="root"></main>
 
+  <dialog id="bucket-dialog">
+    <form id="bucket-form">
+      <h2>New proxy bucket</h2>
+      <label>Name <input id="bucket-name" required maxlength="100" placeholder="Personal, Work…" autofocus /></label>
+      <p class="hint">Create an empty bucket, then use Add account to sign in through the proxy.</p>
+      <menu>
+        <button type="button" id="bucket-cancel">Cancel</button>
+        <button class="primary" id="bucket-submit">Create bucket</button>
+      </menu>
+    </form>
+  </dialog>
+
   <dialog id="add-dialog">
     <form method="dialog" id="add-form">
       <h2 id="add-title">New profile</h2>

@@ -15,11 +15,15 @@
     "test": "oxlint && tsc --noEmit && bun test",
     "test:claude-pty": "bun run build && node --test test/claude-pty.node.cjs",
     "test:awake-ui": "bun run build && bun demo/test-awake.mjs",
+    "test:buckets-ui": "bun run build && bun demo/test-buckets.mjs",
+    "test:model-labels": "bun run build && node demo/test-model-labels.mjs",
+    "test:claude-models": "bun run build && node demo/test-claude-models.mjs",
     "demo": "bun run build && bun demo/capture.mjs",
     "fmt": "oxfmt",
+    "format": "oxfmt",
     "lint": "oxlint",
     "typecheck": "tsc --noEmit",
-    "build": "tsc && mkdir -p out/renderer && cp src/renderer/index.html src/renderer/style.css out/renderer/"
+    "build": "rm -rf out && tsc && mkdir -p out/renderer && cp src/renderer/index.html src/renderer/style.css out/renderer/"
   },
   "dependencies": {
     "jsonc-parser": "^3.3.1",

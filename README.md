@@ -9,8 +9,9 @@ has headroom left before you start.
 
 ![Switchboard showing four accounts, each with its own usage bars](docs/screenshot.png)
 
-It is for accounts you own. It does not rotate between accounts and it will not
-switch automatically when a limit is reached.
+It is for accounts you own. Native profiles use their own account. Codex desktop
+profiles can also use a shared proxy bucket, which selects accounts and handles
+inference quota failover. See [Proxy buckets](docs/proxy-buckets.md).
 
 ## Can you run two Claude accounts at once? Or more?
 
@@ -203,7 +204,7 @@ bun run test      # the same, after oxlint and a type check
 bun run test:claude-pty # compiled PTY integration checks under Node, on macOS
 bun run typecheck # tsc --noEmit
 bun run lint      # oxlint
-bun run fmt       # oxfmt, Prettier-compatible; the CSS and HTML are left alone
+bun format        # oxfmt; bun run fmt is also supported (CSS/HTML excluded by config)
 bun start         # build, then run without installing
 bun run demo      # regenerate the screenshot and social card from invented accounts
 bun run icons     # re-render the icon PNGs from build/icon.svg
