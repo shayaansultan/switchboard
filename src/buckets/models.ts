@@ -47,6 +47,14 @@ export async function claudeModels(id: string, port: number): Promise<ClaudeMode
     .sort((a, b) => (b.created ?? 0) - (a.created ?? 0));
 }
 
+// Both fresh descriptors and pre-existing cached/custom Claude entries need
+// these transport capabilities. Keeping them together prevents stale catalogs
+// from silently restoring eager connector schemas on a later desktop launch.
+const claudeToolCapabilities = {
+  supports_search_tool: true,
+  tool_mode: 'code_mode_only',
+};
+
 // This is a separate Claude descriptor, not a renamed GPT descriptor. Codex's
 // GPT entries are carried forward verbatim from its own current catalog.
 export function claudeDescriptor(model: ClaudeModel, priority: number): Record<string, unknown> {
@@ -81,8 +89,7 @@ export function claudeDescriptor(model: ClaudeModel, priority: number): Record<s
     // Search alone is insufficient: CLIProxyAPI drops Responses tool_search.
     // Code mode discovers deferred tools through ALL_TOOLS and uses the custom
     // exec tool, whose input/result translation is supported by the proxy.
-    supports_search_tool: true,
-    tool_mode: 'code_mode_only',
+    ...claudeToolCapabilities,
     model_messages: {
       instructions_template:
         'You are a coding assistant powered by Anthropic Claude, running in the Codex desktop app. Work with the user in their workspace. Follow the project instructions. Use the available tools to inspect, edit, and verify your work. Use the shell tools for file edits. Preserve unrelated user changes. Explain results accurately and distinguish completed work from unverified assumptions.',
@@ -94,6 +101,7 @@ export function claudeDescriptor(model: ClaudeModel, priority: number): Record<s
 export function mergedCatalog(bundled: unknown, claude: ClaudeModel[]) {
   const original = z.object({ models: z.array(z.record(z.string(), z.unknown())).min(1) }).parse(bundled);
   const existing = new Set(original.models.map((model) => model.slug));
+  const availableClaude = new Set(claude.map((model) => model.id));
   const priority = Math.max(
     100,
     ...original.models.map((model) => (typeof model.priority === 'number' ? model.priority : 0)),
@@ -101,7 +109,11 @@ export function mergedCatalog(bundled: unknown, claude: ClaudeModel[]) {
   return {
     ...original,
     models: [
-      ...original.models,
+      ...original.models.map((model) =>
+        typeof model.slug === 'string' && availableClaude.has(model.slug)
+          ? { ...model, ...claudeToolCapabilities }
+          : model,
+      ),
       ...claude
         .filter((model) => !existing.has(model.id))
         .map((model, index) => claudeDescriptor(model, priority + index + 1)),

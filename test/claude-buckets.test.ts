@@ -72,3 +72,28 @@ test('Claude fallback usage includes model-specific windows without duplicating 
   ]);
   expect(parseClaudeUsage({ ...payload, limits: [{ kind: 'session', percent: 14 }] })).toHaveLength(1);
 });
+
+test('existing Claude catalog entries receive current tool capabilities without losing custom metadata', () => {
+  const gpt = { slug: 'gpt-fixture', supports_search_tool: false, tool_mode: 'custom-gpt-mode' };
+  const existing = {
+    slug: model.id,
+    display_name: 'Custom Claude label',
+    priority: 5,
+    context_window: 123456,
+    model_messages: { instructions_template: 'Custom instructions' },
+    futureCapability: { value: 42 },
+    supports_search_tool: false,
+    tool_mode: null,
+  };
+  const unavailable = { slug: 'claude-unavailable', supports_search_tool: false };
+  const original = { models: [gpt, existing, unavailable] };
+  const snapshot = structuredClone(original);
+  const combined = mergedCatalog(original, [model]);
+  expect(combined.models).toEqual([
+    gpt,
+    { ...existing, supports_search_tool: true, tool_mode: 'code_mode_only' },
+    unavailable,
+  ]);
+  expect(original).toEqual(snapshot);
+  expect(mergedCatalog(combined, [model])).toEqual(combined);
+});

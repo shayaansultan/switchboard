@@ -122,7 +122,7 @@ in the probe as negative controls.
 
 Final checks on this branch:
 
-- `bun run test`: lint and type checking passed; 105 tests passed, 7 opt-in tests skipped.
+- `bun run test`: lint and type checking passed; 106 tests passed, 7 opt-in tests skipped.
 - `SWITCHBOARD_LIVE_TESTS=1 bun test test/claude-context-live.test.ts test/claude-live.test.ts`:
   all 4 local binary integration tests passed, including the negative-control matrix.
 - `bun run build && node demo/test-claude-models.mjs`: build and actual Codex catalog
@@ -152,6 +152,15 @@ The retained probe uses synthetic tools. One-off cache-replay and raw-descriptio
 debug options were removed after the investigation.
 
 ## Scope and deployment
+
+Deployment verification found an additional cached-catalog case: the affected
+profile's effective export already contained Claude descriptors with search
+disabled. The old merge function preserved them and never called
+`claudeDescriptor`, so merely installing the first fix did not update that profile.
+The merge now refreshes the two transport capabilities on matching available
+Claude entries, while preserving their other custom metadata, unavailable entries,
+and all GPT descriptors. A regression test failed on the old merge behavior;
+the installed-binary catalog test also covers stale custom Claude entries.
 
 The 10.6k result belongs to the isolated test home. A normal desktop chat will also
 include its own instructions, skills, memories, and project context. The fix

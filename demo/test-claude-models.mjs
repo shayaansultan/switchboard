@@ -62,6 +62,13 @@ try {
   // custom GPT metadata, rather than silently reverting to bundled defaults.
   const custom = structuredClone(original);
   custom.models[0].display_name = 'Custom GPT label';
+  const staleClaude = {
+    ...claude,
+    display_name: 'Custom Claude label',
+    supports_search_tool: false,
+    tool_mode: null,
+  };
+  custom.models.push(staleClaude);
   const customFile = path.join(home, 'custom-models.json');
   await fs.writeFile(customFile, JSON.stringify(custom));
   await fs.writeFile(path.join(home, 'config.toml'), `model_catalog_json = ${JSON.stringify(customFile)}\n`);
@@ -83,10 +90,14 @@ try {
   const extended = JSON.parse(await fs.readFile(generated, 'utf8'));
   assert.deepEqual(
     extended.models.filter((model) => model.slug !== definition.id),
-    custom.models,
+    custom.models.filter((model) => model.slug !== definition.id),
+  );
+  assert.deepEqual(
+    extended.models.filter((model) => model.slug === definition.id),
+    [{ ...staleClaude, supports_search_tool: true, tool_mode: 'code_mode_only' }],
   );
   console.log(
-    'Real Codex parsed Claude capabilities, shell editing, reasoning levels and context limits; bundled and user-supplied GPT metadata were preserved.',
+    'Real Codex parsed Claude capabilities; stale Claude tool settings were refreshed while custom Claude and GPT metadata were preserved.',
   );
 } finally {
   if (server) {
