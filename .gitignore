@@ -6,3 +6,5 @@ build/.render-*.html
 docs/.work/
 docs/demo.mp4
 out/
+.*.sw?
+.sw?
