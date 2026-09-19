@@ -56,6 +56,8 @@ try {
   assert.equal(claude.context_window, 200000);
   assert.equal(claude.apply_patch_tool_type, null);
   assert.equal(claude.node_repl_disabled, true);
+  assert.equal(claude.supports_search_tool, true);
+  assert.equal(claude.tool_mode, 'code_mode_only');
   // Launching a bucket must extend this profile's effective catalog, including
   // custom GPT metadata, rather than silently reverting to bundled defaults.
   const custom = structuredClone(original);

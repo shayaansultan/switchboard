@@ -76,6 +76,13 @@ export function claudeDescriptor(model: ClaudeModel, priority: number): Record<s
     web_search_tool_type: 'text',
     node_repl_disabled: true,
     use_responses_lite: false,
+    // Keep connector schemas local in Codex's code-mode registry. Without search
+    // support, Codex eagerly puts every connected tool into the initial prompt.
+    // Search alone is insufficient: CLIProxyAPI drops Responses tool_search.
+    // Code mode discovers deferred tools through ALL_TOOLS and uses the custom
+    // exec tool, whose input/result translation is supported by the proxy.
+    supports_search_tool: true,
+    tool_mode: 'code_mode_only',
     model_messages: {
       instructions_template:
         'You are a coding assistant powered by Anthropic Claude, running in the Codex desktop app. Work with the user in their workspace. Follow the project instructions. Use the available tools to inspect, edit, and verify your work. Use the shell tools for file edits. Preserve unrelated user changes. Explain results accurately and distinguish completed work from unverified assumptions.',
