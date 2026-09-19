@@ -19,7 +19,9 @@ account; selecting GPT uses a ChatGPT account. Quotas are not interchangeable.
 
 Claude model availability, context limits and reasoning levels come from the proxy's
 catalog. Switchboard appends those descriptors to the installed Codex binary's effective
-catalog for that profile, including any user-supplied catalog. Existing entries are preserved. The resulting snapshot is regenerated on
+catalog for that profile, including any user-supplied catalog. Existing GPT entries
+are preserved. Matching Claude entries retain their metadata but receive the
+current tool-search and code-mode settings. The resulting snapshot is regenerated on
 each desktop launch and referenced only by that launch wrapper.
 
 Claude uses Codex's code-mode `exec` tool to call shell tools and connectors.
