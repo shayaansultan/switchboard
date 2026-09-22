@@ -9,7 +9,7 @@ import { shellQuote } from '../shell';
 import type { BucketView } from '../types';
 import type { Context } from './context';
 import { parse, required } from './context';
-import { refused, table, usageError } from './output';
+import { notFound, refused, table, usageError } from './output';
 import { loadBucket } from './profiles';
 import { confirm } from './resolve';
 
@@ -28,8 +28,8 @@ const SUBCOMMANDS = z.enum([
 
 async function view(id: string): Promise<BucketView> {
   const found = (await buckets.snapshot()).find((b) => b.id === id);
-  if (!found) loadBucket(id); // throws no-such-bucket
-  return found as BucketView;
+  if (!found) throw notFound('no-such-bucket', `No bucket "${id}"`, 'switchboard bucket list');
+  return found;
 }
 
 const summarize = (b: BucketView) => ({
@@ -65,7 +65,7 @@ export async function bucketCommand(rest: string[], ctx: Context): Promise<numbe
     }
     case 'stop': {
       const id = loadBucket(required(args[0], 'Bucket')).id;
-      await confirm(ctx.flags, ctx.out.io, `Stop bucket ${id}? Every client routed through it is interrupted.`);
+      await confirm(ctx.flags, `Stop bucket ${id}? Every client routed through it is interrupted.`);
       await buckets.stop(id);
       ctx.out.result(await view(id));
       return;

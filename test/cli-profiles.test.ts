@@ -51,6 +51,7 @@ test('add rejects bad items, a source from another app, and items without a sour
   expect(cross.code).toBe(4);
   expect(cross.failure().error).toBe('vendor-mismatch');
   expect((await run('add', 'claude', 'X', '--items', 'skills')).failure().error).toBe('usage');
+  expect((await run('add', 'claude', '   ')).failure()).toMatchObject({ error: 'usage', message: 'Name is required' });
   expect(store.readStore().profiles).toHaveLength(2);
 });
 
@@ -110,6 +111,10 @@ test('assign routes only Codex profiles, only to buckets that exist', async () =
   await run('add', 'codex', 'Routed');
   await run('add', 'claude', 'Plain');
   expect((await run('assign', 'claude-plain', 'pool')).failure().error).toBe('wrong-vendor');
+  expect((await run('assign', 'codex-routed')).failure()).toMatchObject({
+    error: 'usage',
+    message: 'Bucket is required',
+  });
   expect((await run('assign', 'codex-routed', 'pool')).failure().error).toBe('no-such-bucket');
   const bucket = buckets.create('Pool');
   const assigned = await run('assign', 'codex-routed', bucket.id);

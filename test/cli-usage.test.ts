@@ -78,6 +78,19 @@ test('--max-age refreshes only entries older than the limit, and never writes th
   expect(fs.existsSync(file)).toBe(false);
 });
 
+test('--refresh fetches live even when the cache is brand new', async () => {
+  const calls: string[] = [];
+  const report = await usageReport(
+    [claude],
+    new Set(),
+    { maxAgeMs: 0, renew: true },
+    cache({ 'claude-a': { identity: signedIn, usage: { ...fresh, fetchedAt: at(0) } } }),
+    deps(calls),
+  );
+  expect(calls).toEqual(['identity:claude-a', 'usage:claude-a']);
+  expect(report.profiles[0].source).toBe('live');
+});
+
 test('a failed live fetch keeps the cached numbers as stale; --no-renew disables token renewal', async () => {
   const calls: string[] = [];
   let renewal: unknown;

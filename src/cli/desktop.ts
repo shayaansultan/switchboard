@@ -63,7 +63,7 @@ export async function quitCommand(rest: string[], ctx: Context): Promise<void> {
 
 export async function quitOthersCommand(rest: string[], ctx: Context): Promise<void> {
   const profile = resolveProfile(ctx.data, required(rest[0], 'Profile'));
-  await confirm(ctx.flags, ctx.out.io, `Quit every other ${profile.vendor} window?`);
+  await confirm(ctx.flags, `Quit every other ${profile.vendor} window?`);
   ctx.out.result({ profile: ref(profile), quit: await launch.quitOthers(profile) });
 }
 

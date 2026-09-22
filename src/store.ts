@@ -120,8 +120,8 @@ export function save(data: Store): void {
   const tmp = `${STORE_FILE}.${randomUUID()}.tmp`;
   try {
     fs.writeFileSync(tmp, text, { mode: 0o600, flag: 'wx' });
-    lastSaved = text;
     fs.renameSync(tmp, STORE_FILE);
+    lastSaved = text;
   } finally {
     if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
   }
@@ -207,14 +207,16 @@ export function watchStore(onChange: (next: Store) => void, debounceMs = 150): (
   };
 }
 
-const LOCK_STALE_MS = 10_000;
 const LOCK_WAIT_MS = 2_000;
 const LOCK_STEP_MS = 25;
 
+// A lock whose holder no longer exists. Age alone never counts: a holder can
+// legitimately be slow (bringing chat history over copies whole folders
+// under the lock), and stealing from it would be the lost update the lock
+// exists to prevent.
 function lockIsStale(): boolean {
   try {
     const pid = Number(fs.readFileSync(LOCK_FILE, 'utf8'));
-    if (Date.now() - fs.statSync(LOCK_FILE).mtimeMs > LOCK_STALE_MS) return true;
     if (!Number.isInteger(pid) || pid <= 0) return true;
     process.kill(pid, 0);
     return false;
@@ -227,8 +229,9 @@ function lockIsStale(): boolean {
 
 // Run `fn` while holding the store's advisory lock, so a read-modify-write
 // in this process cannot interleave with one in another. Synchronous on
-// purpose: the store functions are synchronous, and holders finish in
-// microseconds. Waits briefly for a live holder; throws if it does not clear.
+// purpose: the store functions are synchronous, and holders usually finish
+// in microseconds. Waits briefly for a live holder; throws if it does not
+// clear, rather than ever taking the lock from a process that still has it.
 export function withStoreLock<T>(fn: () => T): T {
   fs.mkdirSync(ROOT, { recursive: true, mode: 0o700 });
   const pause = new Int32Array(new SharedArrayBuffer(4));

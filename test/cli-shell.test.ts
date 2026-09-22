@@ -5,6 +5,7 @@ import { execEnv } from '../src/cli/exec';
 import { runInherit } from '../src/child';
 import * as store from '../src/store';
 import { launcherScript } from '../src/shim';
+import { splitFlags } from '../src/cli';
 
 beforeEach(resetStore);
 afterEach(resetStore);
@@ -44,6 +45,20 @@ test('command and env print the shell forms', async () => {
   expect((await run('env', 'claude')).out).toBe('unset CLAUDE_CONFIG_DIR');
   expect((await run('env', 'claude', '--fish')).out).toBe('set -e CLAUDE_CONFIG_DIR');
   expect((await run('env', 'claude-work', '--json')).json()).toEqual({ set: { CLAUDE_CONFIG_DIR: home }, unset: [] });
+});
+
+test('global flags stop at -- and, for cli, at the profile', () => {
+  expect(splitFlags(['--yes', 'exec', 'work', '-q', '--', '-q', '--json'])).toEqual({
+    flags: { json: false, human: false, yes: true, quiet: true },
+    rest: ['exec', 'work', '--', '-q', '--json'],
+    version: false,
+  });
+  expect(splitFlags(['cli', 'work', '-q', '--json', '-h'])).toMatchObject({
+    flags: { json: false, human: false, yes: false, quiet: false },
+    rest: ['cli', 'work', '-q', '--json', '-h'],
+  });
+  expect(splitFlags(['-q', 'cli', 'work'])).toMatchObject({ flags: { quiet: true }, rest: ['cli', 'work'] });
+  expect(splitFlags(['list', '-h'])).toMatchObject({ rest: ['help', 'list'] });
 });
 
 test('shell quoting survives a single quote in a path', () => {

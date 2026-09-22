@@ -4,7 +4,7 @@
 import { createInterface } from 'node:readline/promises';
 import { load, slugify, withStoreLock, VENDOR_IDS, STORE_FILE } from '../store';
 import type { Profile, Store, Vendor } from '../types';
-import { CliError, notFound, ref, refused, usageError, type Flags, type Io } from './output';
+import { CliError, notFound, ref, refused, usageError, type Flags } from './output';
 
 export const isVendor = (value: string): value is Vendor => (VENDOR_IDS as string[]).includes(value);
 
@@ -51,7 +51,7 @@ export function parseDuration(text: string): number {
 
 // Whether the person meant it. `--yes` says so; a terminal can be asked; an
 // agent without a terminal must pass the flag.
-export async function confirm(flags: Flags, io: Io, question: string): Promise<void> {
+export async function confirm(flags: Flags, question: string): Promise<void> {
   if (flags.yes) return;
   if (!process.stdin.isTTY) throw refused('confirmation-required', `${question} Pass --yes to confirm.`, '--yes');
   const prompt = createInterface({ input: process.stdin, output: process.stderr });
@@ -60,7 +60,6 @@ export async function confirm(flags: Flags, io: Io, question: string): Promise<v
     if (!/^y(es)?$/i.test(answer.trim())) throw refused('confirmation-required', 'Cancelled.');
   } finally {
     prompt.close();
-    io.err('');
   }
 }
 

@@ -186,7 +186,7 @@ export async function removeCommand(rest: string[], ctx: Context): Promise<void>
   if (profile.isDefault) throw refused('default-profile', 'The Default profile cannot be removed');
   assertNotRunning(profile, await instances(), 'removing it deletes the directory that window is using');
   const deleted = path.dirname(profiles.dirs(profile).home);
-  await confirm(ctx.flags, ctx.out.io, `Remove ${profile.id} and delete everything under ${deleted}?`);
+  await confirm(ctx.flags, `Remove ${profile.id} and delete everything under ${deleted}?`);
   mutateStore((data) => profiles.remove(data, profile.id));
   ctx.out.result({ removed: ref(profile), deleted });
 }

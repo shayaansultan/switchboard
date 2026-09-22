@@ -9,20 +9,9 @@ import { INSTALLED_APP } from '../buckets/runtime';
 import { LIVE_CACHE_FILE, STORE_FILE, VENDORS, VENDOR_IDS, readStore } from '../store';
 import type { Context } from './context';
 
-async function appRunning(): Promise<boolean> {
-  const main = path.join(INSTALLED_APP, 'Contents', 'MacOS', 'Switchboard');
-  try {
-    const { stdout } = await launch.run('ps', ['-axo', 'pid=,command=']);
-    // The CLI itself may be running on the app's binary; skip our own row
-    // and the app's helper processes.
-    return stdout.split('\n').some((line) => {
-      const m = /^\s*(\d+)\s+(.*)$/.exec(line);
-      return !!m && Number(m[1]) !== process.pid && m[2].startsWith(main) && !/--type=/.test(m[2]);
-    });
-  } catch {
-    return false;
-  }
-}
+// The CLI itself may be running on the app's binary, which isRunning skips.
+const appRunning = (): Promise<boolean> =>
+  launch.isRunning(path.join(INSTALLED_APP, 'Contents', 'MacOS', 'Switchboard')).catch(() => false);
 
 function storeHealth(): { path: string; ok: boolean; error?: string } {
   try {

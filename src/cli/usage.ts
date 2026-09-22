@@ -144,7 +144,7 @@ async function entryFor(
 ): Promise<UsageEntry> {
   const now = deps.now();
   const age = ageSeconds(cached?.usage?.fetchedAt, now);
-  const refresh = options.maxAgeMs !== null && (!cached?.usage || age === null || age * 1000 > options.maxAgeMs);
+  const refresh = options.maxAgeMs !== null && (!cached?.usage || age === null || age * 1000 >= options.maxAgeMs);
   if (!refresh) {
     return {
       ...ref(profile),

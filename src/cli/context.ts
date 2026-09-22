@@ -20,7 +20,7 @@ export function parse<const O extends ParseArgsOptionsConfig>(args: string[], op
 }
 
 export function required(value: string | undefined, label: string): string {
-  if (!value) throw usageError(`${label} is required`);
+  if (!value?.trim()) throw usageError(`${label} is required`);
   return value;
 }
 

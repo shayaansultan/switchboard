@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from 'bun:test';
-import { run, resetStore } from './cli-helpers';
+import { run, resetStore, withoutTty } from './cli-helpers';
 
 beforeEach(resetStore);
 afterEach(resetStore);
@@ -26,7 +26,6 @@ test('running lists instances with their owner, or null', async () => {
 });
 
 test('quit-others asks before terminating windows', async () => {
-  const { withoutTty } = await import('./cli-helpers');
   const refused = await withoutTty(() => run('quit-others', 'claude'));
   expect(refused.code).toBe(4);
   expect(refused.failure().error).toBe('confirmation-required');

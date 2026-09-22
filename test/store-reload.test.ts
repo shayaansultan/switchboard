@@ -97,6 +97,17 @@ test('withStoreLock runs the body, releases the lock, and refuses a live holder'
   expect(fs.existsSync(lock)).toBe(false);
 });
 
+test('withStoreLock never steals from a live holder, however old the lock is', () => {
+  store.load();
+  const lock = path.join(store.ROOT, 'profiles.lock');
+  fs.writeFileSync(lock, String(process.pid));
+  const old = new Date(Date.now() - 60_000);
+  fs.utimesSync(lock, old, old);
+  expect(() => store.withStoreLock(() => 1)).toThrow(/Another process is editing/);
+  expect(fs.existsSync(lock)).toBe(true);
+  fs.rmSync(lock);
+});
+
 test('withStoreLock reclaims a lock left by a dead process', () => {
   store.load();
   const lock = path.join(store.ROOT, 'profiles.lock');

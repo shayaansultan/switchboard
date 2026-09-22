@@ -126,24 +126,34 @@ export async function launchDesktop(profile: Profile): Promise<void> {
   }
 }
 
-// Snapshot of running desktop-app main processes.
-export async function runningInstances(): Promise<Instance[]> {
+// Every process on the machine, as ps reports it. Chromium helper processes
+// carry --type=…; the browser/main process of an app does not.
+async function mainProcesses(): Promise<{ pid: number; command: string }[]> {
   const { stdout } = await run('ps', ['-axo', 'pid=,command=']);
-  const out: Instance[] = [];
+  const out: { pid: number; command: string }[] = [];
   for (const line of stdout.split('\n')) {
     const m = line.match(/^\s*(\d+)\s+(.*)$/);
-    if (!m) continue;
-    const pid = Number(m[1]);
-    const cmd = m[2];
+    if (m && !/--type=/.test(m[2])) out.push({ pid: Number(m[1]), command: m[2] });
+  }
+  return out;
+}
+
+// Snapshot of running desktop-app main processes.
+export async function runningInstances(): Promise<Instance[]> {
+  const out: Instance[] = [];
+  for (const { pid, command } of await mainProcesses()) {
     for (const vendor of VENDOR_IDS) {
-      if (!cmd.startsWith(VENDORS[vendor].appBinary)) continue;
-      // Helper processes have --type=…; the browser/main process does not.
-      if (/--type=/.test(cmd)) continue;
-      const udm = cmd.match(/--user-data-dir=(\S+)/);
+      if (!command.startsWith(VENDORS[vendor].appBinary)) continue;
+      const udm = command.match(/--user-data-dir=(\S+)/);
       out.push({ pid, vendor, userDataDir: udm ? udm[1] : null });
     }
   }
   return out;
+}
+
+// Whether some other process is running the given executable.
+export async function isRunning(binary: string): Promise<boolean> {
+  return (await mainProcesses()).some((p) => p.pid !== process.pid && p.command.startsWith(binary));
 }
 
 // Is this running instance the given profile's window? The Default profile's

@@ -10,7 +10,7 @@ import { INSTALLED_APP } from './buckets/runtime';
 import { installShim, launcherScript } from './shim';
 import { bucketCommand, workerCommand } from './cli/buckets';
 import type { Context } from './cli/context';
-import { parse } from './cli/context';
+import { parse, required } from './cli/context';
 import { doctorCommand } from './cli/doctor';
 import { launchCommand, quitCommand, quitOthersCommand, revealCommand, runningCommand } from './cli/desktop';
 import { cliCommand, commandCommand, envCommand, execCommand, loginCommand, terminalCommand } from './cli/exec';
@@ -112,15 +112,17 @@ const COMMANDS = z.enum([
   'help',
 ]);
 
-// Flags that apply to every command. They may appear anywhere before `--`.
-function splitFlags(args: string[]): { flags: Flags; rest: string[]; version: boolean } {
+// Flags that apply to every command. They may appear anywhere before `--`,
+// or, for `cli PROFILE ...`, anywhere before the profile: everything after it
+// belongs to the vendor's CLI.
+export function splitFlags(args: string[]): { flags: Flags; rest: string[]; version: boolean } {
   const flags: Flags = { json: false, human: false, yes: false, quiet: false };
   let version = false;
   const rest: string[] = [];
   let passthrough = false;
   for (const arg of args) {
     if (passthrough) rest.push(arg);
-    else if (arg === '--') {
+    else if (arg === '--' || (rest[0] === 'cli' && rest.length === 2)) {
       passthrough = true;
       rest.push(arg);
     } else if (arg === '--json') flags.json = true;
@@ -204,7 +206,7 @@ async function dispatch(rest: string[], out: Output): Promise<number | void> {
     case 'remove':
       return removeCommand(args, ctx);
     case 'assign':
-      return assignCommand([args[0]], ctx, args[1] ?? null);
+      return assignCommand([args[0]], ctx, required(args[1], 'Bucket'));
     case 'unassign':
       return assignCommand(args, ctx, null);
     case 'launch':
