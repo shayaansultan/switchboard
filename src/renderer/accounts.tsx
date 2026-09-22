@@ -1,0 +1,594 @@
+// The Accounts tab: a panel per vendor, one account per row (List) or per
+// tile (Cards). Both draw the same pieces: identity, usage, the one action,
+// the tools. Rows and tiles can be dragged into a new order within their
+// vendor; the Default profile stays pinned first.
+
+import { useEffect, useState } from 'preact/hooks';
+import {
+  act,
+  ago,
+  clock,
+  fullest,
+  relShort,
+  relTime,
+  severityClass,
+  type BucketAccount,
+  type BucketView,
+  type Identity,
+  type ProfileView,
+  type State,
+  type Usage,
+  type UsageWindow,
+  type AccountsView,
+} from './lib';
+import { Badge, Bar, Btn, Dot, Icon, Note, Ring, Seg, Skeleton } from './ui/primitives';
+import { useOverlays, useTip, type MenuItem } from './ui/overlays';
+import { useActions } from './ui/actions';
+
+type Drag = { id: string; vendor: string } | null;
+type Over = { id: string; after: boolean } | null;
+
+export function Accounts({
+  state,
+  view,
+  setView,
+}: {
+  state: State;
+  view: AccountsView;
+  setView: (v: AccountsView) => void;
+}) {
+  const [drag, setDrag] = useState<Drag>(null);
+  const [over, setOver] = useState<Over>(null);
+  const latest = state.profiles
+    .map((p) => p.usage?.fetchedAt)
+    .filter(Boolean)
+    .sort()
+    .at(-1);
+  const refreshed = latest ? `Refreshed ${ago(latest)}` : 'Waiting for the first refresh';
+
+  // Where a drop lands: the dragged profile moves so it sits before or after
+  // the target, counted among its vendor's movable profiles.
+  const drop = (target: ProfileView) => {
+    if (!drag || drag.vendor !== target.vendor || drag.id === target.id) return;
+    const row = state.profiles.filter((p) => p.vendor === target.vendor && !p.isDefault);
+    const from = row.findIndex((p) => p.id === drag.id);
+    let to = row.findIndex((p) => p.id === target.id);
+    if (from < 0) return;
+    if (over?.after) to += 1;
+    if (from < to) to -= 1;
+    if (to !== from) void act(() => window.sb.moveProfile(drag.id, to - from));
+  };
+  const dnd = (p: ProfileView, axis: 'y' | 'x') => ({
+    draggable: !p.isDefault,
+    onDragStart: (e: DragEvent) => {
+      if (p.isDefault) return;
+      e.dataTransfer?.setData('text/plain', p.id);
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+      setDrag({ id: p.id, vendor: p.vendor });
+    },
+    onDragEnd: () => {
+      setDrag(null);
+      setOver(null);
+    },
+    onDragOver: (e: DragEvent) => {
+      if (!drag || drag.vendor !== p.vendor || p.isDefault) return;
+      e.preventDefault();
+      const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const after = axis === 'y' ? e.clientY > r.top + r.height / 2 : e.clientX > r.left + r.width / 2;
+      if (over?.id !== p.id || over.after !== after) setOver({ id: p.id, after });
+    },
+    onDragLeave: (e: DragEvent) => {
+      if (over?.id === p.id && !(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) setOver(null);
+    },
+    onDrop: (e: DragEvent) => {
+      e.preventDefault();
+      drop(p);
+      setDrag(null);
+      setOver(null);
+    },
+  });
+  const dragClass = (p: ProfileView) =>
+    [drag?.id === p.id ? 'dragging' : '', over?.id === p.id ? (over.after ? 'drop-after' : 'drop-before') : ''].join(
+      ' ',
+    );
+
+  return (
+    <>
+      <div class="toolbar">
+        <span class="note">{refreshed}. The ring is each account's fullest window.</span>
+        <Seg
+          label="Show accounts as"
+          value={view}
+          onChange={setView}
+          options={[
+            { id: 'cards', label: 'Cards', icon: 'grid' },
+            { id: 'list', label: 'List', icon: 'list' },
+          ]}
+        />
+      </div>
+      {Object.entries(state.vendors).map(([vendor, v]) => {
+        const list = state.profiles.filter((p) => p.vendor === vendor);
+        return (
+          <section class="panel" key={vendor}>
+            <div class="panel-head">
+              <span>{v.label}</span>
+              {v.installed ? null : <span class="na">app not installed</span>}
+            </div>
+            <div class={`panel-body ${view === 'cards' ? 'grid' : ''}`}>
+              {list.length ? (
+                list.map((p) => (
+                  <Account
+                    key={p.id}
+                    p={p}
+                    state={state}
+                    view={view}
+                    class={dragClass(p)}
+                    dnd={dnd(p, view === 'cards' ? 'x' : 'y')}
+                  />
+                ))
+              ) : (
+                <div class="empty">No profiles</div>
+              )}
+            </div>
+          </section>
+        );
+      })}
+    </>
+  );
+}
+
+type Dnd = Record<string, unknown>;
+
+function Account({
+  p,
+  state,
+  view,
+  class: cls,
+  dnd,
+}: {
+  p: ProfileView;
+  state: State;
+  view: AccountsView;
+  class: string;
+  dnd: Dnd;
+}) {
+  const w = p.proxyBucket ? null : fullest(p.usage?.windows);
+  const ringTip = useTip(w ? [`${w.label} · ${w.pct}% used`, relTime(w.resetsAt)].filter(Boolean) : null);
+  if (view === 'cards') {
+    return (
+      <div class={`card tile ${cls}`} style={{ '--card-color': p.color }} {...dnd}>
+        <IdentityBlock p={p} state={state} />
+        <UsageBlock p={p} state={state} />
+        <div class="foot">
+          <ActionButton p={p} state={state} />
+          <Tools p={p} />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div class={`card ${cls}`} style={{ '--card-color': p.color }} {...dnd}>
+      <div class="ring" tabIndex={w ? 0 : -1} {...ringTip}>
+        <Ring w={w} />
+      </div>
+      <IdentityBlock p={p} state={state} />
+      <UsageBlock p={p} state={state} />
+      <ActionButton p={p} state={state} />
+      <Tools p={p} />
+    </div>
+  );
+}
+
+// Colour chip, name (double-click to rename), plan, running dot, then the
+// signed-in identity and, for Codex, the model connection.
+function IdentityBlock({ p, state }: { p: ProfileView; state: State }) {
+  const { openMenu } = useOverlays();
+  const id: Partial<Identity> = p.identity ?? {};
+  const u: Usage = p.usage ?? {};
+  // Nothing known yet (first launch, no cache): show placeholders, not
+  // misleading "not signed in" text.
+  const pending = !p.identity;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(p.name);
+  const finish = () => {
+    setEditing(false);
+    const name = draft.trim();
+    if (name && name !== p.name) void act(() => window.sb.updateProfile(p.id, { name }));
+  };
+  return (
+    <div class="who">
+      <div class="head">
+        <button
+          type="button"
+          class="color"
+          title="Colour"
+          onClick={(e) =>
+            openMenu(
+              e.currentTarget as HTMLElement,
+              [{ colors: state.palette, current: p.color, pick: (color) => window.sb.updateProfile(p.id, { color }) }],
+              { prefer: 'below', align: 'left' },
+            )
+          }
+        />
+        <span
+          class="name"
+          title={p.isDefault ? undefined : 'Double-click to rename'}
+          onDblClick={() => {
+            if (p.isDefault) return;
+            setDraft(p.name);
+            setEditing(true);
+          }}
+        >
+          {editing ? (
+            <input
+              value={draft}
+              ref={(el) => el?.focus()}
+              onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
+                if (e.key === 'Escape') {
+                  setDraft(p.name);
+                  setEditing(false);
+                }
+              }}
+              onBlur={finish}
+            />
+          ) : (
+            p.name
+          )}
+        </span>
+        {u.plan || id.plan ? <Badge>{u.plan || id.plan}</Badge> : null}
+        <Dot on={!!p.running} title={p.running ? 'App running' : 'App not running'} />
+      </div>
+      {pending ? (
+        <div class="ident">
+          <Skeleton width={150} />
+        </div>
+      ) : (
+        <div class={`ident ${id.loggedIn ? '' : 'err'}`}>
+          {id.loggedIn ? id.email || 'signed in' : id.error || 'CLI not signed in for this profile'}
+          {id.loggedIn ? (
+            p.isDefault ? (
+              ' · default dirs'
+            ) : null
+          ) : (
+            <>
+              {' · '}
+              <a
+                href="#"
+                title="Sign the CLI into this profile (needed for usage)."
+                onClick={(e) => {
+                  e.preventDefault();
+                  void act(() => window.sb.login(p.id));
+                }}
+              >
+                Sign in CLI
+              </a>
+            </>
+          )}
+        </div>
+      )}
+      {p.vendor === 'codex' ? <Connection p={p} state={state} /> : null}
+    </div>
+  );
+}
+
+function Connection({ p, state }: { p: ProfileView; state: State }) {
+  const buckets = state.buckets ?? [];
+  const [value, setValue] = useState(p.proxyBucket ?? '');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setValue(p.proxyBucket ?? ''), [p.proxyBucket]);
+  const orphan = p.proxyBucket && !buckets.some((b) => b.id === p.proxyBucket) ? p.proxyBucket : null;
+  return (
+    <div class="connection">
+      <select
+        aria-label={`Model connection for ${p.name}`}
+        value={value}
+        disabled={busy}
+        title={
+          p.running
+            ? 'Model connection. Changes take effect on the next launch from Switchboard.'
+            : 'Model connection. Applies when launched from Switchboard; Terminal uses the native account.'
+        }
+        onChange={(e) => {
+          const next = (e.currentTarget as HTMLSelectElement).value;
+          setValue(next);
+          setBusy(true);
+          void act(async () => {
+            try {
+              await window.sb.setProxyBucket(p.id, next || null);
+            } catch (error) {
+              setValue(p.proxyBucket ?? '');
+              throw error;
+            } finally {
+              setBusy(false);
+            }
+          });
+        }}
+      >
+        <option value="">Native account</option>
+        {buckets.map((b) => (
+          <option value={b.id} key={b.id}>
+            Proxy · {b.name}
+          </option>
+        ))}
+        {orphan ? <option value={orphan}>Unavailable · {orphan}</option> : null}
+      </select>
+    </div>
+  );
+}
+
+// The usage bars, or whatever explains their absence, plus the notes that
+// belong with them.
+function UsageBlock({ p, state }: { p: ProfileView; state: State }) {
+  const u: Usage = p.usage ?? {};
+  const id: Partial<Identity> = p.identity ?? {};
+  const pending = !p.identity;
+  const remaining = state.settings.usageMode === 'remaining';
+  const vendorLabel = state.vendors[p.vendor].label;
+  const installed = state.vendors[p.vendor].installed;
+  const bucket = state.buckets?.find((b) => b.id === p.proxyBucket);
+  const at = clock(u.fetchedAt);
+
+  let body;
+  if (p.proxyBucket) {
+    body = bucket ? (
+      <BucketSummary bucket={bucket} remaining={remaining} />
+    ) : (
+      <Note tone="warn">Bucket unavailable. Choose another connection.</Note>
+    );
+  } else if (pending) {
+    body = [0, 1].map((i) => (
+      <div class="bar" key={i}>
+        <Skeleton width={24} />
+        <div class="track skel" />
+        <Skeleton width={32} />
+      </div>
+    ));
+  } else if (u.windows && u.windows.length) {
+    body = (
+      <>
+        {u.windows.map((w) => (
+          <Bar w={w} stale={!!u.stale} remaining={remaining} key={w.label} />
+        ))}
+        {u.stale && u.error ? (
+          <Note>
+            Couldn't refresh ({u.error}). Showing numbers from {at}.
+          </Note>
+        ) : p.cached ? (
+          <Note>Numbers from {at}, updating…</Note>
+        ) : null}
+      </>
+    );
+  } else if (u.error) body = <Note>Usage: {u.error}</Note>;
+  else body = <Note>Usage: loading…</Note>;
+
+  return (
+    <div class="bars">
+      {body}
+      {installed ? null : <Note>{vendorLabel} desktop app not found in /Applications.</Note>}
+      {!p.isDefault && !p.running && !id.loggedIn ? (
+        <Note>
+          Before the first sign-in, quit the other {vendorLabel} windows: the login link opens in whichever is running.{' '}
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              void act(async () => {
+                if (!confirm(`Quit every other ${vendorLabel} window?\n\nAnything unsaved in them is lost.`)) return;
+                const n = await window.sb.quitOthers(p.id);
+                alert(
+                  n ? `Quit ${n} other ${vendorLabel} window(s).` : `No other ${vendorLabel} windows were running.`,
+                );
+              });
+            }}
+          >
+            Quit others now
+          </a>
+        </Note>
+      ) : null}
+    </div>
+  );
+}
+
+function ActionButton({ p, state }: { p: ProfileView; state: State }) {
+  const installed = state.vendors[p.vendor].installed;
+  return (
+    <div class="actions">
+      <Btn
+        variant={p.running ? 'outline' : 'primary'}
+        disabled={!installed}
+        title={p.running ? 'Quit the desktop app' : 'Launch the desktop app'}
+        onClick={(e) => act(() => (p.running ? window.sb.quit(p.id) : window.sb.launch(p.id)), e.currentTarget)}
+      >
+        {p.running ? 'Quit' : 'Launch'}
+      </Btn>
+    </div>
+  );
+}
+
+function Tools({ p }: { p: ProfileView }) {
+  const { openMenu } = useOverlays();
+  const { openSetup } = useActions();
+  const [copied, setCopied] = useState(false);
+  const id: Partial<Identity> = p.identity ?? {};
+  const items: MenuItem[] = [
+    { label: 'Refresh usage', run: () => window.sb.refresh(p.id) },
+    { label: id.loggedIn ? 'Sign in CLI again' : 'Sign in CLI', run: () => window.sb.login(p.id) },
+    'separator',
+    ...(p.isDefault ? [] : [{ label: 'Bring over', run: () => openSetup(p) }]),
+    { label: 'Show in Finder', run: () => window.sb.reveal(p.id) },
+    ...(p.isDefault
+      ? []
+      : ['separator' as const, { label: 'Remove', danger: true, run: () => window.sb.removeProfile(p.id) }]),
+  ];
+  return (
+    <div class="tools">
+      <Btn
+        variant="icon"
+        icon="terminal"
+        aria-label={`Terminal for ${p.name}`}
+        title="Open a terminal already pointed at this profile"
+        onClick={(e) => act(() => window.sb.shell(p.id), e.currentTarget)}
+      />
+      <Btn
+        variant="icon"
+        class={`copy-btn ${copied ? 'copied' : ''}`}
+        aria-label={`Copy CLI command for ${p.name}`}
+        title={`Copy command: ${p.cli}`}
+        onClick={() => {
+          window.sb.copyCommand(p.id);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+      >
+        <Icon name="copy" />
+        <Icon name="check" />
+      </Btn>
+      <Btn
+        variant="icon"
+        icon="more"
+        class="more-btn"
+        aria-label={`More actions for ${p.name}`}
+        title="More"
+        onClick={(e) => openMenu(e.currentTarget as HTMLElement, items)}
+      />
+    </div>
+  );
+}
+
+// On a profile card a bucket is pooled: one bar per provider and window,
+// cut into a segment per account, so "GPT 7d" reads as one quota while a
+// spent account still shows as a full segment. Segments are sized by the
+// plan's capacity and the number is the capacity-weighted mean.
+export function BucketSummary({ bucket, remaining }: { bucket: BucketView; remaining: boolean }) {
+  type Part = { account: BucketAccount; pct: number; w: UsageWindow };
+  const pools = new Map<string, Part[]>();
+  for (const account of bucket.accounts) {
+    if (account.status === 'disabled') continue;
+    for (const w of account.windows) {
+      if (w.pct === null || w.pct === undefined) continue;
+      const label = account.provider === 'claude' ? `Claude ${w.label}` : `GPT ${w.label.replace(/^gpt-/, '')}`;
+      pools.set(label, [...(pools.get(label) ?? []), { account, pct: w.pct, w }]);
+    }
+  }
+  const shown = (pct: number): number => (remaining ? 100 - pct : pct);
+  const who = (part: Part): string => part.account.email ?? part.account.name;
+  const capacity = (part: Part): number => part.account.plan?.capacity ?? 1;
+  const about = (part: Part): string =>
+    [part.account.plan?.name, `${part.pct}% used`, relTime(part.w.resetsAt)].filter(Boolean).join(' · ');
+  return (
+    <>
+      <Note>Usage from the {bucket.name} bucket</Note>
+      {[...pools].map(([label, parts]) => {
+        const size = parts.reduce((sum, part) => sum + capacity(part), 0);
+        const used = Math.round(parts.reduce((sum, part) => sum + part.pct * capacity(part), 0) / size);
+        const upcoming = parts.filter((part) => part.w.resetsAt && Date.parse(part.w.resetsAt) > Date.now());
+        const low = upcoming.filter((part) => severityClass(part.w));
+        const next = (low.length ? low : upcoming).map((part) => part.w.resetsAt as string).sort()[0];
+        const reset = relShort(next ?? null);
+        return (
+          <PooledBar
+            key={label}
+            label={label}
+            parts={parts}
+            reset={reset}
+            used={shown(used)}
+            tip={[label, ...parts.map((part) => `${who(part)} · ${about(part)}`)]}
+            segTip={(part) => [who(part), about(part)]}
+            shown={shown}
+            capacity={capacity}
+          />
+        );
+      })}
+      <BucketNotes bucket={bucket} />
+    </>
+  );
+}
+
+function PooledBar<P extends { pct: number; w: UsageWindow }>({
+  label,
+  parts,
+  reset,
+  used,
+  tip,
+  segTip,
+  shown,
+  capacity,
+}: {
+  label: string;
+  parts: P[];
+  reset: string;
+  used: number;
+  tip: string[];
+  segTip: (p: P) => string[];
+  shown: (pct: number) => number;
+  capacity: (p: P) => number;
+}) {
+  const labelTip = useTip(tip);
+  return (
+    <div class="bar">
+      <span class="label" {...labelTip}>
+        {label}
+        {parts.length > 1 ? <span class="reset"> ×{parts.length}</span> : null}
+        {reset ? <span class="reset"> · {reset}</span> : null}
+      </span>
+      <div class="track pooled" style={{ '--segments': parts.length }}>
+        {parts.map((part, i) => (
+          <Segment
+            key={i}
+            part={part}
+            flex={capacity(part)}
+            width={shown(part.pct)}
+            cls={severityClass(part.w)}
+            tip={segTip(part)}
+          />
+        ))}
+      </div>
+      <span class="pct">{used}%</span>
+    </div>
+  );
+}
+
+function Segment<P>({
+  part,
+  flex,
+  width,
+  cls,
+  tip,
+}: {
+  part: P;
+  flex: number;
+  width: number;
+  cls: string;
+  tip: string[];
+}) {
+  const handlers = useTip(tip);
+  void part;
+  return (
+    <div class="seg" tabIndex={0} style={{ flex }} aria-label={tip.join(', ')} {...handlers}>
+      <div class="seg-track">
+        <div class={`fill ${cls}`} style={{ width: `${width}%` }} />
+      </div>
+    </div>
+  );
+}
+
+// Why a bucket shows no bars, or fewer than expected.
+export function BucketNotes({ bucket }: { bucket: BucketView }) {
+  return (
+    <>
+      {bucket.status !== 'running' ? (
+        <Note>
+          {bucket.status === 'stopped'
+            ? 'Starts when an assigned desktop profile launches.'
+            : 'Worker is unreachable. Check its status before restarting.'}
+        </Note>
+      ) : null}
+      {bucket.status === 'running' && !bucket.accounts.length ? (
+        <Note>No accounts reported yet. Refresh or add an account.</Note>
+      ) : null}
+      {bucket.error ? <Note>{bucket.error}</Note> : null}
+    </>
+  );
+}

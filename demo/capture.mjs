@@ -35,7 +35,7 @@ const CHROME_CSS = `
                 radial-gradient(circle 6px at 46px 6px, #28c840 98%, transparent 100%);
   }
   .titlebar { position: sticky; }
-  html, body { background: #f1f1ee; }
+  html, body { background: #fcfcfb; }
 `;
 
 function bridge(state) {
@@ -166,7 +166,7 @@ async function newPage(ctxOptions = {}) {
   await page.click('#add');
   await page.waitForSelector('#add-dialog[open]');
   await page.waitForTimeout(900);
-  await page.selectOption('select[name="vendor"]', 'codex');
+  await page.check('input[name="vendor"][value="codex"]');
   await page.fill('input[name="name"]', 'Client');
   await page.waitForTimeout(700);
   // Turn on the two items that are deliberately off by default.

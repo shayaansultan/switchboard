@@ -1,6 +1,6 @@
 # Shared proxy buckets
 
-Switchboard's **Buckets** tab manages account pools shared with OpenCode. Use it to
+Switchboard's **Proxy buckets** tab manages account pools shared with OpenCode. Use it to
 create a bucket, start or stop its worker, refresh usage, add an account through the
 proxy's OAuth flow, or enable/disable individual accounts. Each account is one row
 with all of its usage windows. Add one account
@@ -55,7 +55,7 @@ capacity, using the vendors' published multiples (a $200 Pro is 20x Plus, a Max 
 5x Pro), and the percentage is the mean weighted the same way, so a spent small plan
 beside fresh large ones reads as a pool with most of its quota left. Routing favours
 accounts by the same measure. Hover a segment to see which account and plan it is. The
-Buckets tab lists every account. Native account usage remains
+Proxy buckets tab lists every account. Native account usage remains
 available on that account's native card and in the menu bar. The model picker belongs
 to Codex; the selected model must be available through the bucket.
 

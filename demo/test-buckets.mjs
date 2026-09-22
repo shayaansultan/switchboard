@@ -44,11 +44,11 @@ try {
   let page = await app.firstWindow();
   await page.getByLabel('Model connection for Work').waitFor();
   await page.locator('#tab-buckets').click();
-  await page.getByRole('button', { name: '+ Bucket', exact: true }).click();
+  await page.getByRole('button', { name: 'Proxy bucket', exact: true }).click();
   await page.locator('#bucket-name').fill('Team');
   await page.getByRole('button', { name: 'Create bucket', exact: true }).click();
   await page.locator('[data-bucket="team"]').waitFor();
-  await page.getByRole('button', { name: 'Add account ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'Add account', exact: true }).click();
   assert.equal(await page.getByRole('menuitem', { name: 'Add Claude account', exact: true }).count(), 1);
   assert.equal(await page.getByRole('menuitem', { name: 'Add ChatGPT account', exact: true }).count(), 1);
   await page.keyboard.press('Escape');

@@ -43,7 +43,10 @@ them itself.
 
 Yes. Each profile gets its own CLI login, and the **Terminal** button opens a
 shell already inside that account, so `claude` or `codex` in that window uses
-it. The copy icon on each card copies the one-line command, which can go into an alias.
+it. The copy icon on each account copies the one-line command, which can go into an alias.
+
+Accounts show as a list or as cards; pick either with the toggle above them.
+Drag an account to reorder it within its app; the Default profile stays first.
 
 Signing a profile's CLI in is also what enables its usage bars.
 
@@ -191,8 +194,9 @@ switchboard launch work               # open its desktop window
 switchboard add codex Client --from codex   # a new profile, set up like the Default
 ```
 
-Install it once with `switchboard install-cli` (or `node out/cli.js install-cli`
-from this checkout) after `bun run install-app`. The command runs on the
+Install it from the **CLI** tab in the window, or once with
+`switchboard install-cli` (or `node out/cli.js install-cli` from this checkout)
+after `bun run install-app`. The command runs on the
 installed app's own runtime and code, so it is always the same version as the
 app, and `bun run install-app` updates both. `bun run cli -- list` runs it from
 source without installing.
@@ -236,8 +240,11 @@ window and the command line never disagree about which profiles exist.
 
 ## Development
 
-The source is TypeScript, compiled by `tsc` alone into `out/`, which is what
-Electron runs. There is no bundler. Tests import the `.ts` files directly.
+The source is TypeScript. The main process is compiled by `tsc` into `out/`,
+which is what Electron runs. The window is a small Preact app under
+`src/renderer/`, bundled by `bun build` into `out/renderer/main.js`; its
+styling is one stylesheet of tokens and primitives modelled on Wispr Flow, with
+Figtree and EB Garamond bundled. Tests import the `.ts` files directly.
 
 ```bash
 bun test          # profile isolation, setup logic and the usage parsers

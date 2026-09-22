@@ -30,7 +30,7 @@ const state = {
 
 const files = new Map(
   await Promise.all(
-    ['index.html', 'style.css', 'renderer.js', 'awake.js'].map(async (name) => [
+    ['index.html', 'style.css', 'main.js'].map(async (name) => [
       `/${name}`,
       await fs.readFile(path.join(root, 'out', 'renderer', name)),
     ]),
