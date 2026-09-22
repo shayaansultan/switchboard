@@ -109,6 +109,14 @@ export interface Identity {
   error?: string | null;
 }
 
+// What the app persists between runs, per profile id, so the window and the
+// CLI have numbers before the first fetch.
+export interface CacheEntry {
+  identity: Identity;
+  usage?: Pick<Usage, 'windows' | 'plan' | 'fetchedAt'>;
+}
+export type LiveCache = Record<string, CacheEntry>;
+
 // What the main process knows about a profile beyond the store: whether its
 // window is running, who is signed in, and the last usage numbers.
 export interface Live {

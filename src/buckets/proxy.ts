@@ -10,6 +10,7 @@ import { root, paths, load, readJson, writeJson, secrets, BucketId } from './sto
 import { parseClaudeUsage, parseCodexUsage } from '../usage-parsers';
 import type { UsageWindow } from '../types';
 import { acquireWorkerLease } from './worker-lease';
+import { workerCommand, type Command } from './runtime';
 
 const execute = promisify(execFile);
 const VERSION = '7.3.2';
@@ -294,7 +295,7 @@ async function assertWorkerAbsent(id: string): Promise<void> {
       `Profile ${id} has a live proxy without its controller. Inspect ${paths(id).runtime} before recovery.`,
     );
 }
-export async function ensureWorker(id: string, cli = path.join(__dirname, 'cli.js')): Promise<WorkerStatus> {
+export async function ensureWorker(id: string, worker: Command = workerCommand()): Promise<WorkerStatus> {
   load(id);
   const running = await control(id, 'status');
   if (running?.ready) return running;
@@ -318,7 +319,7 @@ export async function ensureWorker(id: string, cli = path.join(__dirname, 'cli.j
     }
     if (!alive) {
       fs.unlinkSync(lock);
-      return ensureWorker(id, cli);
+      return ensureWorker(id, worker);
     }
   }
   try {
@@ -329,7 +330,7 @@ export async function ensureWorker(id: string, cli = path.join(__dirname, 'cli.j
       const log = path.join(paths(id).runtime, 'worker.log');
       if (fs.existsSync(log) && fs.statSync(log).size > 4 * 1024 * 1024) fs.renameSync(log, `${log}.previous`);
       const fd = fs.openSync(log, 'a', 0o600);
-      const child = spawn(process.execPath, [cli, 'worker', id], {
+      const child = spawn(worker.execPath, [worker.script, 'worker', id], {
         env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
         detached: true,
         stdio: ['ignore', fd, fd],

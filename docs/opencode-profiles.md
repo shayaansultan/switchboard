@@ -117,7 +117,7 @@ oc disconnect work slack
 ```
 
 Use `--bridge /absolute/path/to/src/main.ts` if agentfiles is elsewhere. The default
-is `~/Desktop/agentfiles/integrations/codex-apps-bridge/src/main.ts`.
+is `~/Developer/agentfiles/integrations/codex-apps-bridge/src/main.ts`.
 `SWITCHBOARD_BRIDGE` supplies the same default. `--access read-only` filters out
 tools not explicitly annotated as reads; the default is `read-write`, subject to
 the calling agent's authorization and permissions.

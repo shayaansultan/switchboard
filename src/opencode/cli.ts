@@ -2,13 +2,15 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { spawn, execFile } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs, promisify } from 'node:util';
 import { z } from 'zod';
 import * as profiles from './profiles';
 import * as imports from './imports';
 import * as proxy from '../buckets/proxy';
+import { runInherit as terminal } from '../child';
+import { installShim, launcherScript } from '../shim';
 import { bridgeArgs, launchEnv } from './launch';
 import { bindGitHub } from './github';
 import { modelArguments, modelRef, poolId, saveModel, selectedPoolModel } from './selection';
@@ -26,6 +28,8 @@ import {
 } from './types';
 
 const execute = promisify(execFile);
+// This file, on the runtime that is executing it: what respawns of oc use.
+const self = { execPath: process.execPath, script: __filename };
 const help = `Switchboard OpenCode profiles
 
   oc                              Choose a profile in this terminal
@@ -81,31 +85,12 @@ async function choose<T>(message: string, options: readonly T[], label: (option:
   }
 }
 
-async function terminal(command: string, args: string[], env = process.env): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { env, stdio: 'inherit' });
-    child.once('error', reject);
-    child.once('exit', (code, signal) => resolve(code ?? (signal === 'SIGINT' ? 130 : 1)));
-
-    // Parent and child share the foreground terminal group. Let the child
-    // receive terminal signals once, while the launcher waits for its exit.
-    const waitForChild = () => {};
-    process.on('SIGINT', waitForChild);
-    const terminate = () => child.kill('SIGTERM');
-    process.on('SIGTERM', terminate);
-    child.once('close', () => {
-      process.off('SIGINT', waitForChild);
-      process.off('SIGTERM', terminate);
-    });
-  });
-}
-
 async function open(profile: Profile, args: string[]): Promise<number> {
   const selection = modelArguments(args);
   profile = { ...profile, poolModel: selectedPoolModel(profile), model: selection.model ?? profile.model };
   await verifyPaths(profile);
   const required = Boolean(poolId(profile.model) || (profile.smallModel && poolId(profile.smallModel)));
-  const pool = required ? await preparePool(profile, __filename) : await optionalPool(profile);
+  const pool = required ? await preparePool(profile, self) : await optionalPool(profile);
   const env = await bindGitHub(profile.githubLogin, launchEnv(profile, pool?.port, process.cwd()));
 
   if (process.stdout.isTTY) {
@@ -117,7 +102,7 @@ async function open(profile: Profile, args: string[]): Promise<number> {
     );
   }
 
-  return terminal(process.env.SWITCHBOARD_OPENCODE || 'opencode', selection.args, env);
+  return terminal(process.env.SWITCHBOARD_OPENCODE || 'opencode', selection.args, { env });
 }
 
 async function optionalPool(profile: Profile): Promise<{ port: number; accounts: number } | undefined> {
@@ -132,8 +117,8 @@ async function optionalPool(profile: Profile): Promise<{ port: number; accounts:
     // Bound optional preparation in a subprocess so discovery can finish even
     // when a controller is unreachable. A started worker remains reusable.
     const { stdout } = await execute(
-      process.execPath,
-      [__filename, 'prepare-pool', profile.id, selectedPoolModel(profile)],
+      self.execPath,
+      [self.script, 'prepare-pool', profile.id, selectedPoolModel(profile)],
       {
         timeout: 4000,
         maxBuffer: 1024 * 1024,
@@ -161,7 +146,7 @@ function connectionInput(flags: ConnectionFlags): Connection {
   const bridge =
     flags.bridge ??
     process.env.SWITCHBOARD_BRIDGE ??
-    path.join(os.homedir(), 'Desktop', 'agentfiles', 'integrations', 'codex-apps-bridge', 'src', 'main.ts');
+    path.join(os.homedir(), 'Developer', 'agentfiles', 'integrations', 'codex-apps-bridge', 'src', 'main.ts');
 
   return Connection.parse({
     backend: 'codex-hosted',
@@ -226,16 +211,7 @@ async function verifyPaths(profile: Profile): Promise<string> {
 }
 
 function installCli(): void {
-  const file = path.join(os.homedir(), '.local', 'bin', 'oc');
-  const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
-  const script = `#!/bin/sh\n# Switchboard OpenCode launcher\nexec ${quote(process.execPath)} ${quote(__filename)} "$@"\n`;
-
-  if (fs.existsSync(file) && fs.readFileSync(file, 'utf8') !== script) {
-    throw new Error(`An unrelated or differently installed launcher exists at ${file}`);
-  }
-
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, script, { mode: 0o755 });
+  const file = installShim('oc', launcherScript('Switchboard OpenCode launcher', [self.execPath, self.script]));
   console.log(`Installed ${file}`);
 }
 
@@ -342,18 +318,16 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     case 'prepare-pool': {
       const profile = profiles.load(required(rest[0], 'Profile'));
       if (rest[1]) profile.model = modelRef(rest[1]);
-      console.log(JSON.stringify(await preparePool(profile, __filename)));
+      console.log(JSON.stringify(await preparePool(profile, self)));
       break;
     }
     case 'models': {
       const profile = profiles.load(required(rest[0], 'Profile'));
       await verifyPaths(profile);
       const pool = await optionalPool(profile);
-      process.exitCode = await terminal(
-        process.env.SWITCHBOARD_OPENCODE || 'opencode',
-        ['models', ...rest.slice(1)],
-        launchEnv(profile, pool?.port, process.cwd()),
-      );
+      process.exitCode = await terminal(process.env.SWITCHBOARD_OPENCODE || 'opencode', ['models', ...rest.slice(1)], {
+        env: launchEnv(profile, pool?.port, process.cwd()),
+      });
       break;
     }
     case 'project-config': {
@@ -478,14 +452,14 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       switch (agent) {
         case 'claude':
           if (!profile.nativeAgents?.claude) throw new Error('This profile has no Claude Companion account binding');
-          process.exitCode = await terminal('claude-companion', rest.slice(2), env);
+          process.exitCode = await terminal('claude-companion', rest.slice(2), { env });
           break;
         case 'codex-computer': {
           if (!profile.nativeAgents?.codex) throw new Error('This profile has no Codex Computer account binding');
           const script =
             process.env.CODEX_COMPUTER_SCRIPT ??
-            path.join(os.homedir(), 'Desktop', 'agentfiles', 'skills', 'codex-computer', 'scripts', 'codex-computer');
-          process.exitCode = await terminal('python3', [script, ...rest.slice(2)], env);
+            path.join(os.homedir(), 'Developer', 'agentfiles', 'skills', 'codex-computer', 'scripts', 'codex-computer');
+          process.exitCode = await terminal('python3', [script, ...rest.slice(2)], { env });
           break;
         }
         default:
@@ -518,7 +492,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     }
     case 'login': {
       const id = required(rest[0], 'Profile');
-      await proxy.ensureWorker(id, __filename);
+      await proxy.ensureWorker(id, self);
       // Native OAuth writes directly into the pool. Never copy rotating tokens
       // from Codex homes, which remain owned by the connector's Codex processes.
       process.exitCode = await terminal(proxy.binary(), [

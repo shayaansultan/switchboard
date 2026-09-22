@@ -8,6 +8,7 @@
   "main": "out/main.js",
   "scripts": {
     "oc": "bun src/opencode/cli.ts",
+    "cli": "bun src/cli.ts",
     "start": "bun run build && electron .",
     "icons": "electron build/render-icons.js",
     "dist": "bun run build && electron-builder --mac --dir",

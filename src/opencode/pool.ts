@@ -2,8 +2,9 @@ import * as proxy from '../buckets/proxy';
 import { refreshModelCatalog } from './models';
 import { poolId, selectedPoolModel } from './selection';
 import type { Profile } from './types';
+import type { Command } from '../buckets/runtime';
 
-export async function preparePool(profile: Profile, cli: string): Promise<{ port: number; accounts: number }> {
+export async function preparePool(profile: Profile, cli: Command): Promise<{ port: number; accounts: number }> {
   const worker = await proxy.ensureWorker(profile.id, cli);
   const accounts = (await proxy.accounts(profile.id, worker.receipt.proxyPort)).filter(
     (account) => (account.provider ?? account.type) === 'codex',

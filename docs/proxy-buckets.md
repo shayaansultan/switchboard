@@ -81,6 +81,13 @@ buckets without moving or copying rotating credentials. New standalone buckets l
 under `~/.switchboard/buckets/<id>/`. The existing OpenCode profiles continue using
 their same-named pools; standalone buckets currently serve desktop clients.
 
+The wrapper embeds the runtime and adapter script that `src/buckets/runtime.ts`
+resolves: the process's own bundle inside Electron, otherwise the installed
+Switchboard.app when there is one. A wrapper minted by the `switchboard` CLI is
+therefore byte-identical to one minted by the app, and never points at a
+checkout's `out/` directory. Changes to `desktop-stdio.ts` reach desktop
+launches after `bun run install-app`.
+
 Desktop assignments live in `profiles.json` as `proxyBucket`. A private, immutable
 launch wrapper under `~/.switchboard/desktop-routing/` supplies provider overrides
 to the app's embedded Codex process via `CODEX_CLI_PATH`. The local proxy key is passed
