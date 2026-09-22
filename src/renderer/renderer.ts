@@ -560,26 +560,31 @@ function bucketNotes(bucket: BucketView): (HTMLElement | null)[] {
 
 // On a profile card a bucket is pooled: one bar per provider and window,
 // cut into a segment per account, so "GPT 7d" reads as one quota while a
-// spent account still shows as a full segment. The number is the mean, which
-// treats the accounts as equal in size; plans differ, so it is a guide to how
-// much of the pool is gone, not a count of requests. The Buckets tab has
-// every account on its own.
+// spent account still shows as a full segment. Segments are sized by the
+// plan's capacity and the number is the capacity-weighted mean, so a spent
+// 5x account beside two fresh 20x ones reads as a pool with most of its quota
+// left, not as a third gone. An account whose plan is not yet known counts
+// as the base plan. The Buckets tab has every account on its own.
 function pooledBars(bucket: BucketView): HTMLElement[] {
-  type Part = { who: string; pct: number; w: UsageWindow };
+  type Part = { account: BucketAccount; pct: number; w: UsageWindow };
   const pools = new Map<string, Part[]>();
   for (const account of bucket.accounts) {
     if (account.status === 'disabled') continue;
     for (const w of account.windows) {
       if (w.pct === null || w.pct === undefined) continue;
       const label = account.provider === 'claude' ? `Claude ${w.label}` : `GPT ${w.label.replace(/^gpt-/, '')}`;
-      pools.set(label, [...(pools.get(label) ?? []), { who: account.email ?? account.name, pct: w.pct, w }]);
+      pools.set(label, [...(pools.get(label) ?? []), { account, pct: w.pct, w }]);
     }
   }
   const remaining = current().settings.usageMode === 'remaining';
   const shown = (pct: number): number => (remaining ? 100 - pct : pct);
-  const about = (part: Part): string => [`${part.pct}% used`, relTime(part.w.resetsAt)].filter(Boolean).join(' · ');
+  const who = (part: Part): string => part.account.email ?? part.account.name;
+  const capacity = (part: Part): number => part.account.plan?.capacity ?? 1;
+  const about = (part: Part): string =>
+    [part.account.plan?.name, `${part.pct}% used`, relTime(part.w.resetsAt)].filter(Boolean).join(' · ');
   return [...pools].map(([label, parts]) => {
-    const used = Math.round(parts.reduce((sum, part) => sum + part.pct, 0) / parts.length);
+    const size = parts.reduce((sum, part) => sum + capacity(part), 0);
+    const used = Math.round(parts.reduce((sum, part) => sum + part.pct * capacity(part), 0) / size);
     // The reset that matters is the next one among accounts that are running
     // low; failing that, the next one at all.
     const upcoming = parts.filter((part) => part.w.resetsAt && Date.parse(part.w.resetsAt) > Date.now());
@@ -597,24 +602,29 @@ function pooledBars(bucket: BucketView): HTMLElement[] {
           parts.length > 1 ? el('span', { class: 'reset' }, ` ×${parts.length}`) : null,
           reset ? el('span', { class: 'reset' }, ` · ${reset}`) : null,
         ),
-        [label, ...parts.map((part) => `${part.who} · ${about(part)}`)],
+        [label, ...parts.map((part) => `${who(part)} · ${about(part)}`)],
       ),
       el(
         'div',
-        { class: 'track pooled' },
+        { class: 'track pooled', style: `--segments:${parts.length}` },
         // Each segment answers for its own account when hovered or tabbed to.
         parts.map((part) =>
           withTip(
             el(
               'div',
-              { class: 'seg', tabindex: '0', 'aria-label': `${part.who}, ${about(part)}` },
+              {
+                class: 'seg',
+                tabindex: '0',
+                style: `flex:${capacity(part)}`,
+                'aria-label': `${who(part)}, ${about(part)}`,
+              },
               el(
                 'div',
                 { class: 'seg-track' },
                 el('div', { class: `fill ${severityClass(part.w)}`, style: `width:${shown(part.pct)}%` }),
               ),
             ),
-            [part.who, about(part)],
+            [who(part), about(part)],
           ),
         ),
       ),
@@ -641,7 +651,7 @@ function accountRow(bucket: BucketView, account: BucketAccount): HTMLElement {
     el(
       'span',
       { class: 'who', title: account.email ?? account.name },
-      el('span', { class: 'prov' }, `${providerLabel(account)} `),
+      el('span', { class: 'prov' }, `${[providerLabel(account), account.plan?.name].filter(Boolean).join(' ')} `),
       account.email ?? account.name,
       account.status !== 'fresh' ? el('span', { class: 'prov' }, ` · ${account.status}`) : null,
     ),

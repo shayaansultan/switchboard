@@ -50,8 +50,12 @@ merge desktop histories. App features that depend on hosted services still depen
 on the desktop login and provider support.
 
 The card then pools the bucket's usage: one bar per provider and window (Claude 5h,
-GPT 7d and so on), cut into a segment per account, with the mean as its percentage.
-Hover a segment to see which account it is. The Buckets tab lists every account. Native account usage remains
+GPT 7d and so on), cut into a segment per account. Segments are sized by the plan's
+capacity, using the vendors' published multiples (a $200 Pro is 20x Plus, a Max 5x is
+5x Pro), and the percentage is the mean weighted the same way, so a spent small plan
+beside fresh large ones reads as a pool with most of its quota left. Routing favours
+accounts by the same measure. Hover a segment to see which account and plan it is. The
+Buckets tab lists every account. Native account usage remains
 available on that account's native card and in the menu bar. The model picker belongs
 to Codex; the selected model must be available through the bucket.
 

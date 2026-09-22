@@ -214,6 +214,14 @@ test('quota weights use the tightest observed window, never evicting healthy sti
   expect(quotaWeight([{ label: 'unknown', pct: null, resetsAt: null }])).toBe(50);
 });
 
+test('quota weights scale with plan capacity, so a large plan is favoured at equal headroom', () => {
+  const half = [{ label: '7d', pct: 50, resetsAt: null }];
+  expect(quotaWeight(half, 20)).toBe(1000);
+  expect(quotaWeight(half, 5)).toBe(250);
+  expect(quotaWeight(half, undefined)).toBe(50);
+  expect(quotaWeight([{ label: '7d', pct: 100, resetsAt: null }], 20)).toBe(1);
+});
+
 test('native agents inherit only the current profile binding', () => {
   const profile = profiles.create('Native binding');
   profiles.update(profile.id, (value) => {

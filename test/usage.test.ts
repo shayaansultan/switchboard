@@ -3,7 +3,7 @@
 // response belongs in one of these fixtures.
 
 const { test, expect } = require('bun:test');
-const { parseClaudeUsage, parseCodexUsage, planName, keychainService, usage } = require('../src/usage');
+const { parseClaudeUsage, parseCodexUsage, keychainService, usage } = require('../src/usage');
 
 // ---- Claude ----
 
@@ -221,16 +221,6 @@ test('Codex: an empty body yields no windows', () => {
 });
 
 // ---- shared ----
-
-test('plan slugs are reduced to the name people know', () => {
-  expect(planName('self_serve_business_prolite')).toBe('Business');
-  expect(planName('max')).toBe('Max');
-  expect(planName('pro')).toBe('Pro');
-  expect(planName('plus')).toBe('Plus');
-  expect(planName('enterprise_2024')).toBe('Enterprise');
-  expect(planName('mystery')).toBe('mystery');
-  expect(planName(null)).toBe(null);
-});
 
 test('the keychain service name depends on the config dir, as Claude Code derives it', () => {
   // The default home comes from the profile module, which may already have
