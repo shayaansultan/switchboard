@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { root, paths, load, readJson, writeJson, secrets, BucketId } from './store';
 import { parseClaudeUsage, parseCodexUsage } from '../usage-parsers';
 import type { UsageWindow } from '../types';
+import { describePlan, type Plan } from '../plans';
 import { acquireWorkerLease } from './worker-lease';
 import { workerCommand, type Command } from './runtime';
 
@@ -51,6 +52,9 @@ const AccountUsage = z.object({
     }),
   ),
   weight: z.number().int().nonnegative(),
+  // The plan sizes the account's segment on the pooled bar and its share of
+  // routing; null until the vendor has said which plan it is.
+  plan: z.object({ name: z.string(), capacity: z.number().positive() }).nullable().default(null),
   observedAt: z.string().optional(),
   nextProbeAt: z.number().optional(),
 });
@@ -179,25 +183,53 @@ export async function setAccountEnabled(id: string, port: number, name: string, 
   await management(id, port, 'auth-files/status', 'PATCH', { name, disabled: !enabled });
 }
 
-export function usageRequest(account: AuthFile) {
+// Codex reports its plan alongside usage; Claude's usage endpoint does not,
+// so the plan comes from its profile.
+export function vendorRequest(account: AuthFile, resource: 'usage' | 'profile' = 'usage') {
   const provider = account.provider ?? account.type;
   const header: Record<string, string> = { Authorization: 'Bearer $TOKEN$', Accept: 'application/json' };
   if (provider === 'claude') {
     header['anthropic-beta'] = 'oauth-2025-04-20';
-    return { url: 'https://api.anthropic.com/api/oauth/usage', header };
+    return { url: `https://api.anthropic.com/api/oauth/${resource}`, header };
   }
   if (provider !== 'codex') throw new Error('Unsupported bucket provider');
+  if (resource !== 'usage') throw new Error('Codex reports its plan with usage');
   const accountId = account.account_id ?? account.id_token?.chatgpt_account_id;
   if (accountId) header['ChatGPT-Account-Id'] = accountId;
   return { url: 'https://chatgpt.com/backend-api/wham/usage', header };
 }
 
-export function quotaWeight(windows: readonly UsageWindow[]): number {
+// A request to the vendor with the account's own token, made by the proxy.
+async function vendorCall(id: string, port: number, account: AuthFile, resource: 'usage' | 'profile') {
+  return z.object({ status_code: z.number(), body: z.string() }).parse(
+    await management(id, port, 'api-call', 'POST', {
+      auth_index: account.auth_index,
+      method: 'GET',
+      ...vendorRequest(account, resource),
+    }),
+  );
+}
+
+async function claudePlan(id: string, port: number, account: AuthFile): Promise<Plan | null> {
+  try {
+    const result = await vendorCall(id, port, account, 'profile');
+    return result.status_code === 200
+      ? describePlan('claude', JSON.parse(result.body).organization?.rate_limit_tier)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+// Routing share: how much quota the account has left in absolute terms, so a
+// 20x plan at half is favoured over a 5x plan at half and the pool drains
+// evenly.
+export function quotaWeight(windows: readonly UsageWindow[], capacity = 1): number {
   const known = windows.filter((window) => window.pct !== null);
   const headroom = known.length ? Math.min(...known.map((window) => 100 - window.pct!)) : 50;
   // Keep a positive weight for nearly-exhausted accounts. Zero would evict a
   // healthy sticky session; actual quota errors are the proxy's authority.
-  return Math.max(1, Math.round(headroom));
+  return Math.max(1, Math.round(headroom * capacity));
 }
 async function observe(id: string, port: number, account: AuthFile, previous?: AccountUsage): Promise<AccountUsage> {
   const base: AccountUsage = {
@@ -207,31 +239,27 @@ async function observe(id: string, port: number, account: AuthFile, previous?: A
     status: 'unknown',
     windows: [],
     weight: account.weight ?? 50,
+    plan: previous?.plan ?? null,
   };
   if (account.disabled) return { ...base, status: 'disabled' };
   if (previous?.nextProbeAt && previous.nextProbeAt > Date.now()) return previous;
   try {
-    const result = z
-      .object({
-        status_code: z.number(),
-        body: z.string(),
-        header: z.record(z.string(), z.array(z.string())).optional(),
-      })
-      .parse(
-        await management(id, port, 'api-call', 'POST', {
-          auth_index: account.auth_index,
-          method: 'GET',
-          ...usageRequest(account),
-        }),
-      );
+    const result = await vendorCall(id, port, account, 'usage');
     switch (result.status_code) {
       case 200: {
-        const windows = (base.provider === 'claude' ? parseClaudeUsage : parseCodexUsage)(JSON.parse(result.body));
+        const body = JSON.parse(result.body);
+        const windows = (base.provider === 'claude' ? parseClaudeUsage : parseCodexUsage)(body);
         if (!windows.length) return previous ? { ...previous, status: 'unknown' } : base;
-        const weight = quotaWeight(windows);
+        // Plans change rarely, so Claude's extra request is made until it
+        // answers and then not again for the life of the worker.
+        const plan =
+          base.provider === 'codex'
+            ? describePlan('codex', body.plan_type)
+            : (base.plan ?? (await claudePlan(id, port, account)));
+        const weight = quotaWeight(windows, plan?.capacity);
         if (weight !== account.weight)
           await management(id, port, 'auth-files/fields', 'PATCH', { name: account.name, weight });
-        return { ...base, status: 'fresh', windows, weight, observedAt: new Date().toISOString() };
+        return { ...base, status: 'fresh', windows, weight, plan, observedAt: new Date().toISOString() };
       }
       case 429:
         return { ...(previous ?? base), status: 'cooldown', nextProbeAt: Date.now() + 15 * 60_000 };

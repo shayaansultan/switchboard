@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { usageRequest } from '../src/buckets/proxy';
+import { vendorRequest } from '../src/buckets/proxy';
 import { mergedCatalog, claudeDescriptor, type ClaudeModel } from '../src/buckets/models';
 import { parseClaudeUsage } from '../src/usage-parsers';
 
@@ -14,24 +14,24 @@ const model: ClaudeModel = {
 };
 
 test('mixed buckets select provider-specific usage endpoints and headers', () => {
-  const claude = usageRequest({
+  const account = {
     name: 'claude.json',
     auth_index: 'claude-id',
     provider: 'claude',
     account_id: 'not-a-chatgpt-account',
-  });
+  };
+  const claude = vendorRequest(account);
   expect(claude.url).toBe('https://api.anthropic.com/api/oauth/usage');
   expect(claude.header['anthropic-beta']).toBe('oauth-2025-04-20');
   expect(claude.header['ChatGPT-Account-Id']).toBeUndefined();
-  const codex = usageRequest({
-    name: 'codex.json',
-    auth_index: 'codex-id',
-    type: 'codex',
-    account_id: 'chatgpt-account',
-  });
-  expect(codex.header['ChatGPT-Account-Id']).toBe('chatgpt-account');
-  expect(codex.header['anthropic-beta']).toBeUndefined();
-  expect(() => usageRequest({ name: 'other', auth_index: 'id', provider: 'other' })).toThrow();
+  expect(vendorRequest(account, 'profile').url).toBe('https://api.anthropic.com/api/oauth/profile');
+  const codex = { name: 'codex.json', auth_index: 'codex-id', type: 'codex', account_id: 'chatgpt-account' };
+  const usage = vendorRequest(codex);
+  expect(usage.header['ChatGPT-Account-Id']).toBe('chatgpt-account');
+  expect(usage.header['anthropic-beta']).toBeUndefined();
+  // Codex reports its plan with usage; there is no profile to ask.
+  expect(() => vendorRequest(codex, 'profile')).toThrow();
+  expect(() => vendorRequest({ name: 'other', auth_index: 'id', provider: 'other' })).toThrow();
 });
 
 test('Claude metadata is appended without mutating GPT catalog entries', () => {

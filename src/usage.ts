@@ -19,6 +19,7 @@ import { run, haveCommand, type RunError } from './launch';
 import { VENDORS, dirs } from './store';
 import type { Identity, Profile, Usage } from './types';
 import { parseClaudeUsage, parseCodexUsage } from './usage-parsers';
+import { planName } from './plans';
 export { parseClaudeUsage, parseCodexUsage } from './usage-parsers';
 
 const CLAUDE_USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
@@ -68,6 +69,7 @@ interface ClaudeCredential {
   token: string;
   expiresAt: number | null;
   subscriptionType: string | null;
+  rateLimitTier: string | null;
 }
 
 export interface UsageDependencies {
@@ -87,7 +89,12 @@ async function claudeToken(home: string): Promise<ClaudeCredential | null> {
   const j: Json = JSON.parse(blob);
   const o = j.claudeAiOauth || j;
   if (!o.accessToken) return null;
-  return { token: o.accessToken, expiresAt: o.expiresAt || null, subscriptionType: o.subscriptionType || null };
+  return {
+    token: o.accessToken,
+    expiresAt: o.expiresAt || null,
+    subscriptionType: o.subscriptionType || null,
+    rateLimitTier: o.rateLimitTier || null,
+  };
 }
 
 async function renewClaudeToken(home: string): Promise<void> {
@@ -104,7 +111,7 @@ async function claudeIdentity(profile: Profile): Promise<Identity> {
     return {
       loggedIn: !!j.loggedIn,
       email: j.email || null,
-      plan: planName(j.subscriptionType),
+      plan: planName('claude', j.subscriptionType),
       org: j.orgName || null,
     };
   } catch (err) {
@@ -112,30 +119,12 @@ async function claudeIdentity(profile: Profile): Promise<Identity> {
     // `claude auth status` exits non-zero when logged out but still prints JSON.
     try {
       const j: Json = JSON.parse(e.stdout || '');
-      return { loggedIn: !!j.loggedIn, email: j.email || null, plan: planName(j.subscriptionType) };
+      return { loggedIn: !!j.loggedIn, email: j.email || null, plan: planName('claude', j.subscriptionType) };
     } catch {
       const missing = e.code === 'ENOENT' || /not found/i.test(e.message || '');
       return { loggedIn: false, error: missing ? 'the claude CLI is not installed' : 'claude auth status failed' };
     }
   }
-}
-
-// Vendors report plans as internal slugs ("self_serve_business_prolite", "max").
-export function planName(slug: unknown): string | null {
-  if (!slug) return null;
-  const s = String(slug).toLowerCase();
-  for (const [needle, label] of [
-    ['enterprise', 'Enterprise'],
-    ['business', 'Business'],
-    ['team', 'Team'],
-    ['max', 'Max'],
-    ['pro', 'Pro'],
-    ['plus', 'Plus'],
-    ['free', 'Free'],
-  ]) {
-    if (s.includes(needle)) return label;
-  }
-  return String(slug);
 }
 
 // How long to leave an endpoint alone after a 429. The server's Retry-After
@@ -187,7 +176,11 @@ async function claudeUsage(profile: Profile, dependencies: UsageDependencies = {
   if (res.status === 429) return { error: 'rate limited by the usage API', retryAfterMs: retryDelay(res) };
   if (!res.ok) return { error: `usage API ${res.status}` };
   const windows = parseClaudeUsage(await res.json());
-  return { windows, plan: planName(cred.subscriptionType), fetchedAt: new Date().toISOString() };
+  return {
+    windows,
+    plan: planName('claude', cred.subscriptionType, cred.rateLimitTier),
+    fetchedAt: new Date().toISOString(),
+  };
 }
 
 function decodeJwt(t: string): Json | null {
@@ -219,7 +212,7 @@ function codexAuth(home: string): CodexAuth | null {
     token: t.access_token || null,
     accountId: t.account_id || auth.chatgpt_account_id || null,
     email: (claims && claims.email) || null,
-    plan: planName(auth.chatgpt_plan_type),
+    plan: planName('codex', auth.chatgpt_plan_type),
   };
 }
 
@@ -257,7 +250,11 @@ async function codexUsage(profile: Profile): Promise<Usage> {
     if (res.status === 429) return { error: 'rate limited by the usage API', retryAfterMs: retryDelay(res) };
     if (!res.ok) return { error: `usage API ${res.status}` };
     const j: Json = await res.json();
-    return { windows: parseCodexUsage(j), plan: planName(j.plan_type) || a.plan, fetchedAt: new Date().toISOString() };
+    return {
+      windows: parseCodexUsage(j),
+      plan: planName('codex', j.plan_type) || a.plan,
+      fetchedAt: new Date().toISOString(),
+    };
   }
   return { error: last || 'usage API unavailable' };
 }
