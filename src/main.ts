@@ -17,7 +17,8 @@ import * as profiles from './profiles';
 import * as launch from './launch';
 import * as usage from './usage';
 import * as buckets from './buckets';
-import { shellQuote } from './buckets/desktop';
+import { shellQuote } from './shell';
+import { writeJson } from './storage';
 import { z } from 'zod';
 import { AwakeController, isAwakeValue, macAwakeSystem } from './awake';
 import { barPng, meterPng, stripPng } from './trayart';
@@ -26,15 +27,14 @@ import { PollingPause, type PauseReason } from './polling-pause';
 import type {
   AddOptions,
   BringOptions,
-  Identity,
   Live,
+  LiveCache,
   Profile,
   ProfileView,
   Settings,
   SetupItemView,
   State,
   Store,
-  Usage,
   Vendor,
 } from './types';
 
@@ -97,15 +97,11 @@ async function refreshBuckets(): Promise<void> {
 }
 
 // Last known identity and usage per profile, so the window has numbers the
-// moment it opens instead of blanks while the first refresh runs.
-const CACHE = path.join(profiles.ROOT, 'live-cache.json');
-interface CacheEntry {
-  identity: Identity;
-  usage?: Pick<Usage, 'windows' | 'plan' | 'fetchedAt'>;
-}
+// moment it opens instead of blanks while the first refresh runs. The CLI
+// reads this file too; only the app writes it.
 function loadCache(): void {
   try {
-    const c = JSON.parse(fs.readFileSync(CACHE, 'utf8')) as Record<string, CacheEntry>;
+    const c = JSON.parse(fs.readFileSync(profiles.LIVE_CACHE_FILE, 'utf8')) as LiveCache;
     for (const [id, v] of Object.entries(c)) {
       if (!data.profiles.some((p) => p.id === id)) continue;
       live.set(id, { identity: v.identity, usage: v.usage ? { ...v.usage, stale: true } : undefined, cached: true });
@@ -115,7 +111,7 @@ function loadCache(): void {
   }
 }
 function saveCache(): void {
-  const c: Record<string, CacheEntry> = {};
+  const c: LiveCache = {};
   for (const p of data.profiles) {
     const s = live.get(p.id);
     if (!s || !s.identity) continue;
@@ -126,12 +122,41 @@ function saveCache(): void {
     c[p.id] = { identity: s.identity, usage: u };
   }
   try {
-    fs.writeFileSync(CACHE, JSON.stringify(c), { mode: 0o600 });
+    writeJson(profiles.LIVE_CACHE_FILE, c);
   } catch {
     /* cache is a nicety */
   }
 }
 loadCache();
+
+// ---- store shared with the CLI ----
+// The CLI writes profiles.json directly. A foreign write arrives here through
+// the store watcher; an app-side mutation first folds in anything the CLI
+// wrote since, under the same lock the CLI takes, so neither side can
+// overwrite the other's change.
+function applyReload(next: Store): void {
+  const diff = profiles.diffStores(data, next);
+  data.profiles = next.profiles;
+  data.settings = next.settings;
+  delete data.loadError;
+  for (const id of diff.removed) live.delete(id);
+  if (diff.removed.length) saveCache();
+  if (diff.settingsChanged) {
+    schedulePolling();
+    applyLoginItem();
+    applyAppearance();
+  }
+  broadcast();
+  for (const id of diff.added) void refreshAll(id).catch(() => {});
+}
+
+function mutate<T>(fn: () => T): T {
+  return profiles.withStoreLock(() => {
+    const next = profiles.readIfChanged();
+    if (next) applyReload(next);
+    return fn();
+  });
+}
 // ---- polling cadence ----
 // The interval in Settings is the steady rate while Switchboard is in use.
 // Away from it the app polls less, so an idle Mac does not hit the usage
@@ -217,11 +242,6 @@ async function refreshRunning(): Promise<void> {
   for (const p of data.profiles) liveFor(p).running = !!launch.instanceFor(p, instances);
 }
 
-// Whether the last usage answer suggests the sign-in itself changed.
-function looksSignedOut(u: Usage | undefined): boolean {
-  return !!u?.error && /not signed in|expired|401|403/i.test(u.error);
-}
-
 const IDENTITY_TTL = 60 * 60 * 1000;
 const profileRefreshes = new Map<string, Promise<void>>();
 
@@ -234,7 +254,7 @@ const profileRefreshes = new Map<string, Promise<void>>();
 async function performProfileRefresh(p: Profile, force: boolean): Promise<void> {
   const cur = liveFor(p);
   const known = cur.identity && cur.identityAt && Date.now() - cur.identityAt < IDENTITY_TTL;
-  if (force || !known || looksSignedOut(cur.usage)) {
+  if (force || !known || usage.looksSignedOut(cur.usage)) {
     cur.identity = await usage.identity(p);
     cur.identityAt = Date.now();
   }
@@ -538,12 +558,7 @@ ipcMain.handle('buckets:assign', (event, id: string, bucket: unknown) => {
   if (p.vendor !== 'codex') throw new Error('Proxy routing is available for Codex desktop profiles');
   const target = z.string().nullable().parse(bucket);
   if (target !== null) buckets.load(target);
-  const next = { ...p };
-  if (target === null) delete next.proxyBucket;
-  else next.proxyBucket = target;
-  const updated = data.profiles.map((profile) => (profile.id === id ? next : profile));
-  profiles.save({ ...data, profiles: updated });
-  data.profiles = updated;
+  mutate(() => profiles.setProxyBucket(data, id, target));
   broadcast();
 });
 ipcMain.handle('buckets:create', async (event, name: unknown) => {
@@ -597,7 +612,7 @@ ipcMain.handle('state:refresh', async (_e, id?: string) => {
   return stateSnapshot();
 });
 ipcMain.handle('profiles:add', async (_e, p: AddOptions) => {
-  const { profile, result } = profiles.add(data, p);
+  const { profile, result } = mutate(() => profiles.add(data, p));
   await refreshAll(profile.id);
   return { profile, result };
 });
@@ -613,7 +628,7 @@ ipcMain.handle('profiles:remove', async (_e, id: string) => {
   };
   const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
   if (r.response !== 0) return false;
-  profiles.remove(data, id);
+  mutate(() => profiles.remove(data, id));
   live.delete(id);
   saveCache();
   broadcast();
@@ -633,22 +648,25 @@ ipcMain.handle('profiles:bringOver', async (_e, id: string, sourceId: string, op
       `Quit the ${profiles.VENDORS[target.vendor].label} window for "${target.name}" first: chat history changes a file that window keeps open.`,
     );
   }
-  const r = profiles.bringOver(data, target, byId(sourceId), o);
+  // Resolve again under the lock: a reload there replaces the profile objects.
+  const r = mutate(() => profiles.bringOver(data, byId(id), byId(sourceId), o));
   broadcast();
   return r;
 });
 ipcMain.handle('profiles:update', (_e, id: string, patch: { name?: string; color?: string }) => {
-  profiles.update(data, id, patch);
+  mutate(() => profiles.update(data, id, patch));
   broadcast();
 });
 ipcMain.handle('profiles:move', (_e, id: string, delta: -1 | 1) => {
-  const moved = profiles.move(data, id, delta);
+  const moved = mutate(() => profiles.move(data, id, delta));
   if (moved) broadcast();
   return moved;
 });
 ipcMain.handle('settings:save', (_e, s: Partial<Settings>) => {
-  data.settings = { ...data.settings, ...s };
-  profiles.save(data);
+  mutate(() => {
+    data.settings = { ...data.settings, ...s };
+    profiles.save(data);
+  });
   schedulePolling();
   applyLoginItem();
   applyAppearance();
@@ -699,6 +717,8 @@ app.whenReady().then(async () => {
   if (powerMonitor.getSystemIdleState(1) === 'locked') pollingPause.pause('lock');
   schedulePolling();
   if (!pollingPause.paused) await refreshAll().catch(() => {});
+  const stopWatching = profiles.watchStore(applyReload);
+  app.on('will-quit', stopWatching);
   // Dev aid: `electron . --screenshot=/tmp/x.png` captures the window and exits.
   const shot = process.argv.find((a) => a.startsWith('--screenshot='));
   if (shot) {

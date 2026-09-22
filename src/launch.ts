@@ -10,6 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { VENDORS, VENDOR_IDS, dirs, ensureDirs } from './store';
+import { shellQuote } from './shell';
 import type { Instance, Profile, Settings } from './types';
 import { desktopEnvironment } from './buckets/desktop';
 
@@ -171,10 +172,6 @@ export async function quitOthers(profile: Profile): Promise<number> {
   const others = (await runningInstances()).filter((i) => i.vendor === profile.vendor && !owns(profile, i));
   for (const i of others) process.kill(i.pid, 'SIGTERM');
   return others.length;
-}
-
-function shellQuote(s: string): string {
-  return `'${String(s).replace(/'/g, `'\\''`)}'`;
 }
 
 // Terminals we know how to hand a command to. Only installed ones are offered.

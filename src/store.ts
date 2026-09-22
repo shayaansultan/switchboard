@@ -2,18 +2,26 @@
 // Each non-default profile owns an isolated directory tree under ~/.switchboard
 // so its CLI login, desktop-app session, history and settings never touch
 // another profile's.
+//
+// Two processes write this store: the app and the `switchboard` CLI. Every
+// write is an atomic rename, the app watches the file and reloads foreign
+// writes, and read-modify-write sequences hold an advisory lock.
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { Dirs, Profile, Store, Vendor, VendorInfo } from './types';
 
 // Node's os.homedir() honours $HOME on POSIX; Bun reads the passwd entry
 // instead. Prefer $HOME so tests can point the whole store at a scratch
 // directory, and so an explicit HOME wins as it does everywhere else.
+// SWITCHBOARD_ROOT moves the store the same way it moves buckets (storage.ts).
 export const HOME = process.env.HOME || os.homedir();
-export const ROOT = path.join(HOME, '.switchboard');
-const STORE = path.join(ROOT, 'profiles.json');
+export const ROOT = path.resolve(process.env.SWITCHBOARD_ROOT || path.join(HOME, '.switchboard'));
+export const STORE_FILE = path.join(ROOT, 'profiles.json');
+export const LIVE_CACHE_FILE = path.join(ROOT, 'live-cache.json');
+const LOCK_FILE = path.join(ROOT, 'profiles.lock');
 
 export const VENDORS: Record<Vendor, VendorInfo> = {
   claude: {
@@ -57,10 +65,27 @@ function defaults(): Store {
   };
 }
 
+// The text of the last save() from this process. A change event whose file
+// text equals it is our own write, not one to reload.
+let lastSaved: string | null = null;
+
+// Parse the store file's text. Throws on a shape that cannot be a store.
+export function parseStore(raw: string): Store {
+  const data = JSON.parse(raw) as Store;
+  if (!Array.isArray(data.profiles)) throw new Error('no profiles array');
+  data.settings = { ...defaults().settings, ...data.settings };
+  return data;
+}
+
+// Read the store as it is on disk. Never writes; throws if missing or unreadable.
+export function readStore(): Store {
+  return parseStore(fs.readFileSync(STORE_FILE, 'utf8'));
+}
+
 export function load(): Store {
   let raw: string;
   try {
-    raw = fs.readFileSync(STORE, 'utf8');
+    raw = fs.readFileSync(STORE_FILE, 'utf8');
   } catch {
     // No store yet: first run.
     const d = defaults();
@@ -68,34 +93,165 @@ export function load(): Store {
     return d;
   }
   try {
-    const data = JSON.parse(raw) as Store;
-    if (!Array.isArray(data.profiles)) throw new Error('no profiles array');
-    data.settings = { ...defaults().settings, ...data.settings };
-    return data;
+    return parseStore(raw);
   } catch (e) {
     // The file exists but is unreadable. Keep it: it is the only record of
     // which profiles own which directories, and those directories hold logins.
-    const backup = `${STORE}.corrupt-${Date.now()}`;
+    const backup = `${STORE_FILE}.corrupt-${Date.now()}`;
     try {
-      fs.copyFileSync(STORE, backup);
+      fs.copyFileSync(STORE_FILE, backup);
     } catch {
       /* best effort */
     }
     const d = defaults();
-    d.loadError = `Could not read ${STORE} (${(e as Error).message}). A copy is at ${backup}; starting with the default profiles.`;
+    d.loadError = `Could not read ${STORE_FILE} (${(e as Error).message}). A copy is at ${backup}; starting with the default profiles.`;
     save(d);
     return d;
   }
 }
 
-// Write through a temp file so a crash or a full disk cannot truncate the
-// store and lose the mapping from profiles to their directories.
+// Write through a uniquely named temp file so a crash, a full disk or a
+// concurrent writer cannot truncate the store and lose the mapping from
+// profiles to their directories.
 export function save(data: Store): void {
   fs.mkdirSync(ROOT, { recursive: true, mode: 0o700 });
-  const tmp = `${STORE}.tmp`;
   const { loadError: _loadError, ...persisted } = data;
-  fs.writeFileSync(tmp, JSON.stringify(persisted, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, STORE);
+  const text = JSON.stringify(persisted, null, 2);
+  const tmp = `${STORE_FILE}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, text, { mode: 0o600, flag: 'wx' });
+    lastSaved = text;
+    fs.renameSync(tmp, STORE_FILE);
+  } finally {
+    if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+  }
+}
+
+// The store if another process changed it since this one last saved, else
+// null. Unreadable or corrupt content is also null: the in-memory store
+// stays authoritative and the next save() writes it back.
+export function readIfChanged(): Store | null {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(STORE_FILE, 'utf8');
+  } catch {
+    return null;
+  }
+  if (raw === lastSaved) return null;
+  try {
+    const next = parseStore(raw);
+    lastSaved = raw;
+    return next;
+  } catch {
+    return null;
+  }
+}
+
+export interface StoreDiff {
+  added: string[];
+  removed: string[];
+  changed: string[];
+  settingsChanged: boolean;
+}
+
+export function diffStores(current: Store, next: Store): StoreDiff {
+  const before = new Map(current.profiles.map((p) => [p.id, JSON.stringify(p)]));
+  const after = new Map(next.profiles.map((p) => [p.id, JSON.stringify(p)]));
+  return {
+    added: [...after.keys()].filter((id) => !before.has(id)),
+    removed: [...before.keys()].filter((id) => !after.has(id)),
+    changed: [...after.keys()].filter((id) => before.has(id) && before.get(id) !== after.get(id)),
+    settingsChanged: JSON.stringify(current.settings) !== JSON.stringify(next.settings),
+  };
+}
+
+// Call `onChange` with the store whenever another process rewrites it. The
+// directory is watched rather than the file: the atomic rename replaces the
+// inode, and a watch on the old one goes quiet after the first foreign write.
+// Returns a function that stops watching.
+export function watchStore(onChange: (next: Store) => void, debounceMs = 150): () => void {
+  fs.mkdirSync(ROOT, { recursive: true, mode: 0o700 });
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let reading = false;
+  let dirty = false;
+  const check = (): void => {
+    timer = null;
+    if (reading) {
+      dirty = true;
+      return;
+    }
+    reading = true;
+    try {
+      const next = readIfChanged();
+      if (next) onChange(next);
+    } finally {
+      reading = false;
+      if (dirty) {
+        dirty = false;
+        check();
+      }
+    }
+  };
+  const watcher = fs.watch(ROOT, { persistent: false }, (_event, filename) => {
+    if (filename !== path.basename(STORE_FILE)) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(check, debounceMs);
+  });
+  watcher.on('error', (error) => {
+    console.error(`profiles.json watcher stopped: ${error.message}`);
+    watcher.close();
+  });
+  return () => {
+    if (timer) clearTimeout(timer);
+    watcher.close();
+  };
+}
+
+const LOCK_STALE_MS = 10_000;
+const LOCK_WAIT_MS = 2_000;
+const LOCK_STEP_MS = 25;
+
+function lockIsStale(): boolean {
+  try {
+    const pid = Number(fs.readFileSync(LOCK_FILE, 'utf8'));
+    if (Date.now() - fs.statSync(LOCK_FILE).mtimeMs > LOCK_STALE_MS) return true;
+    if (!Number.isInteger(pid) || pid <= 0) return true;
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    // ENOENT: it was released meanwhile, which is as good as stale.
+    // ESRCH: the holder is gone. EPERM: alive, owned by someone else.
+    return (error as NodeJS.ErrnoException).code !== 'EPERM';
+  }
+}
+
+// Run `fn` while holding the store's advisory lock, so a read-modify-write
+// in this process cannot interleave with one in another. Synchronous on
+// purpose: the store functions are synchronous, and holders finish in
+// microseconds. Waits briefly for a live holder; throws if it does not clear.
+export function withStoreLock<T>(fn: () => T): T {
+  fs.mkdirSync(ROOT, { recursive: true, mode: 0o700 });
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      fs.writeFileSync(LOCK_FILE, String(process.pid), { flag: 'wx', mode: 0o600 });
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      if (lockIsStale()) {
+        fs.rmSync(LOCK_FILE, { force: true });
+        continue;
+      }
+      if (Date.now() >= deadline) throw new Error(`Another process is editing ${STORE_FILE}. Retry in a moment.`);
+      Atomics.wait(pause, 0, 0, LOCK_STEP_MS);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    fs.rmSync(LOCK_FILE, { force: true });
+  }
 }
 
 // Resolved paths for a profile. Default profiles point at the vendor's real
@@ -182,6 +338,19 @@ export function update(data: Store, id: string, patch: { name?: string; color?: 
   if (!p) throw new Error('no such profile');
   if (typeof patch.name === 'string' && patch.name.trim()) p.name = patch.name.trim();
   if (typeof patch.color === 'string') p.color = patch.color;
+  save(data);
+  return p;
+}
+
+// Route a Codex desktop profile's embedded agent through a proxy bucket, or
+// back to its native account with null. Whether the bucket exists is the
+// caller's concern; this module knows nothing about buckets.
+export function setProxyBucket(data: Store, id: string, bucket: string | null): Profile {
+  const p = data.profiles.find((x) => x.id === id);
+  if (!p) throw new Error('no such profile');
+  if (p.vendor !== 'codex') throw new Error('proxy routing is available for Codex desktop profiles');
+  if (bucket === null) delete p.proxyBucket;
+  else p.proxyBucket = bucket;
   save(data);
   return p;
 }

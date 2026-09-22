@@ -262,6 +262,12 @@ async function codexUsage(profile: Profile): Promise<Usage> {
   return { error: last || 'usage API unavailable' };
 }
 
+// Whether a usage answer suggests the sign-in itself changed, rather than
+// the endpoint being unavailable.
+export function looksSignedOut(u: Usage | undefined): boolean {
+  return !!u?.error && /not signed in|expired|401|403/i.test(u.error);
+}
+
 export async function identity(profile: Profile): Promise<Identity> {
   return profile.vendor === 'claude' ? claudeIdentity(profile) : codexIdentity(profile);
 }

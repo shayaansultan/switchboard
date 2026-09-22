@@ -5,11 +5,10 @@ import { root, load, secrets, BucketId } from './store';
 import { ensureWorker, accounts } from './proxy';
 import type { Profile } from '../types';
 import { desktopCatalog } from './models';
+import { runtime } from './runtime';
+import { shellQuote } from '../shell';
 
 export const codexBinary = '/Applications/ChatGPT.app/Contents/Resources/codex';
-export function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
 
 // Only the desktop's embedded process receives these overrides. CODEX_HOME,
 // auth.json, connectors, and the user's config.toml retain their ownership.
@@ -44,10 +43,11 @@ export async function desktopEnvironment(profile: Profile, codexHome: string): P
   if (!members.some((member) => !member.disabled))
     throw new Error('This bucket has no enabled accounts. Add an account in Proxy buckets.');
   const endpoint = `http://127.0.0.1:${worker.receipt.proxyPort}/v1`;
+  const adapter = runtime();
   const content = wrapperScript(codexBinary, endpoint, {
     bucket: bucket.name,
-    runtime: process.execPath,
-    adapter: path.join(__dirname, 'desktop-stdio.js'),
+    runtime: adapter.execPath,
+    adapter: adapter.script('desktop-stdio'),
     catalog: await desktopCatalog(id, worker.receipt.proxyPort, codexBinary, {
       home: codexHome,
       overrides: providerOverrides(endpoint),

@@ -175,6 +175,46 @@ Logins, memories and session state are never brought over at all. Connectors and
 plugins are offered but off by default, because they reach the source account's
 Slack, Notion and so on.
 
+## Driving Switchboard from a terminal or an agent
+
+Everything the window does is also a `switchboard` command, with results as
+JSON so an agent can read them and a person can pipe them into `jq`. The
+common questions have one-line answers:
+
+```bash
+switchboard list                      # profiles, running state, signed-in account
+switchboard usage --max-age 15m       # rate-limit windows, refreshed if older than 15 minutes
+switchboard pick claude               # the Claude profile with the most quota left
+switchboard exec work -- claude -p "…"   # run anything inside a profile's account
+eval "$(switchboard env work)"        # put the current shell into a profile
+switchboard launch work               # open its desktop window
+switchboard add codex Client --from codex   # a new profile, set up like the Default
+```
+
+Install it once with `switchboard install-cli` (or `node out/cli.js install-cli`
+from this checkout) after `bun run install-app`. The command runs on the
+installed app's own runtime and code, so it is always the same version as the
+app, and `bun run install-app` updates both. `bun run cli -- list` runs it from
+source without installing.
+
+Profiles are addressed by id (`claude-work`), by vendor (`claude` means that
+vendor's Default), by `vendor/name`, or by a name that only one profile has.
+`switchboard --help` lists every command.
+
+The contract, for anything that parses the output: a successful command prints
+its result as JSON on stdout and exits 0. A failed one prints nothing on stdout,
+one JSON object on stderr with a stable `error` code, a `message` and usually a
+`hint`, and exits 1 (it ran and failed), 2 (usage), 3 (not found) or 4 (refused
+by a safety rule, such as removing a profile whose window is open, or
+`--yes` missing). `exec` and `cli` exit with the child's own status. Per-profile
+usage errors are data inside a successful result, with a `status` of `ok`,
+`stale`, `not-signed-in`, `error` or `none`.
+
+The CLI reads the app's cached usage numbers by default and fetches live only
+with `--max-age` or `--refresh`; it never polls. It writes `profiles.json`
+directly, and a running app notices and reloads within about a second, so the
+window and the command line never disagree about which profiles exist.
+
 ## Caveats
 
 - Neither vendor supports any of this. An update to either app could break the
