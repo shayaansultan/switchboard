@@ -231,7 +231,12 @@ export function quotaWeight(windows: readonly UsageWindow[], capacity = 1): numb
   // healthy sticky session; actual quota errors are the proxy's authority.
   return Math.max(1, Math.round(headroom * capacity));
 }
-async function observe(id: string, port: number, account: AuthFile, previous?: AccountUsage): Promise<AccountUsage> {
+export async function observe(
+  id: string,
+  port: number,
+  account: AuthFile,
+  previous?: AccountUsage,
+): Promise<AccountUsage> {
   const base: AccountUsage = {
     name: account.name,
     provider: account.provider === 'claude' || account.type === 'claude' ? 'claude' : 'codex',

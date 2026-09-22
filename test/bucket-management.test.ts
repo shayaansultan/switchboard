@@ -5,8 +5,21 @@ import * as path from 'node:path';
 import * as http from 'node:http';
 import * as store from '../src/buckets/store';
 import * as buckets from '../src/buckets';
+import { observe } from '../src/buckets/proxy';
 
-async function fixture(run: (id: string, actions: string[]) => Promise<void>, failRefresh = false) {
+const account = { name: 'fixture.json', auth_index: 'fixture', provider: 'claude', email: 'fixture@example.test' };
+// What the vendors answer when the fake proxy calls them for an account,
+// by the tail of the endpoint's path.
+const vendor: Record<string, unknown> = {
+  'oauth/usage': { limits: [{ kind: 'weekly_all', percent: 40, resets_at: null }] },
+  'oauth/profile': { organization: { rate_limit_tier: 'default_claude_max_20x' } },
+  'wham/usage': {
+    plan_type: 'prolite',
+    rate_limit: { primary_window: { used_percent: 40, limit_window_seconds: 604800 } },
+  },
+};
+
+async function fixture(run: (id: string, actions: string[], port: number) => Promise<void>, failRefresh = false) {
   const previous = process.env.SWITCHBOARD_ROOT;
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-bucket-management-'));
   process.env.SWITCHBOARD_ROOT = temporary;
@@ -23,7 +36,6 @@ async function fixture(run: (id: string, actions: string[]) => Promise<void>, fa
     pid: process.pid,
     startedAt: new Date().toISOString(),
   };
-  const account = { name: 'fixture.json', auth_index: 'fixture', provider: 'claude', email: 'fixture@example.test' };
   const status = () => ({
     receipt,
     ready: true,
@@ -39,7 +51,6 @@ async function fixture(run: (id: string, actions: string[]) => Promise<void>, fa
     ],
   });
   const server = http.createServer((request, response) => {
-    actions.push(`${request.method} ${request.url}`);
     if (request.headers.authorization !== `Bearer ${store.secrets(bucket.id).managementKey}`) {
       response.writeHead(401).end();
       return;
@@ -54,10 +65,23 @@ async function fixture(run: (id: string, actions: string[]) => Promise<void>, fa
       body += chunk;
     });
     request.on('end', () => {
-      if (request.url === '/v0/management/auth-files/status') disabled = JSON.parse(body).disabled;
+      const input = body ? JSON.parse(body) : {};
+      // Vendor calls are recorded by resource, field writes by the field.
+      const resource =
+        request.url === '/v0/management/api-call' ? String(input.url).split('/').slice(-2).join('/') : '';
+      actions.push(
+        `${request.method} ${request.url}${resource ? ` ${resource}` : input.weight ? ` weight=${input.weight}` : ''}`,
+      );
+      if (request.url === '/v0/management/auth-files/status') disabled = input.disabled;
       response.setHeader('Content-Type', 'application/json');
       response.end(
-        JSON.stringify(request.url === '/v0/management/auth-files' ? { files: [{ ...account, disabled }] } : status()),
+        JSON.stringify(
+          request.url === '/v0/management/auth-files'
+            ? { files: [{ ...account, disabled }] }
+            : resource
+              ? { status_code: 200, body: JSON.stringify(vendor[resource]) }
+              : status(),
+        ),
       );
     });
   });
@@ -65,7 +89,7 @@ async function fixture(run: (id: string, actions: string[]) => Promise<void>, fa
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     receipt.controlPort = receipt.proxyPort = (server.address() as { port: number }).port;
     store.writeJson(receiptFile, receipt);
-    await run(bucket.id, actions);
+    await run(bucket.id, actions, receipt.proxyPort);
   } finally {
     clearTimeout(timer);
     server.closeAllConnections();
@@ -98,5 +122,31 @@ test('account management validates membership and refreshes the confirmed provid
     await buckets.setAccountEnabled(id, 'fixture.json', true);
     expect((await buckets.snapshot())[0].accounts[0].status).toBe('fresh');
     expect(actions.filter((action) => action === 'PATCH /v0/management/auth-files/status')).toHaveLength(2);
+  });
+});
+
+test('observation names the plan, sizes routing by its capacity and asks Claude for its profile once', async () => {
+  await fixture(async (id, actions, port) => {
+    const first = await observe(id, port, account);
+    expect(first.status).toBe('fresh');
+    expect(first.plan).toEqual({ name: 'Max 20x', capacity: 20 });
+    expect(first.weight).toBe(1200);
+    expect(actions).toEqual([
+      'POST /v0/management/api-call oauth/usage',
+      'POST /v0/management/api-call oauth/profile',
+      'PATCH /v0/management/auth-files/fields weight=1200',
+    ]);
+    const second = await observe(id, port, { ...account, weight: first.weight }, first);
+    expect(second.plan).toEqual(first.plan);
+    expect(actions.slice(3)).toEqual(['POST /v0/management/api-call oauth/usage']);
+    // Codex reports its plan with usage; there is no profile call, and the
+    // $100 Pro is a quarter the size of the $200 one.
+    const codex = await observe(id, port, { ...account, name: 'codex.json', provider: 'codex' });
+    expect(codex.plan).toEqual({ name: 'Pro 5x', capacity: 5 });
+    expect(codex.weight).toBe(300);
+    expect(actions.slice(4)).toEqual([
+      'POST /v0/management/api-call wham/usage',
+      'PATCH /v0/management/auth-files/fields weight=300',
+    ]);
   });
 });
