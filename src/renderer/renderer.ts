@@ -606,7 +606,7 @@ function pooledBars(bucket: BucketView): HTMLElement[] {
       ),
       el(
         'div',
-        { class: 'track pooled' },
+        { class: 'track pooled', style: `--segments:${parts.length}` },
         // Each segment answers for its own account when hovered or tabbed to.
         parts.map((part) =>
           withTip(

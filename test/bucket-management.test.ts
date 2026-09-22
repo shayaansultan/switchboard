@@ -9,7 +9,8 @@ import { observe } from '../src/buckets/proxy';
 
 const account = { name: 'fixture.json', auth_index: 'fixture', provider: 'claude', email: 'fixture@example.test' };
 // What the vendors answer when the fake proxy calls them for an account,
-// by the tail of the endpoint's path.
+// by the tail of the endpoint's path. Claude's profile can be made to fail.
+let profileStatus = 200;
 const vendor: Record<string, unknown> = {
   'oauth/usage': { limits: [{ kind: 'weekly_all', percent: 40, resets_at: null }] },
   'oauth/profile': { organization: { rate_limit_tier: 'default_claude_max_20x' } },
@@ -79,7 +80,10 @@ async function fixture(run: (id: string, actions: string[], port: number) => Pro
           request.url === '/v0/management/auth-files'
             ? { files: [{ ...account, disabled }] }
             : resource
-              ? { status_code: 200, body: JSON.stringify(vendor[resource]) }
+              ? {
+                  status_code: resource === 'oauth/profile' ? profileStatus : 200,
+                  body: JSON.stringify(vendor[resource]),
+                }
               : status(),
         ),
       );
@@ -148,5 +152,21 @@ test('observation names the plan, sizes routing by its capacity and asks Claude 
       'POST /v0/management/api-call wham/usage',
       'PATCH /v0/management/auth-files/fields weight=300',
     ]);
+  });
+});
+
+test('a Claude profile that fails is asked again only while the failure may pass', async () => {
+  await fixture(async (id, actions, port) => {
+    profileStatus = 429;
+    const throttled = await observe(id, port, account);
+    expect(throttled.plan).toBeUndefined();
+    expect(throttled.weight).toBe(60);
+    profileStatus = 500;
+    const refused = await observe(id, port, { ...account, weight: throttled.weight }, throttled);
+    expect(refused.plan).toBeNull();
+    const settled = await observe(id, port, { ...account, weight: refused.weight }, refused);
+    expect(settled.plan).toBeNull();
+    expect(actions.filter((action) => action.endsWith('oauth/profile'))).toHaveLength(2);
+    profileStatus = 200;
   });
 });

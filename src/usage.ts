@@ -105,21 +105,23 @@ async function claudeIdentity(profile: Profile): Promise<Identity> {
   const d = dirs(profile);
   const env = { ...process.env };
   if (!d.isDefault) env.CLAUDE_CONFIG_DIR = d.home;
+  // `claude auth status` names the plan but not its tier; the credential has
+  // both, so the badge can say "Max 20x" before any usage has been fetched.
+  const tier = (await claudeToken(d.home).catch(() => null))?.rateLimitTier;
+  const named = (j: Json): Identity => ({
+    loggedIn: !!j.loggedIn,
+    email: j.email || null,
+    plan: planName('claude', j.subscriptionType, tier),
+  });
   try {
     const { stdout } = await run(VENDORS.claude.cli, ['auth', 'status', '--json'], { env });
     const j: Json = JSON.parse(stdout);
-    return {
-      loggedIn: !!j.loggedIn,
-      email: j.email || null,
-      plan: planName('claude', j.subscriptionType),
-      org: j.orgName || null,
-    };
+    return { ...named(j), org: j.orgName || null };
   } catch (err) {
     const e = err as RunError;
     // `claude auth status` exits non-zero when logged out but still prints JSON.
     try {
-      const j: Json = JSON.parse(e.stdout || '');
-      return { loggedIn: !!j.loggedIn, email: j.email || null, plan: planName('claude', j.subscriptionType) };
+      return named(JSON.parse(e.stdout || ''));
     } catch {
       const missing = e.code === 'ENOENT' || /not found/i.test(e.message || '');
       return { loggedIn: false, error: missing ? 'the claude CLI is not installed' : 'claude auth status failed' };

@@ -139,8 +139,8 @@ select:focus-visible, button:focus-visible { outline: 2px solid var(--text); out
 .bar .track { height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; }
 .bar .track.pooled { display: flex; gap: 2px; background: transparent; border-radius: 0; overflow: visible; }
 /* The segment is taller than the line it draws, so it is easy to point at. */
-/* Sized by plan capacity, so a 5x segment beside 20x ones stays pointable. */
-.bar .seg { flex: 1; min-width: 8px; padding: 7px 0; margin: -7px 0; border-radius: 3px; cursor: default; }
+/* Sized by plan capacity; a small segment keeps a pointable floor, never more than an equal share. */
+.bar .seg { flex: 1; min-width: min(8px, calc((100% - 2px * (var(--segments) - 1)) / var(--segments))); padding: 7px 0; margin: -7px 0; border-radius: 3px; cursor: default; }
 .bar .seg-track { height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; }
 .bar .seg:hover .seg-track, .bar .seg:focus-visible .seg-track { box-shadow: 0 0 0 1px var(--panel), 0 0 0 2px var(--muted); }
 .bar .seg:focus-visible { outline: none; }

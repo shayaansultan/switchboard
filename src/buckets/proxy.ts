@@ -53,8 +53,9 @@ const AccountUsage = z.object({
   ),
   weight: z.number().int().nonnegative(),
   // The plan sizes the account's segment on the pooled bar and its share of
-  // routing; null until the vendor has said which plan it is.
-  plan: z.object({ name: z.string(), capacity: z.number().positive() }).nullable().default(null),
+  // routing. Absent until the vendor has been asked; null when it answered
+  // without naming one.
+  plan: z.object({ name: z.string(), capacity: z.number().positive() }).nullable().optional(),
   observedAt: z.string().optional(),
   nextProbeAt: z.number().optional(),
 });
@@ -210,14 +211,17 @@ async function vendorCall(id: string, port: number, account: AuthFile, resource:
   );
 }
 
-async function claudePlan(id: string, port: number, account: AuthFile): Promise<Plan | null> {
+// Undefined means the question is still open and is asked again next tick:
+// the proxy could not be reached, or the vendor asked to be left alone.
+async function claudePlan(id: string, port: number, account: AuthFile): Promise<Plan | null | undefined> {
   try {
     const result = await vendorCall(id, port, account, 'profile');
+    if (result.status_code === 429) return undefined;
     return result.status_code === 200
       ? describePlan('claude', JSON.parse(result.body).organization?.rate_limit_tier)
       : null;
   } catch {
-    return null;
+    return undefined;
   }
 }
 
@@ -244,7 +248,7 @@ export async function observe(
     status: 'unknown',
     windows: [],
     weight: account.weight ?? 50,
-    plan: previous?.plan ?? null,
+    plan: previous?.plan,
   };
   if (account.disabled) return { ...base, status: 'disabled' };
   if (previous?.nextProbeAt && previous.nextProbeAt > Date.now()) return previous;
@@ -260,7 +264,9 @@ export async function observe(
         const plan =
           base.provider === 'codex'
             ? describePlan('codex', body.plan_type)
-            : (base.plan ?? (await claudePlan(id, port, account)));
+            : base.plan === undefined
+              ? await claudePlan(id, port, account)
+              : base.plan;
         const weight = quotaWeight(windows, plan?.capacity);
         if (weight !== account.weight)
           await management(id, port, 'auth-files/fields', 'PATCH', { name: account.name, weight });
