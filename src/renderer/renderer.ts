@@ -542,7 +542,7 @@ function providerLabel(account: BucketAccount): string {
 // Why a bucket shows no bars, or fewer than expected.
 function bucketNotes(bucket: BucketView): (HTMLElement | null)[] {
   return [
-    bucket.status !== 'running'
+    bucket.status !== 'running' && !bucket.error
       ? el(
           'div',
           { class: 'note' },

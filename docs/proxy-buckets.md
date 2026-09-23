@@ -73,6 +73,12 @@ model names. A desktop restart is needed to pick up a changed label or connectio
 - Stopping a bucket interrupts all clients using it. After restarting the bucket,
   relaunch those clients so they receive its current endpoint.
 - Quitting Switchboard leaves workers running for their clients.
+- After a reboot or abrupt worker exit, Switchboard resumes buckets with a
+  remaining worker receipt when it next opens. A bucket stopped normally stays
+  stopped. **Start bucket** uses the same recovery path.
+- Recovery clears a stale receipt and lease only when their worker is gone and
+  neither old port is listening. An active or ambiguous worker is left alone;
+  the bucket card shows the reason until the next successful action.
 - A dead controller with an orphan proxy requires explicit recovery as described
   in [OpenCode profiles](opencode-profiles.md#isolation-and-routing).
 
