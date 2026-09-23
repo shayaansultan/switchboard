@@ -314,14 +314,17 @@ dialog input::placeholder { color: var(--muted); }
 dialog input:hover, dialog select:hover, dialog input:focus, dialog select:focus { outline: 2px solid var(--text-2); outline-offset: -1px; }
 dialog menu { display: flex; justify-content: flex-end; gap: 12px; margin: 8px 0 0; padding: 0; }
 dialog menu button { height: 36px; padding: 0 16px; font-size: 15px; }
-.rows { background: var(--panel-2); border-radius: 12px; padding: 4px 20px; display: grid; }
+/* Settings rows sit on the dialog itself, hairlines between them; every
+   control is the same width so the labels keep their column whatever the
+   longest option says. */
+.rows { display: grid; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .srow { display: flex; align-items: center; gap: 20px; padding: 14px 0; }
 .srow + .srow { border-top: 1px solid var(--line); }
 .srow .about { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .srow .about b { font-weight: 500; font-size: 15px; color: var(--text); }
 .srow .about span { color: var(--muted); font-size: 12px; line-height: 16px; }
-.srow select, .srow input[type='number'] { min-width: 164px; }
-.srow input[type='number'] { min-width: 0; width: 80px; }
+.srow select { width: 184px; flex: none; }
+.srow input[type='number'] { width: 80px; flex: none; }
 .srow label { display: contents; }
 /* A switch, Wispr's 42 by 25, for the one yes-or-no setting. */
 .switch { position: relative; display: inline-block; width: 42px; height: 25px; flex: none; }

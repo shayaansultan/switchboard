@@ -263,7 +263,7 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
             }
           >
             <option value="icon">Meter only</option>
-            <option value="percent">Meter and the fullest window's percentage</option>
+            <option value="percent">Meter and percentage</option>
           </select>,
         )}
         {row(
