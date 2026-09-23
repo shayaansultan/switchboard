@@ -665,31 +665,31 @@ ipcMain.handle('profiles:update', (_e, id: string, patch: { name?: string; color
 // The `switchboard` command: a launcher shim in ~/.local/bin that runs
 // cli.js on this app's own runtime. A packaged app points the shim at the
 // installed app; a checkout points it at itself.
+const appLauncher = launcherScript(
+  'Switchboard CLI launcher',
+  [
+    path.join(INSTALLED_APP, 'Contents', 'MacOS', 'Switchboard'),
+    path.join(INSTALLED_APP, 'Contents', 'Resources', 'app.asar', 'out', 'cli.js'),
+  ],
+  { ELECTRON_RUN_AS_NODE: '1' },
+);
+const devLauncher = launcherScript(
+  'Switchboard CLI launcher (development checkout)',
+  [process.execPath, path.join(__dirname, 'cli.js')],
+  { ELECTRON_RUN_AS_NODE: '1' },
+);
 function cliLauncher(): string {
-  if (app.isPackaged) {
-    return launcherScript(
-      'Switchboard CLI launcher',
-      [
-        path.join(INSTALLED_APP, 'Contents', 'MacOS', 'Switchboard'),
-        path.join(INSTALLED_APP, 'Contents', 'Resources', 'app.asar', 'out', 'cli.js'),
-      ],
-      { ELECTRON_RUN_AS_NODE: '1' },
-    );
-  }
-  return launcherScript(
-    'Switchboard CLI launcher (development checkout)',
-    [process.execPath, path.join(__dirname, 'cli.js')],
-    {
-      ELECTRON_RUN_AS_NODE: '1',
-    },
-  );
+  return app.isPackaged ? appLauncher : devLauncher;
 }
 function cliStatus(): CliStatus {
   const file = path.join(HOME, '.local', 'bin', 'switchboard');
   const installed = fs.existsSync(file);
   let ours = false;
   try {
-    ours = installed && fs.readFileSync(file, 'utf8') === cliLauncher();
+    // Either of this app's launchers counts, so a checkout does not call the
+    // installed app's launcher foreign, nor the other way round.
+    const content = installed ? fs.readFileSync(file, 'utf8') : '';
+    ours = installed && (content === appLauncher || content === devLauncher);
   } catch {
     ours = false;
   }
