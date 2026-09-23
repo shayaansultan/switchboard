@@ -160,7 +160,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 }
 
 /* --- Accounts or Buckets: text tabs on a warm divider --- */
-.tabs { display: flex; gap: 24px; padding: 0 24px; border-bottom: 1px solid var(--line); }
+/* The tabs stay put under the title bar while the list scrolls. */
+.tabs { display: flex; gap: 24px; padding: 0 24px; border-bottom: 1px solid var(--line); background: var(--bg); position: sticky; top: 56px; z-index: 2; }
 .tabs button {
   height: auto; padding: 10px 0; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent;
   border-radius: 0; background: transparent; font-size: 15px; font-weight: 550; gap: 6px;
@@ -194,7 +195,7 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
    right, so names, bars and buttons line up down the whole list. */
 .card {
   display: grid; grid-template-columns: minmax(220px, 300px) minmax(280px, 1fr);
-  grid-template-areas: 'who bars' 'foot bars';
+  grid-template-rows: auto 1fr; grid-template-areas: 'who bars' 'foot bars';
   gap: 12px 32px; align-items: start; padding: 16px 0;
 }
 .card + .card { border-top: 1px solid var(--line); }
@@ -215,7 +216,9 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
 .ident.err { color: var(--warn-text); }
 .ident a { color: var(--text); font-weight: 550; text-decoration: none; border-bottom: 1px solid var(--muted); }
 .card .bars { grid-area: bars; min-width: 0; display: grid; gap: 6px; align-content: start; }
-.card .foot { grid-area: foot; display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+/* The actions start where the name starts and sit at the foot of the row,
+   however tall its bars are. */
+.card .foot { grid-area: foot; align-self: end; display: flex; align-items: center; justify-content: flex-start; gap: 2px; margin-left: -2px; }
 .card .foot .icon-btn { width: 28px; height: 28px; }
 /* The primary leads the stack, filled to launch and outlined to quit, with a
    breath before the tools so a slip on Copy never quits the app. */
