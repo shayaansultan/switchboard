@@ -86,17 +86,42 @@ const awake = new AwakeController(macAwakeSystem, (state) => {
 const live = new Map<string, Live>();
 let bucketViews: State['buckets'] = [];
 let bucketsError: string | undefined;
+const bucketFailures = new Map<string, string>();
 let bucketRefresh = 0;
 async function refreshBuckets(): Promise<void> {
   const version = ++bucketRefresh;
   try {
     const next = await buckets.snapshot();
     if (version !== bucketRefresh) return;
-    bucketViews = next;
+    bucketViews = next.map((bucket) => ({
+      ...bucket,
+      error: bucketFailures.get(bucket.id) ?? bucket.error,
+    }));
     bucketsError = undefined;
   } catch (error) {
     if (version !== bucketRefresh) return;
     bucketsError = error instanceof Error ? error.message : 'Cannot read proxy buckets';
+  }
+}
+
+async function resumeInterruptedBuckets(): Promise<void> {
+  try {
+    // A normal Stop removes the receipt; only buckets interrupted while
+    // running are resumed when Switchboard starts again.
+    for (const bucket of await buckets.snapshot()) {
+      if (bucket.status !== 'unreachable') continue;
+      try {
+        await buckets.start(bucket.id);
+        bucketFailures.delete(bucket.id);
+      } catch (error) {
+        bucketFailures.set(bucket.id, error instanceof Error ? error.message : String(error));
+      }
+      await refreshBuckets();
+      broadcast();
+    }
+  } catch (error) {
+    bucketsError = error instanceof Error ? error.message : String(error);
+    broadcast();
   }
 }
 
@@ -584,6 +609,10 @@ ipcMain.handle('buckets:action', async (event, id: string, input: unknown, provi
       const command = await buckets.loginCommand(id, z.enum(['codex', 'claude']).default('codex').parse(provider));
       await launch.openTerminal(command.map(shellQuote).join(' '), { terminal: data.settings.terminal });
     } else await buckets[action](id);
+    bucketFailures.delete(id);
+  } catch (error) {
+    bucketFailures.set(id, error instanceof Error ? error.message : String(error));
+    throw error;
   } finally {
     await refreshBuckets();
     broadcast();
@@ -756,6 +785,7 @@ app.whenReady().then(async () => {
   // Launched at login: stay in the menu bar, don't pop the window.
   const hidden = app.getLoginItemSettings().wasOpenedAtLogin;
   if (!hidden) createWindow();
+  void resumeInterruptedBuckets();
   // Asleep or locked, there is nobody to show numbers to.
   powerMonitor.on('suspend', () => pausePolling('sleep'));
   powerMonitor.on('lock-screen', () => pausePolling('lock'));

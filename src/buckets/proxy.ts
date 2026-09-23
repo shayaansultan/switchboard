@@ -315,24 +315,61 @@ function processAlive(pid: number): boolean {
   }
 }
 
+async function portListening(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: '127.0.0.1', port });
+    socket.setTimeout(1000);
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once('error', () => resolve(false));
+    socket.once('timeout', () => {
+      socket.destroy();
+      resolve(true);
+    });
+  });
+}
+
 async function assertWorkerAbsent(id: string): Promise<void> {
   const previous = receipt(id);
   if (!previous) return;
   if (processAlive(previous.pid))
     throw new Error(`Profile ${id}'s worker is alive but unreachable or stopping. A second worker was not started.`);
 
-  let orphaned = false;
-  try {
-    await accounts(id, previous.proxyPort);
-    orphaned = true;
-  } catch {
-    /* No authenticated proxy remains at the old address. */
-  }
-
-  if (orphaned)
+  if ((await portListening(previous.controlPort)) || (await portListening(previous.proxyPort)))
     throw new Error(
-      `Profile ${id} has a live proxy without its controller. Inspect ${paths(id).runtime} before recovery.`,
+      `Profile ${id} has a listener on an old worker port. Inspect ${paths(id).runtime} before recovery.`,
     );
+}
+
+// Called only while holding starting.lock. A receipt records an active worker,
+// so its survival after an unclean exit is also the intent to resume it.
+async function recoverDeadWorker(id: string): Promise<void> {
+  await assertWorkerAbsent(id);
+  const directory = paths(id).runtime;
+  const current = receipt(id);
+  const leaseFile = path.join(directory, 'worker.lock');
+  if (!current) {
+    if (fs.existsSync(leaseFile))
+      throw new Error(`Bucket ${id} has a worker lease without a receipt. Inspect ${directory} before restarting.`);
+    return;
+  }
+  const receiptFile = path.join(directory, 'worker.json');
+  const savedReceipt = fs.readFileSync(receiptFile, 'utf8');
+  const savedLease = fs.existsSync(leaseFile) ? fs.readFileSync(leaseFile, 'utf8') : undefined;
+  if (savedLease) {
+    const owner = z.object({ pid: z.number().int().positive(), instance: z.string() }).parse(JSON.parse(savedLease));
+    if (owner.pid !== current.pid || processAlive(owner.pid))
+      throw new Error(`Bucket ${id} has a conflicting worker lease. Inspect ${directory} before restarting.`);
+  }
+  if (
+    fs.readFileSync(receiptFile, 'utf8') !== savedReceipt ||
+    (savedLease && fs.readFileSync(leaseFile, 'utf8') !== savedLease)
+  )
+    throw new Error(`Bucket ${id}'s worker state changed during recovery. Retry its start.`);
+  if (savedLease) fs.unlinkSync(leaseFile);
+  fs.unlinkSync(receiptFile);
 }
 export async function ensureWorker(id: string, worker: Command = workerCommand()): Promise<WorkerStatus> {
   load(id);
@@ -365,7 +402,7 @@ export async function ensureWorker(id: string, worker: Command = workerCommand()
     if (owner) {
       const startedMeanwhile = await control(id, 'status');
       if (startedMeanwhile?.ready) return startedMeanwhile;
-      await assertWorkerAbsent(id);
+      await recoverDeadWorker(id);
       const log = path.join(paths(id).runtime, 'worker.log');
       if (fs.existsSync(log) && fs.statSync(log).size > 4 * 1024 * 1024) fs.renameSync(log, `${log}.previous`);
       const fd = fs.openSync(log, 'a', 0o600);

@@ -59,7 +59,11 @@ const CLASSIFIED: [RegExp, string, Exit][] = [
   [/^Quit this desktop profile before launching/, 'desktop-running', 4],
   [/^This bucket has no enabled accounts/, 'bucket-empty', 4],
   [/^Bucket is stopped/, 'bucket-stopped', 4],
-  [/unreachable|live proxy without its controller|shutdown has not completed/, 'bucket-unreachable', 4],
+  [
+    /unreachable|listener on an old worker port|worker lease without a receipt|conflicting worker lease|shutdown has not completed/,
+    'bucket-unreachable',
+    4,
+  ],
   [/^Install the routing worker first/, 'proxy-not-installed', 4],
   [/^Proxy already installed/, 'proxy-installed', 4],
   [/^Account is not in this bucket$/, 'no-such-account', 3],

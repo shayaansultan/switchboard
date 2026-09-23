@@ -76,6 +76,31 @@ test('an unreachable live worker is not replaced', async () => {
   expect(fs.existsSync(path.join(profiles.paths(profile.id).proxy, 'config.yaml'))).toBe(false);
 });
 
+test('a listener on an old proxy port blocks stale worker recovery', async () => {
+  const profile = profiles.create('Orphan proxy');
+  const server = http.createServer((_request, response) => response.writeHead(200).end());
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Missing fixture port');
+  const runtime = profiles.paths(profile.id).runtime;
+  profiles.writeJson(path.join(runtime, 'worker.json'), {
+    profileId: profile.id,
+    instance: 'old-worker',
+    controlPort: 1,
+    proxyPort: address.port,
+    pid: 99999999,
+    startedAt: new Date().toISOString(),
+  });
+  profiles.writeJson(path.join(runtime, 'worker.lock'), { pid: 99999999, instance: 'old-lease' });
+  try {
+    await expect(ensureWorker(profile.id, '/unused-cli')).rejects.toThrow('listener on an old worker port');
+    expect(fs.existsSync(path.join(runtime, 'worker.json'))).toBe(true);
+    expect(fs.existsSync(path.join(runtime, 'worker.lock'))).toBe(true);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test('worker control failures are not reported as a stopped worker', async () => {
   const profile = profiles.create('Control errors');
   const server = http.createServer((_request, response) => response.writeHead(401).end());

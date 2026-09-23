@@ -609,7 +609,7 @@ function Segment<P>({
 export function BucketNotes({ bucket }: { bucket: BucketView }) {
   return (
     <>
-      {bucket.status !== 'running' ? (
+      {bucket.status !== 'running' && !bucket.error ? (
         <Note>
           {bucket.status === 'stopped'
             ? 'Starts when an assigned desktop profile launches.'
