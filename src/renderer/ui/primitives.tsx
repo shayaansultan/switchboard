@@ -30,6 +30,12 @@ const PATHS = {
     '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
   warn: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  right: '<polyline points="9 6 15 12 9 18"/>',
+  // Launch, quit, start and stop: the two filled ones read as "go" and "halt"
+  // at 13 px, where a stroked triangle would not.
+  play: '<polygon points="7 4 20 12 7 20 7 4" fill="currentColor" stroke="none"/>',
+  power: '<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>',
 };
 export type IconName = keyof typeof PATHS;
 
@@ -178,20 +184,23 @@ export function Note({ children, tone, class: cls }: { children: ComponentChildr
   return <div class={`note ${tone ?? ''} ${cls ?? ''}`}>{children}</div>;
 }
 
-// Wispr's 42 by 25 switch, wrapping a real checkbox.
+// Wispr's 42 by 25 switch, wrapping a real checkbox; `small` is the 34 by
+// 20 one for a row.
 export function Switch({
   name,
   checked,
   onChange,
   label,
+  small = false,
 }: {
   name?: string;
   checked: boolean;
   onChange?: (on: boolean) => void;
   label: string;
+  small?: boolean;
 }) {
   return (
-    <span class="switch">
+    <span class={`switch ${small ? 'sm' : ''}`}>
       <input
         type="checkbox"
         name={name}

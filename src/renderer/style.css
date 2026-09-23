@@ -215,11 +215,17 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
 .ident.err { color: var(--warn-text); }
 .ident a { color: var(--text); font-weight: 550; text-decoration: none; border-bottom: 1px solid var(--muted); }
 .card .bars { grid-area: bars; min-width: 0; display: grid; gap: 6px; align-content: start; }
-.card .foot { grid-area: foot; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.card .actions { display: flex; }
-.card .actions button { min-width: 88px; }
+.card .foot { grid-area: foot; display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+.card .foot .icon-btn { width: 28px; height: 28px; }
+/* The primary leads the stack, filled to launch and outlined to quit, with a
+   breath before the tools so a slip on Copy never quits the app. */
+.card .foot .primary-btn { margin-right: 6px; }
+.icon-btn.primary-btn.primary { color: var(--on-ink); }
+.icon-btn.primary-btn.primary:hover { color: var(--on-ink); }
+.icon-btn.primary-btn .ico-play { width: 13px; height: 13px; }
+.icon-btn.primary-btn .ico-power { width: 15px; height: 15px; }
 .card .tools { display: flex; gap: 2px; }
-.card .tools .icon-btn { width: 28px; height: 28px; border-color: transparent; background: transparent; }
+.card .tools .icon-btn { border-color: transparent; background: transparent; }
 .card .tools .icon-btn:hover { background: var(--hover); }
 .ico-check { display: none; color: var(--run-text); }
 .copy-btn.copied .ico-copy { display: none; }
@@ -251,26 +257,14 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
     grid-template-areas: 'who' 'bars' 'foot';
     gap: 12px;
   }
-  .card .actions button { min-width: 0; }
 }
 @container (max-width: 480px) {
   .card .tools .icon-btn.copy-btn { display: none; }
 }
 
-/* --- Proxy buckets: one line per account in the pool --- */
-.bucket-list { display: grid; gap: 16px; max-width: 960px; }
-.acct { display: grid; grid-template-columns: minmax(0, 280px) 1fr auto; gap: 8px 24px; align-items: start; padding: 14px 0; }
-.acct .who { padding-top: 0; }
-.acct + .acct { border-top: 1px solid var(--line); }
-.acct.off .acct-windows { opacity: 0.45; }
-.acct .who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-.acct .prov { color: var(--muted); }
-.acct-windows { display: grid; gap: 6px; min-width: 0; }
-.acct > button { height: 28px; margin-top: -4px; font-size: 13px; }
-@media (max-width: 700px) {
-  .acct { grid-template-columns: 1fr auto; }
-  .acct-windows { grid-column: 1 / -1; grid-row: 2; }
-}
+/* --- Proxy buckets: an account row is a profile row with a switch --- */
+.acct.off .bars { opacity: 0.45; }
+.toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); cursor: pointer; }
 
 /* --- tooltip, menu, notes --- */
 .tip { position: fixed; z-index: 20; pointer-events: none; max-width: calc(100vw - 16px); white-space: nowrap; padding: 5px 9px; border-radius: 6px; background: #1a1a1a; color: #fcfcfb; font-size: 12px; line-height: 16px; font-weight: 500; box-shadow: var(--shadow-2); animation: tip-in 0.09s ease-out; }
@@ -278,9 +272,14 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
 .tip .sub { opacity: 0.72; }
 @keyframes tip-in { from { opacity: 0; transform: translateY(2px); } }
 @media (prefers-reduced-motion: reduce) { .tip { animation: none; } }
-.menu { position: fixed; z-index: 10; min-width: 180px; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-2); animation: tip-in 0.08s ease-out; }
+.menu { position: fixed; z-index: 10; min-width: 220px; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-2); animation: tip-in 0.08s ease-out; }
+.menu.submenu { min-width: 190px; z-index: 11; }
+.menu-head { display: grid; gap: 1px; padding: 6px 10px 8px; }
+.menu-head b { font-size: 13px; font-weight: 600; }
+.menu-head span { font-size: 12px; line-height: 16px; color: var(--muted); }
 .menu button { display: flex; width: 100%; justify-content: flex-start; height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; font-weight: 500; }
-.menu button:hover, .menu button:focus-visible { background: var(--hover); outline: none; }
+.menu button:hover, .menu button:focus-visible, .menu button.sub.open { background: var(--hover); outline: none; }
+.menu button.sub .value { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; color: var(--muted); font-weight: 400; }
 .menu button.checkable { padding-left: 4px; }
 .menu .tick { display: inline-block; width: 18px; text-align: center; font-size: 12px; color: var(--text); }
 .menu button.danger { color: var(--bad-text); }
@@ -332,6 +331,11 @@ dialog menu button { height: 36px; padding: 0 16px; font-size: 15px; }
 .switch input:checked + .knob { background: var(--ink); }
 .switch input:checked + .knob::after { transform: translateX(17px); }
 .switch input:focus-visible + .knob { outline: 2px solid var(--text); outline-offset: 2px; }
+/* The row-sized one, teal when the account is taking traffic. */
+.switch.sm { width: 34px; height: 20px; }
+.switch.sm .knob::after { width: 16px; height: 16px; }
+.switch.sm input:checked + .knob { background: var(--fill); }
+.switch.sm input:checked + .knob::after { transform: translateX(14px); }
 /* Which app, as two selection cards in Wispr's lilac selected style. */
 .choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .choice { position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); cursor: pointer; color: var(--text); }
@@ -369,15 +373,15 @@ legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
 
 /* --- Cards: plain heading, then cards straight on the page --- */
 .vendor { display: grid; gap: 12px; }
-.vendor .eyebrow { display: flex; justify-content: space-between; align-items: baseline; }
+.vendor .eyebrow { display: flex; align-items: center; gap: 10px; min-height: 28px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; }
 .card.tile { display: flex; flex-direction: column; align-items: stretch; gap: 14px; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow-1); min-width: 0; }
 .card.tile + .card.tile { border-top: 1px solid var(--line); }
 .card.tile .bars { flex-grow: 1; }
 .card.tile .foot { padding-top: 4px; }
-.card.tile .actions button { min-width: 0; }
 .panel-meta .na, .vendor .na { font-weight: 400; color: var(--muted); font-size: 12px; }
-.card.tile .tools .icon-btn { width: 32px; height: 32px; border-color: var(--line); background: var(--btn-bg); }
+.card.tile .foot .icon-btn { width: 32px; height: 32px; }
+.card.tile .tools .icon-btn { border-color: var(--line); background: var(--btn-bg); }
 .card.tile .tools .icon-btn:hover { background: var(--hover); }
 .badge.status { height: 22px; font-size: 12px; padding: 0 8px; }
 .badge.status .dot { display: inline-block; width: 7px; height: 7px; margin-right: 4px; }

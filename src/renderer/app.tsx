@@ -8,10 +8,10 @@ import { KeepAwake } from './awake';
 import { Buckets } from './buckets';
 import { Cli } from './cli';
 import { AddDialog, BucketDialog, SettingsDialog, type SetupRequest } from './dialogs';
-import { act, type ProfilesView, type ProfileView, type State } from './lib';
+import { act, type ProfilesView, type ProfileView, type State, type Vendor } from './lib';
 import { ActionsCtx } from './ui/actions';
 import { OverlayProvider, useOverlays } from './ui/overlays';
-import { Btn, Icon, TipBtn, type IconName } from './ui/primitives';
+import { Icon, TipBtn, type IconName } from './ui/primitives';
 
 type Tab = 'profiles' | 'buckets' | 'cli';
 
@@ -46,10 +46,16 @@ function Shell({ state }: { state: State | null }) {
   };
   const view: ProfilesView = state?.settings.view ?? 'list';
   const setView = (v: ProfilesView) => void act(() => window.sb.saveSettings({ view: v }));
-  const openSetup = (target?: ProfileView) => setSetup({ target: target ?? null });
+  const openSetup = (target?: ProfileView, vendor?: Vendor) => setSetup({ target: target ?? null, vendor });
+  const newBucket = () => {
+    setTab('buckets');
+    setBucketOpen(true);
+  };
 
+  // The title bar holds only what applies to the whole app; a new profile
+  // or bucket is made from the tab that lists them.
   return (
-    <ActionsCtx.Provider value={{ openSetup }}>
+    <ActionsCtx.Provider value={{ openSetup, newBucket }}>
       <header class="titlebar">
         <div class="brand">Switchboard</div>
         <div class="actions">
@@ -63,16 +69,6 @@ function Shell({ state }: { state: State | null }) {
             tip={['Refresh usage']}
             onClick={(e) => act(() => window.sb.refresh(), e.currentTarget)}
           />
-          {tab === 'profiles' ? (
-            <Btn variant="secondary" icon="plus" id="add" onClick={() => openSetup()}>
-              <span class="lbl">Profile</span>
-            </Btn>
-          ) : null}
-          {tab === 'buckets' ? (
-            <Btn variant="secondary" icon="plus" id="add-bucket" onClick={() => setBucketOpen(true)}>
-              <span class="lbl">Proxy bucket</span>
-            </Btn>
-          ) : null}
           <TipBtn
             variant="icon"
             icon="sliders"

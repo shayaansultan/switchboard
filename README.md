@@ -141,11 +141,12 @@ switch; started that way it stays in the menu bar until you click it.
 
 ## Adding an account
 
-1. Click **+ Profile**, pick the app and name it, then choose which existing
-   profile to start from and what to bring over.
-2. Click **Launch app**. A fresh window opens with no session. Quit the other
-   windows of that app first, using the "Quit others now" link on the card. The
-   sign-in link is delivered to whichever window macOS picks.
+1. Click **+ Profile** in the Claude or Codex panel and name it, then choose
+   which existing profile to start from and what to bring over.
+2. Click the launch button (the filled play icon on the row). A fresh window
+   opens with no session. Quit the other windows of that app first, using the
+   "Quit others now" link on the card. The sign-in link is delivered to
+   whichever window macOS picks.
 3. Click **Sign in CLI** on the card's warning line (or in its **⋯** menu). A
    terminal opens running `claude auth login` or
    `codex login` inside that profile. This is what enables the usage bars.

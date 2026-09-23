@@ -24,6 +24,11 @@ inside a profile (the CLI is signed in there) or inside a proxy bucket. The
 same account may be signed in to several places at once. "Native account" on
 a Codex profile means the profile's own sign-in, as opposed to a bucket.
 
+## Connection
+
+Where a Codex profile sends its model requests: its native account, or one
+proxy bucket. Set from the profile's menu.
+
 ## Proxy bucket
 
 A pool of accounts behind a local proxy. A Codex desktop profile, or

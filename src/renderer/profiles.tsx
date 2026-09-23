@@ -19,6 +19,7 @@ import {
   type Usage,
   type UsageWindow,
   type ProfilesView,
+  type Vendor,
 } from './lib';
 import { Badge, Bar, Btn, Dot, Icon, Note, Panel, Seg, Skeleton, StatusPill, TipBtn } from './ui/primitives';
 import { useOverlays, useTip, type MenuItem } from './ui/overlays';
@@ -36,6 +37,7 @@ export function Profiles({
   view: ProfilesView;
   setView: (v: ProfilesView) => void;
 }) {
+  const { openSetup } = useActions();
   const [drag, setDrag] = useState<Drag>(null);
   const [over, setOver] = useState<Over>(null);
   const latest = state.profiles
@@ -122,18 +124,26 @@ export function Profiles({
           <div class="empty">No profiles</div>
         );
         const na = v.installed ? null : <span class="na">app not installed</span>;
+        // A new profile is made where it will live, so the vendor is settled
+        // before the dialog opens.
+        const add = (
+          <Btn id={`add-${vendor}`} icon="plus" onClick={() => openSetup(undefined, vendor as Vendor)}>
+            Profile
+          </Btn>
+        );
         // Cards sit straight on the page under a plain heading; the list is a
         // panel with a header band, since its rows share columns.
         return view === 'cards' ? (
           <section class="vendor" key={vendor}>
             <div class="eyebrow">
-              <span>{v.label}</span>
+              <span class="panel-title">{v.label}</span>
               {na}
+              <span class="panel-actions">{add}</span>
             </div>
             <div class="grid">{rows}</div>
           </section>
         ) : (
-          <Panel key={vendor} title={v.label} meta={na}>
+          <Panel key={vendor} title={v.label} meta={na} actions={add}>
             {rows}
           </Panel>
         );
@@ -157,40 +167,60 @@ function Profile({
   class: string;
   dnd: Dnd;
 }) {
+  const { openMenu } = useOverlays();
+  const [editing, setEditing] = useState(false);
+  const items = useMenuItems(p, state, () => setEditing(true));
+  // The same menu from the dots and from a right-click anywhere on the row.
+  const onContextMenu = (e: MouseEvent) => {
+    if ((e.target as Element).closest('input, a')) return;
+    e.preventDefault();
+    openMenu({ x: e.clientX, y: e.clientY }, items);
+  };
+  const foot = (
+    <div class="foot">
+      <PrimaryButton p={p} state={state} />
+      <Tools p={p} state={state} items={items} />
+    </div>
+  );
   if (view === 'cards') {
     return (
-      <div class={`card tile ${cls}`} style={{ '--card-color': p.color }} {...dnd}>
-        <IdentityBlock p={p} state={state} pill />
+      <div class={`card tile ${cls}`} style={{ '--card-color': p.color }} onContextMenu={onContextMenu} {...dnd}>
+        <IdentityBlock p={p} state={state} pill editing={editing} setEditing={setEditing} />
         <UsageBlock p={p} state={state} />
-        <div class="foot">
-          <Tools p={p} state={state} />
-          <ActionButton p={p} state={state} />
-        </div>
+        {foot}
       </div>
     );
   }
   return (
-    <div class={`card ${cls}`} style={{ '--card-color': p.color }} {...dnd}>
-      <IdentityBlock p={p} state={state} />
+    <div class={`card ${cls}`} style={{ '--card-color': p.color }} onContextMenu={onContextMenu} {...dnd}>
+      <IdentityBlock p={p} state={state} editing={editing} setEditing={setEditing} />
       <UsageBlock p={p} state={state} />
-      <div class="foot">
-        <Tools p={p} state={state} />
-        <ActionButton p={p} state={state} />
-      </div>
+      {foot}
     </div>
   );
 }
 
-// Colour chip, name (double-click to rename), plan, running dot, then the
-// signed-in identity and, for Codex, the model connection.
-function IdentityBlock({ p, state, pill = false }: { p: ProfileView; state: State; pill?: boolean }) {
+// Colour chip, name (double-click, or Rename in the menu, to rename), plan,
+// running dot, then the signed-in identity.
+function IdentityBlock({
+  p,
+  state,
+  pill = false,
+  editing,
+  setEditing,
+}: {
+  p: ProfileView;
+  state: State;
+  pill?: boolean;
+  editing: boolean;
+  setEditing: (on: boolean) => void;
+}) {
   const { openMenu } = useOverlays();
   const id: Partial<Identity> = p.identity ?? {};
   const u: Usage = p.usage ?? {};
   // Nothing known yet (first launch, no cache): show placeholders, not
   // misleading "not signed in" text.
   const pending = !p.identity;
-  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(p.name);
   const finish = () => {
     setEditing(false);
@@ -279,18 +309,53 @@ function IdentityBlock({ p, state, pill = false }: { p: ProfileView; state: Stat
   );
 }
 
-// The model connection of a Codex profile, as a checkable group in its menu:
-// its own sign-in, or any proxy bucket.
-function connectionItems(p: ProfileView, state: State): MenuItem[] {
+// The profile's menu: who it is, then verbs grouped by kind (name, the
+// connection, the session, the files, and last the one that removes it).
+// The primary action never lives here.
+function useMenuItems(p: ProfileView, state: State, rename: () => void): MenuItem[] {
+  const { openSetup, newBucket } = useActions();
+  const id: Partial<Identity> = p.identity ?? {};
+  const plan = p.usage?.plan || id.plan;
+  const who = [p.isDefault ? 'Default profile' : null, id.loggedIn ? id.email : 'not signed in', plan]
+    .filter(Boolean)
+    .join(' · ');
+  const groups: MenuItem[][] = [
+    [{ header: p.name, sub: who }],
+    p.isDefault ? [] : [{ label: 'Rename', run: rename }],
+    connectionItems(p, state, newBucket),
+    [
+      { label: 'Refresh usage', run: () => window.sb.refresh(p.id) },
+      { label: id.loggedIn ? 'Sign in CLI again' : 'Sign in CLI', run: () => window.sb.login(p.id) },
+    ],
+    [
+      ...(p.isDefault ? [] : [{ label: 'Bring over…', run: () => openSetup(p) }]),
+      { label: 'Show in Finder', run: () => window.sb.reveal(p.id) },
+    ],
+    p.isDefault ? [] : [{ label: 'Remove…', danger: true, run: () => window.sb.removeProfile(p.id) }],
+  ];
+  return groups.filter((g) => g.length).flatMap((g, i) => (i ? ['separator' as const, ...g] : g));
+}
+
+// The model connection of a Codex profile, as a submenu that shows its
+// value: its own sign-in, or any proxy bucket.
+function connectionItems(p: ProfileView, state: State, newBucket: () => void): MenuItem[] {
   if (p.vendor !== 'codex') return [];
   const buckets = state.buckets ?? [];
-  const orphan = p.proxyBucket && !buckets.some((b) => b.id === p.proxyBucket) ? p.proxyBucket : null;
+  const current = buckets.find((b) => b.id === p.proxyBucket);
+  const orphan = p.proxyBucket && !current ? p.proxyBucket : null;
   const pick = (bucket: string | null) => () => window.sb.setProxyBucket(p.id, bucket);
   return [
-    'separator',
-    { label: 'Native account', checked: !p.proxyBucket, run: pick(null) },
-    ...buckets.map((b) => ({ label: `Proxy · ${b.name}`, checked: p.proxyBucket === b.id, run: pick(b.id) })),
-    ...(orphan ? [{ label: `Unavailable · ${orphan}`, checked: true, disabled: true, run: () => {} }] : []),
+    {
+      label: 'Connection',
+      value: orphan ? 'Unavailable' : current ? current.name : 'Native',
+      items: [
+        { label: 'Native account', checked: !p.proxyBucket, run: pick(null) },
+        ...buckets.map((b) => ({ label: b.name, checked: p.proxyBucket === b.id, run: pick(b.id) })),
+        ...(orphan ? [{ label: `Unavailable · ${orphan}`, checked: true, disabled: true, run: () => {} }] : []),
+        'separator',
+        { label: 'New proxy bucket…', run: newBucket },
+      ],
+    },
   ];
 }
 
@@ -367,38 +432,27 @@ function UsageBlock({ p, state }: { p: ProfileView; state: State }) {
   );
 }
 
-function ActionButton({ p, state }: { p: ProfileView; state: State }) {
-  const installed = state.vendors[p.vendor].installed;
+// The one action that changes the desktop app's state: filled play to
+// launch, an outlined power sign to quit. Icon only, so a row of profiles
+// stays quiet; the tooltip names the profile.
+function PrimaryButton({ p, state }: { p: ProfileView; state: State }) {
+  const vendor = state.vendors[p.vendor];
+  const verb = p.running ? 'Quit' : 'Launch';
   return (
-    <div class="actions">
-      <Btn
-        variant={p.running ? 'outline' : 'primary'}
-        disabled={!installed}
-        title={p.running ? 'Quit the desktop app' : 'Launch the desktop app'}
-        onClick={(e) => act(() => (p.running ? window.sb.quit(p.id) : window.sb.launch(p.id)), e.currentTarget)}
-      >
-        {p.running ? 'Quit' : 'Launch'}
-      </Btn>
-    </div>
+    <TipBtn
+      class={`icon-btn primary-btn ${p.running ? 'quit' : 'primary'}`}
+      icon={p.running ? 'power' : 'play'}
+      disabled={!vendor.installed}
+      aria-label={`${verb} ${p.name}`}
+      tip={[`${verb} ${p.name}`, vendor.installed ? `${vendor.label} desktop app` : `${vendor.label} is not installed`]}
+      onClick={(e) => act(() => (p.running ? window.sb.quit(p.id) : window.sb.launch(p.id)), e.currentTarget)}
+    />
   );
 }
 
-function Tools({ p, state }: { p: ProfileView; state: State }) {
+function Tools({ p, state, items }: { p: ProfileView; state: State; items: MenuItem[] }) {
   const { openMenu } = useOverlays();
-  const { openSetup } = useActions();
   const [copied, setCopied] = useState(false);
-  const id: Partial<Identity> = p.identity ?? {};
-  const items: MenuItem[] = [
-    { label: 'Refresh usage', run: () => window.sb.refresh(p.id) },
-    { label: id.loggedIn ? 'Sign in CLI again' : 'Sign in CLI', run: () => window.sb.login(p.id) },
-    ...connectionItems(p, state),
-    'separator',
-    ...(p.isDefault ? [] : [{ label: 'Bring over', run: () => openSetup(p) }]),
-    { label: 'Show in Finder', run: () => window.sb.reveal(p.id) },
-    ...(p.isDefault
-      ? []
-      : ['separator' as const, { label: 'Remove', danger: true, run: () => window.sb.removeProfile(p.id) }]),
-  ];
   return (
     <div class="tools">
       <TipBtn
@@ -427,7 +481,7 @@ function Tools({ p, state }: { p: ProfileView; state: State }) {
         icon="more"
         class="more-btn"
         aria-label={`More actions for ${p.name}`}
-        tip={['More']}
+        tip={['More', 'Also on right-click']}
         onClick={(e) => openMenu(e.currentTarget as HTMLElement, items)}
       />
     </div>

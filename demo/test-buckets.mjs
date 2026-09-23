@@ -54,7 +54,8 @@ try {
   await page.keyboard.press('Escape');
   await page.locator('#tab-profiles').click();
   await page.getByRole('button', { name: 'More actions for Work' }).click();
-  await page.getByRole('menuitemradio', { name: 'Proxy · Team' }).click();
+  await page.getByRole('menuitem', { name: 'Connection' }).click();
+  await page.getByRole('menuitemradio', { name: 'Team' }).click();
   await until(() =>
     page.evaluate(
       async () => (await window.sb.getState()).profiles.find((p) => p.id === 'codex-work').proxyBucket === 'team',
@@ -99,7 +100,8 @@ try {
   // can only call the assignment unavailable.
   await until(() => page.evaluate(async () => (await window.sb.getState()).buckets?.some((b) => b.id === 'team')));
   await page.getByRole('button', { name: 'More actions for Work' }).click();
-  assert.equal(await page.getByRole('menuitemradio', { name: 'Proxy · Team' }).getAttribute('aria-checked'), 'true');
+  await page.getByRole('menuitem', { name: 'Connection' }).click();
+  assert.equal(await page.getByRole('menuitemradio', { name: 'Team' }).getAttribute('aria-checked'), 'true');
   await page.keyboard.press('Escape');
   await page.evaluate(() => window.sb.bucketAction('team', 'start'));
   const reused = JSON.parse(
@@ -120,6 +122,7 @@ try {
   );
   await page.evaluate(() => window.sb.setProxyBucket('codex-work', null));
   await page.getByRole('button', { name: 'More actions for Work' }).click();
+  await page.getByRole('menuitem', { name: 'Connection' }).click();
   assert.equal(await page.getByRole('menuitemradio', { name: 'Native account' }).getAttribute('aria-checked'), 'true');
   await page.keyboard.press('Escape');
   await page.evaluate(() => window.sb.bucketAction('team', 'stop'));

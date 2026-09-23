@@ -33,18 +33,30 @@ function Modal({
   );
 }
 
-export type SetupRequest = { target: ProfileView | null } | null;
+// A new profile is asked for from a vendor's own panel, so the vendor is
+// already known; bringing things over targets an existing profile.
+export type SetupRequest = { target: ProfileView | null; vendor?: Vendor } | null;
 
 export function AddDialog({ state, request, onClose }: { state: State; request: SetupRequest; onClose: () => void }) {
   return (
     <Modal id="add-dialog" open={!!request} onClose={onClose}>
-      {request ? <AddForm state={state} target={request.target} onClose={onClose} /> : null}
+      {request ? <AddForm state={state} target={request.target} vendor={request.vendor} onClose={onClose} /> : null}
     </Modal>
   );
 }
 
-function AddForm({ state, target, onClose }: { state: State; target: ProfileView | null; onClose: () => void }) {
-  const [vendor, setVendor] = useState<Vendor>(target ? target.vendor : 'claude');
+function AddForm({
+  state,
+  target,
+  vendor: chosen,
+  onClose,
+}: {
+  state: State;
+  target: ProfileView | null;
+  vendor?: Vendor;
+  onClose: () => void;
+}) {
+  const [vendor, setVendor] = useState<Vendor>(target ? target.vendor : (chosen ?? 'claude'));
   const sources = state.profiles.filter((p) => p.vendor === vendor && (!target || p.id !== target.id));
   const preferred = sources.find((p) => p.isDefault) || sources[0];
   const [source, setSource] = useState(preferred ? preferred.id : '');
@@ -84,9 +96,11 @@ function AddForm({ state, target, onClose }: { state: State; target: ProfileView
 
   return (
     <form id="add-form" onSubmit={submit}>
-      <h2 id="add-title">{target ? `Bring over into ${target.name}` : 'New profile'}</h2>
+      <h2 id="add-title">
+        {target ? `Bring over into ${target.name}` : chosen ? `New ${state.vendors[chosen].label} profile` : 'New profile'}
+      </h2>
       <div id="add-basics" class="basics" hidden={!!target}>
-        <div class="choices" role="radiogroup" aria-label="App">
+        <div class="choices" role="radiogroup" aria-label="App" hidden={!!chosen}>
           {(Object.entries(state.vendors) as [Vendor, State['vendors'][Vendor]][]).map(([v, info]) => (
             <label class="choice" key={v}>
               <input type="radio" name="vendor" value={v} checked={vendor === v} onChange={() => setVendor(v)} />

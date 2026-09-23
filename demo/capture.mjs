@@ -163,10 +163,9 @@ async function newPage(ctxOptions = {}) {
 {
   const { ctx, page } = await newPage({ recordVideo: { dir: WORK, size: VIEWPORT } });
   await page.waitForTimeout(1400);
-  await page.click('#add');
+  await page.click('#add-codex');
   await page.waitForSelector('#add-dialog[open]');
   await page.waitForTimeout(900);
-  await page.check('input[name="vendor"][value="codex"]');
   await page.fill('input[name="name"]', 'Client');
   await page.waitForTimeout(700);
   // Turn on the two items that are deliberately off by default.
