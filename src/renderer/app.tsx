@@ -11,7 +11,7 @@ import { AddDialog, BucketDialog, SettingsDialog, type SetupRequest } from './di
 import { act, type AccountsView, type ProfileView, type State } from './lib';
 import { ActionsCtx } from './ui/actions';
 import { OverlayProvider, useOverlays } from './ui/overlays';
-import { Btn } from './ui/primitives';
+import { Btn, Icon, type IconName } from './ui/primitives';
 
 type Tab = 'accounts' | 'buckets' | 'cli';
 
@@ -86,6 +86,7 @@ function Shell({ state }: { state: State | null }) {
       <nav class="tabs" role="tablist" aria-label="Sections">
         <TabButton
           id="tab-accounts"
+          icon="users"
           on={tab === 'accounts'}
           onClick={() => setTab('accounts')}
           count={state?.profiles.length}
@@ -94,13 +95,14 @@ function Shell({ state }: { state: State | null }) {
         </TabButton>
         <TabButton
           id="tab-buckets"
+          icon="layers"
           on={tab === 'buckets'}
           onClick={() => setTab('buckets')}
           count={state ? (state.buckets ?? []).length : undefined}
         >
           Proxy buckets
         </TabButton>
-        <TabButton id="tab-cli" on={tab === 'cli'} onClick={() => setTab('cli')}>
+        <TabButton id="tab-cli" icon="terminal" on={tab === 'cli'} onClick={() => setTab('cli')}>
           CLI
         </TabButton>
       </nav>
@@ -126,12 +128,14 @@ function Shell({ state }: { state: State | null }) {
 
 function TabButton({
   id,
+  icon,
   on,
   onClick,
   count,
   children,
 }: {
   id: string;
+  icon: IconName;
   on: boolean;
   onClick: () => void;
   count?: number;
@@ -139,6 +143,7 @@ function TabButton({
 }) {
   return (
     <button type="button" id={id} role="tab" aria-selected={on} aria-controls="root" onClick={onClick}>
+      <Icon name={icon} size={15} />
       {children} {count === undefined ? null : <span class="count">{count}</span>}
     </button>
   );

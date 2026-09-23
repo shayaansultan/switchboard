@@ -16,11 +16,29 @@ const COMMANDS: { cmd: string; what: string }[] = [
   { cmd: 'switchboard doctor', what: 'Installed apps, CLIs, proxy, store and cache health.' },
 ];
 
+// What an agent needs to know to drive the command well: the result
+// contract, how profiles are named, which commands answer which question,
+// and what stays with the person. Copied as one prompt.
+const AGENT_PROMPT = `You can use the \`switchboard\` command on this Mac. It manages Claude and Codex accounts as profiles, each with its own isolated home, tracks each one's rate-limit headroom, and runs commands inside a chosen account. \`switchboard --help\` lists every command.
+
+Reading results: a command that succeeds prints JSON on stdout and exits 0. One that fails prints one JSON object on stderr, {"error": CODE, "message": ..., "hint": ...}, and exits 2 (usage), 3 (not found), 4 (refused by a safety rule) or 1 (ran and failed). Branch on the code; the hint is usually the command that unblocks. Per-profile usage carries a status of ok, stale, not-signed-in, error or none.
+
+Naming a profile: by id (claude-work), by vendor alone (claude means that vendor's Default profile), by vendor/name, or by a name only one profile has. \`switchboard list\` shows what exists.
+
+Choosing an account: \`switchboard pick claude\` (or codex) answers which account should run a job: the signed-in profile whose tightest window has the most left, with ranked candidates and the excluded ones with reasons. Add --window 7d to judge by one window, --min-headroom 30 for a floor, --max-age 15m to refresh only stale entries. --refresh hits the vendors' usage endpoints for every profile, so use it once when freshness matters, never in a loop.
+
+Running inside an account: \`switchboard exec PROFILE -- claude -p "..."\` runs any command with that profile's home in its environment; \`switchboard cli PROFILE ...\` prefixes the vendor's own CLI; \`eval "$(switchboard env PROFILE)"\` moves the current shell into the profile.
+
+Windows and buckets: \`launch\` and \`quit\` open and close a profile's desktop window. Proxy buckets are pools of accounts behind a local proxy that a Codex desktop profile can route through; \`switchboard bucket list\` shows each account's headroom.
+
+Leave to the person: \`remove\`, \`quit-others\` and \`bucket stop\` refuse without --yes and interrupt work or delete data, so pass --yes only when asked for exactly that. \`login\` opens an interactive sign-in the person completes; report not-signed-in and stop rather than retrying. Never edit profiles.json by hand.`;
+
 export function Cli({ state }: { state: State }) {
   const cli = state.cli;
   return (
     <section class="cli">
       <InstallCard cli={cli} />
+      <AgentCard />
       <div class="panel">
         <div class="panel-head">
           <span>Commands</span>
@@ -96,6 +114,39 @@ function InstallCard({ cli }: { cli: CliStatus | undefined }) {
             Install command
           </Btn>
         )}
+      </div>
+    </div>
+  );
+}
+
+function AgentCard() {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div class="panel cli-agent">
+      <div class="cli-icon">
+        <Icon name="bot" size={22} />
+      </div>
+      <div class="cli-about">
+        <div class="cli-title">
+          <b>For an AI agent</b>
+        </div>
+        <span class="note">
+          A prompt that teaches an agent the command: how results come back, how profiles are named, how to pick an
+          account and run inside it, and what to leave to you. Paste it into the agent's instructions.
+        </span>
+      </div>
+      <div class="cli-action">
+        <Btn
+          variant="secondary"
+          icon={copied ? 'check' : 'copy'}
+          onClick={() => {
+            void navigator.clipboard.writeText(AGENT_PROMPT);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }}
+        >
+          {copied ? 'Copied' : 'Copy agent prompt'}
+        </Btn>
       </div>
     </div>
   );

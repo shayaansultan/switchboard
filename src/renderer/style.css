@@ -164,6 +164,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
   border-radius: 0; background: transparent; font-size: 15px; font-weight: 550; gap: 6px;
 }
 .tabs button:hover { background: transparent; color: var(--text); }
+.tabs button .ico { color: var(--muted); }
+.tabs button[aria-selected='true'] .ico { color: var(--text); }
 .tabs button[aria-selected='true'] { border-bottom-color: var(--text); }
 .tabs button:focus-visible { outline-offset: -3px; }
 .tabs .count { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
@@ -414,6 +416,8 @@ code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; 
 .cli-title { display: flex; align-items: center; gap: 8px; font-size: 15px; }
 .cli-about > .note { font-size: 13px; line-height: 20px; }
 .cli-action { flex: none; }
+.cli-agent { display: flex; align-items: center; gap: 16px; padding: 16px 20px; }
+.cli-agent .cli-about { gap: 2px; }
 .cmd { display: flex; align-items: center; gap: 16px; padding: 12px 0; }
 .cmd + .cmd { border-top: 1px solid var(--line); }
 .cmd-about { flex: 1; min-width: 0; display: grid; gap: 4px; }
