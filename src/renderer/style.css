@@ -131,7 +131,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 /* --- title bar --- */
 .titlebar {
   -webkit-app-region: drag; display: flex; align-items: center; gap: 16px;
-  height: 56px; padding: 0 20px 0 84px; border-bottom: 1px solid var(--line); background: var(--bg);
+  height: 56px; padding: 0 20px 0 96px; border-bottom: 1px solid var(--line); background: var(--bg);
   position: sticky; top: 0; z-index: 2;
 }
 .titlebar .actions { -webkit-app-region: no-drag; display: flex; gap: 8px; margin-left: auto; }

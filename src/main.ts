@@ -350,7 +350,10 @@ function createWindow(): BrowserWindow {
     minWidth: 560,
     minHeight: 420,
     title: 'Switchboard',
-    titleBarStyle: 'hiddenInset',
+    // The traffic lights sit on the title bar's centre line: the bar is 56 px
+    // and the lights 12, so 22 from the top.
+    titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 20, y: 22 },
     backgroundColor: windowBackground(),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   });
