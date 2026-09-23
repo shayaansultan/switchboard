@@ -174,16 +174,21 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 
 main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; container-type: inline-size; }
 
-/* --- one panel per vendor, one row per account --- */
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-1); overflow: hidden; }
+/* --- the panel every tab is built from --- */
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-1); overflow: hidden; min-width: 0; }
 .panel-head {
-  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
-  padding: 8px 20px; background: var(--panel-2); border-bottom: 1px solid var(--line);
-  font-size: 13px; font-weight: 600;
+  display: flex; align-items: center; gap: 10px; min-height: 44px;
+  padding: 6px 20px; background: var(--panel-2); border-bottom: 1px solid var(--line);
 }
-.panel-head .na { font-weight: 400; color: var(--muted); font-size: 12px; }
-.panel-body { padding: 0 20px; }
+.panel-title { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.panel-head .badge { height: 20px; font-size: 11px; line-height: 18px; padding: 0 7px; }
+.panel-actions button { height: 28px; font-size: 13px; padding: 0 10px; }
+.panel-actions .icon-btn { width: 28px; padding: 0; }
+.panel-meta { flex: 1; min-width: 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-actions { display: flex; gap: 8px; align-items: center; margin-left: auto; flex: none; }
+.panel-body { padding: 0 20px; min-width: 0; }
 .panel-body > .empty { margin: 14px 0; }
+.panel-body > .note { padding: 12px 0; }
 
 /* Two columns: the profile and its actions on the left, its usage on the
    right, so names, bars and buttons line up down the whole list. */
@@ -210,30 +215,15 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
 .ident.err { color: var(--warn-text); }
 .ident a { color: var(--text); font-weight: 550; text-decoration: none; border-bottom: 1px solid var(--muted); }
 .card .bars { grid-area: bars; min-width: 0; display: grid; gap: 6px; align-content: start; }
-.card .foot { grid-area: foot; display: flex; align-items: center; gap: 8px; }
+.card .foot { grid-area: foot; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .card .actions { display: flex; }
 .card .actions button { min-width: 88px; }
-.card .tools { display: flex; gap: 2px; margin-left: auto; }
+.card .tools { display: flex; gap: 2px; }
 .card .tools .icon-btn { width: 28px; height: 28px; border-color: transparent; background: transparent; }
 .card .tools .icon-btn:hover { background: var(--hover); }
 .ico-check { display: none; color: var(--run-text); }
 .copy-btn.copied .ico-copy { display: none; }
 .copy-btn.copied .ico-check { display: inline-block; }
-
-/* The model connection, a quiet chip under the email, for Codex profiles. */
-.connection { margin: 2px 0 0 -6px; display: inline-flex; align-self: flex-start; max-width: 100%; }
-.connection select {
-  appearance: none; -webkit-appearance: none; max-width: 100%; min-width: 0;
-  height: 24px; padding: 0 20px 0 6px; border-radius: 6px; border: 1px solid transparent;
-  font: 400 12px/20px 'Figtree', system-ui, sans-serif; color: var(--muted); background: transparent;
-  text-overflow: ellipsis; cursor: pointer;
-}
-.connection select:hover { background: var(--hover); color: var(--text); }
-.connection { position: relative; }
-.connection::after {
-  content: ''; position: absolute; right: 7px; top: 9px; width: 5px; height: 5px;
-  border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); pointer-events: none;
-}
 
 /* A usage window: label, bar, percentage, one per line. */
 .bar { display: grid; grid-template-columns: 118px 1fr 40px; align-items: center; gap: 12px; font-size: 12px; min-width: 0; height: 20px; }
@@ -267,19 +257,8 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
   .card .tools .icon-btn.copy-btn { display: none; }
 }
 
-/* --- Buckets tab: a card per bucket, then one line per account --- */
+/* --- Proxy buckets: one line per account in the pool --- */
 .bucket-list { display: grid; gap: 16px; max-width: 960px; }
-.bucket { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-1); overflow: hidden; min-width: 0; }
-.bucket-head { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 20px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
-.bucket-head .name { font-size: 15px; font-weight: 600; }
-.bucket-head .status { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 550; color: var(--muted); background: var(--panel); border: 1px solid var(--line); }
-.bucket-head .status::before { content: ''; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--muted); }
-.bucket-head .status.on { color: var(--run-text); background: var(--run-bg); border-color: transparent; }
-.bucket-head .status.on::before { background: var(--run); border-color: var(--run); }
-.bucket-head .used-by { flex: 1; min-width: 0; color: var(--muted); font-size: 13px; }
-.bucket-head .buttons { display: flex; gap: 8px; align-items: center; }
-.bucket-body { padding: 0 20px; display: grid; min-width: 0; }
-.bucket-body > .note { padding: 12px 0; }
 .acct { display: grid; grid-template-columns: minmax(0, 280px) 1fr auto; gap: 8px 24px; align-items: start; padding: 14px 0; }
 .acct .who { padding-top: 0; }
 .acct + .acct { border-top: 1px solid var(--line); }
@@ -302,6 +281,8 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
 .menu { position: fixed; z-index: 10; min-width: 180px; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-2); animation: tip-in 0.08s ease-out; }
 .menu button { display: flex; width: 100%; justify-content: flex-start; height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; font-weight: 500; }
 .menu button:hover, .menu button:focus-visible { background: var(--hover); outline: none; }
+.menu button.checkable { padding-left: 4px; }
+.menu .tick { display: inline-block; width: 18px; text-align: center; font-size: 12px; color: var(--text); }
 .menu button.danger { color: var(--bad-text); }
 .menu button.danger:hover, .menu button.danger:focus-visible { background: var(--danger-bg); }
 .menu button:disabled { opacity: 0.4; }
@@ -393,8 +374,9 @@ legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
 .card.tile { display: flex; flex-direction: column; align-items: stretch; gap: 14px; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow-1); min-width: 0; }
 .card.tile + .card.tile { border-top: 1px solid var(--line); }
 .card.tile .bars { flex-grow: 1; }
-.card.tile .foot { justify-content: space-between; padding-top: 4px; }
+.card.tile .foot { padding-top: 4px; }
 .card.tile .actions button { min-width: 0; }
+.panel-meta .na, .vendor .na { font-weight: 400; color: var(--muted); font-size: 12px; }
 .card.tile .tools .icon-btn { width: 32px; height: 32px; border-color: var(--line); background: var(--btn-bg); }
 .card.tile .tools .icon-btn:hover { background: var(--hover); }
 .badge.status { height: 22px; font-size: 12px; padding: 0 8px; }
@@ -412,10 +394,7 @@ legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
 /* --- the CLI tab: one section with a terminal block --- */
 code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; background: var(--panel-2); border-radius: 4px; padding: 1px 5px; }
 .cli { display: grid; max-width: 960px; }
-.cli-head { padding: 12px 20px; align-items: center; }
-.cli-title { display: flex; align-items: center; gap: 10px; font-size: 15px; }
-.cli-actions { display: flex; gap: 8px; align-items: center; }
-.cli-body { padding: 16px 20px 20px; display: grid; gap: 12px; }
+.cli-body { padding: 16px 0 20px; display: grid; gap: 12px; }
 .cli-intro { margin: 0; font-size: 13px; line-height: 20px; color: var(--text-2); }
 .cli-body .note { font-size: 13px; line-height: 20px; }
 .term { background: #1a1a1a; color: #fcfcfb; border-radius: 12px; padding: 6px 8px 6px 20px; display: grid; }

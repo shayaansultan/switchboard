@@ -3,7 +3,7 @@
 // the tools. Rows and tiles can be dragged into a new order within their
 // vendor; the Default profile stays pinned first.
 
-import { useEffect, useState } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import {
   act,
   ago,
@@ -20,7 +20,7 @@ import {
   type UsageWindow,
   type ProfilesView,
 } from './lib';
-import { Badge, Bar, Btn, Dot, Icon, Note, Seg, Skeleton, TipBtn } from './ui/primitives';
+import { Badge, Bar, Btn, Dot, Icon, Note, Panel, Seg, Skeleton, StatusPill, TipBtn } from './ui/primitives';
 import { useOverlays, useTip, type MenuItem } from './ui/overlays';
 import { useActions } from './ui/actions';
 
@@ -133,13 +133,9 @@ export function Profiles({
             <div class="grid">{rows}</div>
           </section>
         ) : (
-          <section class="panel" key={vendor}>
-            <div class="panel-head">
-              <span>{v.label}</span>
-              {na}
-            </div>
-            <div class="panel-body">{rows}</div>
-          </section>
+          <Panel key={vendor} title={v.label} meta={na}>
+            {rows}
+          </Panel>
         );
       })}
     </>
@@ -167,8 +163,8 @@ function Profile({
         <IdentityBlock p={p} state={state} pill />
         <UsageBlock p={p} state={state} />
         <div class="foot">
-          <ActionButton p={p} state={state} />
           <Tools p={p} state={state} />
+          <ActionButton p={p} state={state} />
         </div>
       </div>
     );
@@ -178,8 +174,8 @@ function Profile({
       <IdentityBlock p={p} state={state} />
       <UsageBlock p={p} state={state} />
       <div class="foot">
-        <ActionButton p={p} state={state} />
         <Tools p={p} state={state} />
+        <ActionButton p={p} state={state} />
       </div>
     </div>
   );
@@ -246,10 +242,7 @@ function IdentityBlock({ p, state, pill = false }: { p: ProfileView; state: Stat
         {pill && p.isDefault ? <Badge tone="mute">default dirs</Badge> : null}
         {u.plan || id.plan ? <Badge>{u.plan || id.plan}</Badge> : null}
         {pill ? (
-          <span class={`badge ${p.running ? 'ok' : 'mute'} status`}>
-            <span class={`dot ${p.running ? 'on' : 'off'}`} />
-            {p.running ? 'Running' : 'Off'}
-          </span>
+          <StatusPill on={!!p.running}>{p.running ? 'Running' : 'Off'}</StatusPill>
         ) : (
           <Dot on={!!p.running} title={p.running ? 'App running' : 'App not running'} />
         )}
@@ -282,54 +275,23 @@ function IdentityBlock({ p, state, pill = false }: { p: ProfileView; state: Stat
           )}
         </div>
       )}
-      {p.vendor === 'codex' ? <Connection p={p} state={state} /> : null}
     </div>
   );
 }
 
-function Connection({ p, state }: { p: ProfileView; state: State }) {
+// The model connection of a Codex profile, as a checkable group in its menu:
+// its own sign-in, or any proxy bucket.
+function connectionItems(p: ProfileView, state: State): MenuItem[] {
+  if (p.vendor !== 'codex') return [];
   const buckets = state.buckets ?? [];
-  const [value, setValue] = useState(p.proxyBucket ?? '');
-  const [busy, setBusy] = useState(false);
-  useEffect(() => setValue(p.proxyBucket ?? ''), [p.proxyBucket]);
   const orphan = p.proxyBucket && !buckets.some((b) => b.id === p.proxyBucket) ? p.proxyBucket : null;
-  return (
-    <div class="connection">
-      <select
-        aria-label={`Model connection for ${p.name}`}
-        value={value}
-        disabled={busy}
-        title={
-          p.running
-            ? 'Model connection. Changes take effect on the next launch from Switchboard.'
-            : 'Model connection. Applies when launched from Switchboard; Terminal uses the native account.'
-        }
-        onChange={(e) => {
-          const next = (e.currentTarget as HTMLSelectElement).value;
-          setValue(next);
-          setBusy(true);
-          void act(async () => {
-            try {
-              await window.sb.setProxyBucket(p.id, next || null);
-            } catch (error) {
-              setValue(p.proxyBucket ?? '');
-              throw error;
-            } finally {
-              setBusy(false);
-            }
-          });
-        }}
-      >
-        <option value="">Native account</option>
-        {buckets.map((b) => (
-          <option value={b.id} key={b.id}>
-            Proxy · {b.name}
-          </option>
-        ))}
-        {orphan ? <option value={orphan}>Unavailable · {orphan}</option> : null}
-      </select>
-    </div>
-  );
+  const pick = (bucket: string | null) => () => window.sb.setProxyBucket(p.id, bucket);
+  return [
+    'separator',
+    { label: 'Native account', checked: !p.proxyBucket, run: pick(null) },
+    ...buckets.map((b) => ({ label: `Proxy · ${b.name}`, checked: p.proxyBucket === b.id, run: pick(b.id) })),
+    ...(orphan ? [{ label: `Unavailable · ${orphan}`, checked: true, disabled: true, run: () => {} }] : []),
+  ];
 }
 
 // The usage bars, or whatever explains their absence, plus the notes that
@@ -429,6 +391,7 @@ function Tools({ p, state }: { p: ProfileView; state: State }) {
   const items: MenuItem[] = [
     { label: 'Refresh usage', run: () => window.sb.refresh(p.id) },
     { label: id.loggedIn ? 'Sign in CLI again' : 'Sign in CLI', run: () => window.sb.login(p.id) },
+    ...connectionItems(p, state),
     'separator',
     ...(p.isDefault ? [] : [{ label: 'Bring over', run: () => openSetup(p) }]),
     { label: 'Show in Finder', run: () => window.sb.reveal(p.id) },

@@ -3,7 +3,7 @@
 
 import { useState } from 'preact/hooks';
 import { act, type CliStatus, type State } from './lib';
-import { Badge, Btn, Icon, Note, TipBtn } from './ui/primitives';
+import { Badge, Btn, Icon, Note, Panel, TipBtn } from './ui/primitives';
 
 const COMMANDS: { cmd: string; what: string }[] = [
   { cmd: 'switchboard list --human', what: 'Every profile, with its running state and signed-in account.' },
@@ -38,29 +38,30 @@ export function Cli({ state }: { state: State }) {
   const ours = !!cli?.installed && cli.ours;
   return (
     <section class="cli">
-      <div class="panel">
-        <div class="panel-head cli-head">
-          <span class="cli-title">
-            <span>The switchboard command</span>
-            {cli ? (
-              ours ? (
-                <Badge tone="ok">Installed</Badge>
-              ) : cli.installed ? (
-                <Badge tone="mute">Another launcher</Badge>
-              ) : (
-                <Badge tone="mute">Not installed</Badge>
-              )
-            ) : null}
-          </span>
-          <span class="cli-actions">
+      <Panel
+        title="The switchboard command"
+        status={
+          cli ? (
+            ours ? (
+              <Badge tone="ok">Installed</Badge>
+            ) : cli.installed ? (
+              <Badge tone="mute">Another launcher</Badge>
+            ) : (
+              <Badge tone="mute">Not installed</Badge>
+            )
+          ) : null
+        }
+        actions={
+          <>
             <CopyButton
               text={AGENT_PROMPT}
               label="Copy agent prompt"
               title="Copy a prompt that teaches an agent this command"
             />
             {cli && !ours ? <InstallButton cli={cli} /> : null}
-          </span>
-        </div>
+          </>
+        }
+      >
         <div class="cli-body">
           <p class="cli-intro">
             Everything the window can do, from a terminal or an agent. Results are JSON unless you add{' '}
@@ -103,7 +104,7 @@ export function Cli({ state }: { state: State }) {
             ))}
           </div>
         </div>
-      </div>
+      </Panel>
     </section>
   );
 }

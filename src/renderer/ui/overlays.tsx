@@ -8,7 +8,7 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'preact
 import { act } from '../lib';
 
 export type MenuItem =
-  | { label: string; danger?: boolean; disabled?: boolean; run: () => unknown }
+  | { label: string; danger?: boolean; disabled?: boolean; checked?: boolean; run: () => unknown }
   | { colors: string[]; current: string; pick: (color: string) => unknown }
   | 'separator';
 export type MenuPlacement = { prefer?: 'above' | 'below'; align?: 'left' | 'right' };
@@ -160,14 +160,16 @@ function Menu({ anchor, items, place, close }: OpenMenu & { close: () => void })
           <button
             type="button"
             key={i}
-            class={it.danger ? 'danger' : ''}
-            role="menuitem"
+            class={`${it.danger ? 'danger' : ''} ${it.checked !== undefined ? 'checkable' : ''}`}
+            role={it.checked === undefined ? 'menuitem' : 'menuitemradio'}
+            aria-checked={it.checked === undefined ? undefined : it.checked}
             disabled={it.disabled}
             onClick={() => {
               close();
               act(it.run, anchor);
             }}
           >
+            {it.checked !== undefined ? <span class="tick">{it.checked ? '✓' : ''}</span> : null}
             {it.label}
           </button>
         );

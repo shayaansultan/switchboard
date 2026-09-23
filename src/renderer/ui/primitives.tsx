@@ -72,6 +72,48 @@ export function TipBtn({ tip, ...props }: ButtonProps & { tip: string[] }) {
   return <Btn {...props} {...handlers} />;
 }
 
+// The one panel every tab is built from: a header band of fixed height that
+// holds a title, an optional status pill and a line of detail on the left
+// and any actions on the right, then a body.
+export function Panel({
+  title,
+  status,
+  meta,
+  actions,
+  children,
+  class: cls,
+  ...rest
+}: {
+  title: ComponentChildren;
+  status?: ComponentChildren;
+  meta?: ComponentChildren;
+  actions?: ComponentChildren;
+  children: ComponentChildren;
+  class?: string;
+} & Record<string, unknown>) {
+  return (
+    <section class={`panel ${cls ?? ''}`} {...rest}>
+      <div class="panel-head">
+        <span class="panel-title">{title}</span>
+        {status}
+        {meta ? <span class="panel-meta">{meta}</span> : null}
+        {actions ? <span class="panel-actions">{actions}</span> : null}
+      </div>
+      <div class="panel-body">{children}</div>
+    </section>
+  );
+}
+
+// Running or not, as a pill: mint with a filled dot when on.
+export function StatusPill({ on, children }: { on: boolean; children: ComponentChildren }) {
+  return (
+    <span class={`badge ${on ? 'ok' : 'mute'} status`}>
+      <span class={`dot ${on ? 'on' : 'off'}`} />
+      {children}
+    </span>
+  );
+}
+
 export function Badge({ children, tone = 'plan' }: { children: ComponentChildren; tone?: 'plan' | 'mute' | 'ok' }) {
   return <span class={`badge ${tone}`}>{children}</span>;
 }
