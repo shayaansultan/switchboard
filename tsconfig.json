@@ -4,23 +4,14 @@
     "outDir": "out",
     "target": "ES2022",
     "module": "node16",
-    "lib": [
-      "ES2022",
-      "DOM"
-    ],
-    "types": [
-      "node"
-    ],
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
     "strict": true,
     "noImplicitOverride": true,
     "skipLibCheck": true,
     "sourceMap": false,
     "moduleDetection": "legacy"
   },
-  "include": [
-    "src/**/*.ts"
-  ],
-  "exclude": [
-    "src/renderer"
-  ]
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/renderer"]
 }

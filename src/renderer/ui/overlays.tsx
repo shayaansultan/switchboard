@@ -41,8 +41,7 @@ export function useTip(lines: string[] | null) {
 }
 
 const isElement = (a: MenuAnchor): a is HTMLElement => a instanceof HTMLElement;
-const rectOf = (a: MenuAnchor): DOMRect =>
-  isElement(a) ? a.getBoundingClientRect() : new DOMRect(a.x, a.y, 0, 0);
+const rectOf = (a: MenuAnchor): DOMRect => (isElement(a) ? a.getBoundingClientRect() : new DOMRect(a.x, a.y, 0, 0));
 
 export function OverlayProvider({ children }: { children: ComponentChildren }) {
   const [menu, setMenu] = useState<OpenMenu | null>(null);
@@ -238,7 +237,15 @@ function Item({
 }
 
 // Beside the item that opened it, to the right when there is room.
-function Submenu({ anchor, items, onRun }: { anchor: HTMLElement; items: MenuItem[]; onRun: (fn: () => unknown) => void }) {
+function Submenu({
+  anchor,
+  items,
+  onRun,
+}: {
+  anchor: HTMLElement;
+  items: MenuItem[];
+  onRun: (fn: () => unknown) => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const menu = ref.current;

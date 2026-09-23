@@ -97,7 +97,11 @@ function AddForm({
   return (
     <form id="add-form" onSubmit={submit}>
       <h2 id="add-title">
-        {target ? `Bring over into ${target.name}` : chosen ? `New ${state.vendors[chosen].label} profile` : 'New profile'}
+        {target
+          ? `Bring over into ${target.name}`
+          : chosen
+            ? `New ${state.vendors[chosen].label} profile`
+            : 'New profile'}
       </h2>
       <div id="add-basics" class="basics" hidden={!!target}>
         <div class="choices" role="radiogroup" aria-label="App" hidden={!!chosen}>
