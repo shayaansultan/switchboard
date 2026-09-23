@@ -217,9 +217,9 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
 .card .tools { grid-area: tools; display: flex; gap: 2px; justify-content: flex-end; }
 .card .tools .icon-btn { width: 28px; height: 28px; border-color: transparent; background: transparent; }
 .card .tools .icon-btn:hover { background: var(--hover); }
-.ico.check { display: none; color: var(--run-text); }
-.copy-btn.copied .ico.copy { display: none; }
-.copy-btn.copied .ico.check { display: inline-block; }
+.ico-check { display: none; color: var(--run-text); }
+.copy-btn.copied .ico-copy { display: none; }
+.copy-btn.copied .ico-check { display: inline-block; }
 
 /* The model connection, a quiet chip under the email, for Codex profiles. */
 .connection { margin: 2px 0 0 -6px; display: inline-flex; align-self: flex-start; max-width: 100%; }
@@ -283,13 +283,14 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
 .bucket-head .buttons { display: flex; gap: 8px; align-items: center; }
 .bucket-body { padding: 0 20px; display: grid; min-width: 0; }
 .bucket-body > .note { padding: 12px 0; }
-.acct { display: grid; grid-template-columns: minmax(0, 280px) 1fr auto; gap: 8px 20px; align-items: center; padding: 14px 0; }
+.acct { display: grid; grid-template-columns: minmax(0, 280px) 1fr auto; gap: 8px 24px; align-items: start; padding: 14px 0; }
+.acct .who { padding-top: 0; }
 .acct + .acct { border-top: 1px solid var(--line); }
 .acct.off .acct-windows { opacity: 0.45; }
 .acct .who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .acct .prov { color: var(--muted); }
-.acct-windows { display: grid; gap: 6px 24px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); min-width: 0; }
-.acct-windows .bar { grid-template-columns: 110px 1fr 40px; }
+.acct-windows { display: grid; gap: 6px; min-width: 0; }
+.acct > button { height: 28px; margin-top: -4px; }
 @media (max-width: 700px) {
   .acct { grid-template-columns: 1fr auto; }
   .acct-windows { grid-column: 1 / -1; grid-row: 2; }
@@ -391,13 +392,20 @@ legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
 .segmented button:hover { background: transparent; color: var(--text); }
 .segmented button.on { background: var(--bg); color: var(--text); box-shadow: var(--shadow-1); }
 
-/* --- Cards: the same pieces stacked in a tile, three or two to a row --- */
-.panel-body.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; padding: 16px 20px 20px; }
-.card.tile { display: flex; flex-direction: column; align-items: stretch; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); min-width: 0; }
+/* --- Cards: plain heading, then cards straight on the page --- */
+.vendor { display: grid; gap: 12px; }
+.vendor .eyebrow { display: flex; justify-content: space-between; align-items: baseline; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; }
+.card.tile { display: flex; flex-direction: column; align-items: stretch; gap: 14px; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow-1); min-width: 0; }
 .card.tile + .card.tile { border-top: 1px solid var(--line); }
 .card.tile .bars { flex-grow: 1; }
 .card.tile .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 4px; }
 .card.tile .actions button { min-width: 0; }
+.card.tile .tools .icon-btn { width: 32px; height: 32px; border-color: var(--line); background: var(--btn-bg); }
+.card.tile .tools .icon-btn:hover { background: var(--hover); }
+.badge.status { height: 22px; font-size: 12px; padding: 0 8px; }
+.badge.status .dot { display: inline-block; width: 7px; height: 7px; margin-right: 4px; }
+.badge.status .dot.off { background: transparent; border: 1.5px solid var(--muted); box-sizing: border-box; }
 
 /* --- drag to reorder --- */
 .card[draggable='true'] { cursor: grab; }
@@ -407,20 +415,24 @@ legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
 .card.tile.drop-before { box-shadow: inset 2px 0 0 var(--dawn-strong); }
 .card.tile.drop-after { box-shadow: inset -2px 0 0 var(--dawn-strong); }
 
-/* --- the CLI tab --- */
+/* --- the CLI tab: one section with a terminal block --- */
 code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; background: var(--panel-2); border-radius: 4px; padding: 1px 5px; }
-.cli { display: grid; gap: 16px; max-width: 960px; }
-.cli-install { display: flex; align-items: flex-start; gap: 16px; padding: 20px; }
-.cli-icon { width: 44px; height: 44px; border-radius: 50%; background: var(--dawn); color: #1a1a1a; display: flex; align-items: center; justify-content: center; flex: none; }
-.cli-about { flex: 1; min-width: 0; display: grid; gap: 6px; }
-.cli-title { display: flex; align-items: center; gap: 8px; font-size: 15px; }
-.cli-about > .note { font-size: 13px; line-height: 20px; }
-.cli-action { flex: none; }
-.cli-agent { display: flex; align-items: center; gap: 16px; padding: 16px 20px; }
-.cli-agent .cli-about { gap: 2px; }
-.cmd { display: flex; align-items: center; gap: 16px; padding: 12px 0; }
-.cmd + .cmd { border-top: 1px solid var(--line); }
-.cmd-about { flex: 1; min-width: 0; display: grid; gap: 4px; }
-.cmd-about code { justify-self: start; font-size: 13px; padding: 3px 8px; border-radius: 6px; }
+.cli { display: grid; max-width: 960px; }
+.cli-head { padding: 12px 20px; align-items: center; }
+.cli-title { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.cli-actions { display: flex; gap: 8px; align-items: center; }
+.cli-body { padding: 16px 20px 20px; display: grid; gap: 12px; }
+.cli-intro { margin: 0; font-size: 13px; line-height: 20px; color: var(--text-2); }
+.cli-body .note { font-size: 13px; line-height: 20px; }
+.term { background: #1a1a1a; color: #fcfcfb; border-radius: 12px; padding: 6px 8px 6px 20px; display: grid; }
+.term-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'cmt btn' 'cmd btn'; align-items: center; column-gap: 12px; padding: 10px 0; }
+.term-line + .term-line { border-top: 1px solid #30302f; }
+.term-cmt { grid-area: cmt; font: 400 12px/18px ui-monospace, 'SF Mono', Menlo, monospace; color: #9d9c98; }
+.term-cmd { grid-area: cmd; font: 400 13px/20px ui-monospace, 'SF Mono', Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.term-prompt { color: #84cdc1; }
+.term-line .icon-btn { grid-area: btn; color: #9d9c98; border-color: transparent; background: transparent; }
+.term-line .icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: #fcfcfb; }
+.term-line .ico-check { color: #34d399; }
+@media (prefers-color-scheme: dark) { .term { background: #000000; border: 1px solid var(--line); } }
 .badge.ok { background: var(--run-bg); color: var(--run-text); }
 .badge.mute { background: var(--panel-2); color: var(--muted); }

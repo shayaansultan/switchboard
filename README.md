@@ -43,10 +43,10 @@ them itself.
 
 Yes. Each profile gets its own CLI login, and the **Terminal** button opens a
 shell already inside that account, so `claude` or `codex` in that window uses
-it. The copy icon on each account copies the one-line command, which can go into an alias.
+it. The copy icon on each profile copies the one-line command, which can go into an alias.
 
-Accounts show as a list or as cards; pick either with the toggle above them.
-Drag an account to reorder it within its app; the Default profile stays first.
+Profiles show as a list or as cards; pick either with the toggle above them.
+Drag a profile to reorder it within its app; the Default profile stays first.
 
 Signing a profile's CLI in is also what enables its usage bars.
 

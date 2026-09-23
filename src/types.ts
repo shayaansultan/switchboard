@@ -33,7 +33,7 @@ export type UsageMode = 'used' | 'remaining';
 
 export type Appearance = 'system' | 'light' | 'dark';
 export type MenuBarStyle = 'icon' | 'percent';
-export type AccountsView = 'cards' | 'list';
+export type ProfilesView = 'cards' | 'list';
 
 export interface Settings {
   terminal: string;
@@ -42,7 +42,7 @@ export interface Settings {
   openAtLogin?: boolean;
   appearance?: Appearance;
   menuBar?: MenuBarStyle;
-  view?: AccountsView;
+  view?: ProfilesView;
 }
 
 export interface Store {

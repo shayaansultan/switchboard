@@ -2,8 +2,8 @@
 // one line per account in the pool.
 
 import { act, providerLabel, type BucketAccount, type BucketView, type State } from './lib';
-import { BucketNotes } from './accounts';
-import { Bar, Btn, Icon } from './ui/primitives';
+import { BucketNotes } from './profiles';
+import { Bar, Btn, Icon, TipBtn } from './ui/primitives';
 import { useOverlays } from './ui/overlays';
 
 export function Buckets({ state }: { state: State }) {
@@ -12,7 +12,7 @@ export function Buckets({ state }: { state: State }) {
     <section class="bucket-list">
       <p class="hint">
         Shared model capacity for Codex desktop and OpenCode, behind a local proxy. Assign a bucket from the connection
-        menu on a Codex account.
+        menu on a Codex profile.
       </p>
       {state.bucketsError ? <p class="note">{state.bucketsError}</p> : null}
       {buckets.length ? (
@@ -51,11 +51,11 @@ function BucketPanel({ bucket, state }: { bucket: BucketView; state: State }) {
             <Icon name="chevron" size={14} />
           </Btn>
           {running ? (
-            <Btn
+            <TipBtn
               variant="icon"
               icon="refresh"
               aria-label="Refresh bucket"
-              title="Refresh bucket"
+              tip={['Refresh this bucket']}
               onClick={(e) => act(() => window.sb.bucketAction(bucket.id, 'refresh'), e.currentTarget)}
             />
           ) : (

@@ -1,4 +1,4 @@
-// The Accounts tab: a panel per vendor, one account per row (List) or per
+// The Profiles tab: a panel per vendor, one profile per row (List) or per
 // tile (Cards). Both draw the same pieces: identity, usage, the one action,
 // the tools. Rows and tiles can be dragged into a new order within their
 // vendor; the Default profile stays pinned first.
@@ -19,23 +19,23 @@ import {
   type State,
   type Usage,
   type UsageWindow,
-  type AccountsView,
+  type ProfilesView,
 } from './lib';
-import { Badge, Bar, Btn, Dot, Icon, Note, Ring, Seg, Skeleton } from './ui/primitives';
+import { Badge, Bar, Btn, Dot, Icon, Note, Ring, Seg, Skeleton, TipBtn } from './ui/primitives';
 import { useOverlays, useTip, type MenuItem } from './ui/overlays';
 import { useActions } from './ui/actions';
 
 type Drag = { id: string; vendor: string } | null;
 type Over = { id: string; after: boolean } | null;
 
-export function Accounts({
+export function Profiles({
   state,
   view,
   setView,
 }: {
   state: State;
-  view: AccountsView;
-  setView: (v: AccountsView) => void;
+  view: ProfilesView;
+  setView: (v: ProfilesView) => void;
 }) {
   const [drag, setDrag] = useState<Drag>(null);
   const [over, setOver] = useState<Over>(null);
@@ -95,9 +95,9 @@ export function Accounts({
   return (
     <>
       <div class="toolbar">
-        <span class="note">{refreshed}. The ring is each account's fullest window.</span>
+        <span class="note">{refreshed}. The ring is each profile's fullest window.</span>
         <Seg
-          label="Show accounts as"
+          label="Show profiles as"
           value={view}
           onChange={setView}
           options={[
@@ -108,28 +108,38 @@ export function Accounts({
       </div>
       {Object.entries(state.vendors).map(([vendor, v]) => {
         const list = state.profiles.filter((p) => p.vendor === vendor);
-        return (
+        const rows = list.length ? (
+          list.map((p) => (
+            <Profile
+              key={p.id}
+              p={p}
+              state={state}
+              view={view}
+              class={dragClass(p)}
+              dnd={dnd(p, view === 'cards' ? 'x' : 'y')}
+            />
+          ))
+        ) : (
+          <div class="empty">No profiles</div>
+        );
+        const na = v.installed ? null : <span class="na">app not installed</span>;
+        // Cards sit straight on the page under a plain heading; the list is a
+        // panel with a header band, since its rows share columns.
+        return view === 'cards' ? (
+          <section class="vendor" key={vendor}>
+            <div class="eyebrow">
+              <span>{v.label}</span>
+              {na}
+            </div>
+            <div class="grid">{rows}</div>
+          </section>
+        ) : (
           <section class="panel" key={vendor}>
             <div class="panel-head">
               <span>{v.label}</span>
-              {v.installed ? null : <span class="na">app not installed</span>}
+              {na}
             </div>
-            <div class={`panel-body ${view === 'cards' ? 'grid' : ''}`}>
-              {list.length ? (
-                list.map((p) => (
-                  <Account
-                    key={p.id}
-                    p={p}
-                    state={state}
-                    view={view}
-                    class={dragClass(p)}
-                    dnd={dnd(p, view === 'cards' ? 'x' : 'y')}
-                  />
-                ))
-              ) : (
-                <div class="empty">No profiles</div>
-              )}
-            </div>
+            <div class="panel-body">{rows}</div>
           </section>
         );
       })}
@@ -139,7 +149,7 @@ export function Accounts({
 
 type Dnd = Record<string, unknown>;
 
-function Account({
+function Profile({
   p,
   state,
   view,
@@ -148,7 +158,7 @@ function Account({
 }: {
   p: ProfileView;
   state: State;
-  view: AccountsView;
+  view: ProfilesView;
   class: string;
   dnd: Dnd;
 }) {
@@ -157,11 +167,11 @@ function Account({
   if (view === 'cards') {
     return (
       <div class={`card tile ${cls}`} style={{ '--card-color': p.color }} {...dnd}>
-        <IdentityBlock p={p} state={state} />
+        <IdentityBlock p={p} state={state} pill />
         <UsageBlock p={p} state={state} />
         <div class="foot">
           <ActionButton p={p} state={state} />
-          <Tools p={p} />
+          <Tools p={p} state={state} />
         </div>
       </div>
     );
@@ -174,14 +184,14 @@ function Account({
       <IdentityBlock p={p} state={state} />
       <UsageBlock p={p} state={state} />
       <ActionButton p={p} state={state} />
-      <Tools p={p} />
+      <Tools p={p} state={state} />
     </div>
   );
 }
 
 // Colour chip, name (double-click to rename), plan, running dot, then the
 // signed-in identity and, for Codex, the model connection.
-function IdentityBlock({ p, state }: { p: ProfileView; state: State }) {
+function IdentityBlock({ p, state, pill = false }: { p: ProfileView; state: State; pill?: boolean }) {
   const { openMenu } = useOverlays();
   const id: Partial<Identity> = p.identity ?? {};
   const u: Usage = p.usage ?? {};
@@ -237,8 +247,16 @@ function IdentityBlock({ p, state }: { p: ProfileView; state: State }) {
             p.name
           )}
         </span>
+        {pill && p.isDefault ? <Badge tone="mute">default dirs</Badge> : null}
         {u.plan || id.plan ? <Badge>{u.plan || id.plan}</Badge> : null}
-        <Dot on={!!p.running} title={p.running ? 'App running' : 'App not running'} />
+        {pill ? (
+          <span class={`badge ${p.running ? 'ok' : 'mute'} status`}>
+            <span class={`dot ${p.running ? 'on' : 'off'}`} />
+            {p.running ? 'Running' : 'Off'}
+          </span>
+        ) : (
+          <Dot on={!!p.running} title={p.running ? 'App running' : 'App not running'} />
+        )}
       </div>
       {pending ? (
         <div class="ident">
@@ -248,7 +266,7 @@ function IdentityBlock({ p, state }: { p: ProfileView; state: State }) {
         <div class={`ident ${id.loggedIn ? '' : 'err'}`}>
           {id.loggedIn ? id.email || 'signed in' : id.error || 'CLI not signed in for this profile'}
           {id.loggedIn ? (
-            p.isDefault ? (
+            p.isDefault && !pill ? (
               ' · default dirs'
             ) : null
           ) : (
@@ -407,7 +425,7 @@ function ActionButton({ p, state }: { p: ProfileView; state: State }) {
   );
 }
 
-function Tools({ p }: { p: ProfileView }) {
+function Tools({ p, state }: { p: ProfileView; state: State }) {
   const { openMenu } = useOverlays();
   const { openSetup } = useActions();
   const [copied, setCopied] = useState(false);
@@ -424,18 +442,18 @@ function Tools({ p }: { p: ProfileView }) {
   ];
   return (
     <div class="tools">
-      <Btn
+      <TipBtn
         variant="icon"
         icon="terminal"
         aria-label={`Terminal for ${p.name}`}
-        title="Open a terminal already pointed at this profile"
+        tip={['Open a terminal in this profile', `${state.settings.terminal}, already signed in as ${p.name}`]}
         onClick={(e) => act(() => window.sb.shell(p.id), e.currentTarget)}
       />
-      <Btn
+      <TipBtn
         variant="icon"
         class={`copy-btn ${copied ? 'copied' : ''}`}
         aria-label={`Copy CLI command for ${p.name}`}
-        title={`Copy command: ${p.cli}`}
+        tip={['Copy the command for this profile', p.cli]}
         onClick={() => {
           window.sb.copyCommand(p.id);
           setCopied(true);
@@ -444,13 +462,13 @@ function Tools({ p }: { p: ProfileView }) {
       >
         <Icon name="copy" />
         <Icon name="check" />
-      </Btn>
-      <Btn
+      </TipBtn>
+      <TipBtn
         variant="icon"
         icon="more"
         class="more-btn"
         aria-label={`More actions for ${p.name}`}
-        title="More"
+        tip={['More']}
         onClick={(e) => openMenu(e.currentTarget as HTMLElement, items)}
       />
     </div>

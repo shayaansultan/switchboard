@@ -4,6 +4,7 @@
 
 import type { ComponentChildren, JSX } from 'preact';
 import { severityClass, relShort, relTime, type UsageWindow } from '../lib';
+import { useTip } from './overlays';
 
 // Stroke icons in Lucide's style, coloured by the surrounding text.
 const PATHS = {
@@ -35,7 +36,7 @@ export type IconName = keyof typeof PATHS;
 export function Icon({ name, size, class: cls }: { name: IconName; size?: number; class?: string }) {
   const style = size ? { width: `${size}px`, height: `${size}px` } : undefined;
   return (
-    <span class={`ico ${name} ${cls ?? ''}`} style={style} aria-hidden="true">
+    <span class={`ico ico-${name} ${cls ?? ''}`} style={style} aria-hidden="true">
       <svg
         viewBox="0 0 24 24"
         fill="none"
@@ -62,6 +63,13 @@ export function Btn({ variant = 'outline', icon, class: cls, children, type = 'b
       {children}
     </button>
   );
+}
+
+// A button whose tooltip is the app's own instant one rather than the
+// browser's slow title. The first line is the label; more lines are detail.
+export function TipBtn({ tip, ...props }: ButtonProps & { tip: string[] }) {
+  const handlers = useTip(tip);
+  return <Btn {...props} {...handlers} />;
 }
 
 export function Badge({ children, tone = 'plan' }: { children: ComponentChildren; tone?: 'plan' | 'mute' | 'ok' }) {

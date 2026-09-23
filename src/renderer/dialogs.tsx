@@ -201,7 +201,7 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
       <div class="rows">
         {row(
           'Terminal',
-          'Opened by the terminal button on each account.',
+          'Opened by the terminal button on each profile.',
           <select
             name="terminal"
             value={terminal}

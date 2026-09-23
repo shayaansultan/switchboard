@@ -3,11 +3,11 @@
 
 import { useState } from 'preact/hooks';
 import { act, type CliStatus, type State } from './lib';
-import { Badge, Btn, Icon, Note } from './ui/primitives';
+import { Badge, Btn, Icon, Note, TipBtn } from './ui/primitives';
 
 const COMMANDS: { cmd: string; what: string }[] = [
   { cmd: 'switchboard list --human', what: 'Every profile, with its running state and signed-in account.' },
-  { cmd: 'switchboard pick claude', what: 'Which Claude account has the most room right now, and why.' },
+  { cmd: 'switchboard pick claude', what: 'Which Claude profile has the most room right now, and why.' },
   { cmd: 'switchboard usage --refresh', what: 'Fresh rate-limit numbers for every profile.' },
   { cmd: 'switchboard exec claude/work -- claude', what: 'Run a command inside the Work profile.' },
   { cmd: 'eval "$(switchboard env claude/work)"', what: 'Move the current shell into a profile.' },
@@ -35,145 +35,120 @@ Leave to the person: \`remove\`, \`quit-others\` and \`bucket stop\` refuse with
 
 export function Cli({ state }: { state: State }) {
   const cli = state.cli;
+  const ours = !!cli?.installed && cli.ours;
   return (
     <section class="cli">
-      <InstallCard cli={cli} />
-      <AgentCard />
       <div class="panel">
-        <div class="panel-head">
-          <span>Commands</span>
-          <span class="na">Results are JSON unless --human, so agents can use them too.</span>
+        <div class="panel-head cli-head">
+          <span class="cli-title">
+            <span>The switchboard command</span>
+            {cli ? (
+              ours ? (
+                <Badge tone="ok">Installed</Badge>
+              ) : cli.installed ? (
+                <Badge tone="mute">Another launcher</Badge>
+              ) : (
+                <Badge tone="mute">Not installed</Badge>
+              )
+            ) : null}
+          </span>
+          <span class="cli-actions">
+            <CopyButton
+              text={AGENT_PROMPT}
+              label="Copy agent prompt"
+              title="Copy a prompt that teaches an agent this command"
+            />
+            {cli && !ours ? <InstallButton cli={cli} /> : null}
+          </span>
         </div>
-        <div class="panel-body">
-          {COMMANDS.map((c) => (
-            <Command key={c.cmd} cmd={c.cmd} what={c.what} />
-          ))}
+        <div class="cli-body">
+          <p class="cli-intro">
+            Everything the window can do, from a terminal or an agent. Results are JSON unless you add{' '}
+            <code>--human</code>, so an agent can branch on them; the agent prompt above teaches one the rules.
+          </p>
+          {cli && ours ? (
+            <p class="note">
+              Runs on the app’s own runtime from <code>{cli.file}</code>, so it is always the same version as the app.
+            </p>
+          ) : null}
+          {cli && cli.installed && !ours ? (
+            <Note tone="warn">
+              <code>{cli.file}</code> exists but was not written by this app. Remove it and install again, or leave it
+              if you put it there.
+            </Note>
+          ) : null}
+          {cli && !cli.installed ? (
+            <p class="note">
+              Installing writes one small launcher at <code>{cli.file}</code>. Nothing else changes.
+            </p>
+          ) : null}
+          {cli && ours && !cli.onPath ? (
+            <Note tone="warn">
+              <code>~/.local/bin</code> is not on your PATH. Add <code>export PATH="$HOME/.local/bin:$PATH"</code> to
+              your shell profile and open a new terminal.
+            </Note>
+          ) : null}
+          {cli && !cli.appInstalled ? (
+            <Note>Install Switchboard into /Applications first; the launcher points at the installed app.</Note>
+          ) : null}
+          <div class="term">
+            {COMMANDS.map((c) => (
+              <div class="term-line" key={c.cmd}>
+                <span class="term-cmt"># {c.what}</span>
+                <span class="term-cmd">
+                  <span class="term-prompt">$</span> {c.cmd}
+                </span>
+                <CopyButton text={c.cmd} title={`Copy: ${c.cmd}`} />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>
   );
 }
 
-function InstallCard({ cli }: { cli: CliStatus | undefined }) {
+function InstallButton({ cli }: { cli: CliStatus }) {
   const [busy, setBusy] = useState(false);
-  if (!cli) {
-    return (
-      <div class="panel cli-install">
-        <Note>Checking for the command…</Note>
-      </div>
-    );
-  }
-  const install = () =>
-    act(async () => {
-      setBusy(true);
-      try {
-        await window.sb.installCli();
-      } finally {
-        setBusy(false);
+  return (
+    <Btn
+      variant="primary"
+      disabled={busy || cli.installed}
+      onClick={() =>
+        act(async () => {
+          setBusy(true);
+          try {
+            await window.sb.installCli();
+          } finally {
+            setBusy(false);
+          }
+        })
       }
-    });
-  return (
-    <div class="panel cli-install">
-      <div class="cli-icon">
-        <Icon name="code" size={22} />
-      </div>
-      <div class="cli-about">
-        <div class="cli-title">
-          <b>The switchboard command</b>
-          {cli.installed && cli.ours ? <Badge tone="ok">Installed</Badge> : null}
-          {cli.installed && !cli.ours ? <Badge tone="mute">Another launcher</Badge> : null}
-        </div>
-        {cli.installed && cli.ours ? (
-          <span class="note">
-            Runs on the app’s own runtime from <code>{cli.file}</code>, so it is always the same version as the app.
-          </span>
-        ) : cli.installed ? (
-          <span class="note">
-            <code>{cli.file}</code> exists but was not written by this app. Remove it, then install again, or leave it
-            if you put it there.
-          </span>
-        ) : (
-          <span class="note">
-            Everything the window can do, from a terminal or an agent. Installs a tiny launcher at{' '}
-            <code>{cli.file}</code>. Nothing else is written.
-          </span>
-        )}
-        {cli.installed && cli.ours && !cli.onPath ? (
-          <Note tone="warn">
-            <code>~/.local/bin</code> is not on your PATH. Add <code>export PATH="$HOME/.local/bin:$PATH"</code> to your
-            shell profile, then open a new terminal.
-          </Note>
-        ) : null}
-        {!cli.appInstalled ? (
-          <Note>Install Switchboard into /Applications first; the launcher points at the installed app.</Note>
-        ) : null}
-      </div>
-      <div class="cli-action">
-        {cli.installed && cli.ours ? null : (
-          <Btn variant="primary" disabled={busy || cli.installed} onClick={install}>
-            Install command
-          </Btn>
-        )}
-      </div>
-    </div>
+    >
+      Install command
+    </Btn>
   );
 }
 
-function AgentCard() {
+// Copies on click and flips its icon to a tick for a moment. The label never
+// changes, so nothing around it moves.
+function CopyButton({ text, label, title }: { text: string; label?: string; title: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div class="panel cli-agent">
-      <div class="cli-icon">
-        <Icon name="bot" size={22} />
-      </div>
-      <div class="cli-about">
-        <div class="cli-title">
-          <b>For an AI agent</b>
-        </div>
-        <span class="note">
-          A prompt that teaches an agent the command: how results come back, how profiles are named, how to pick an
-          account and run inside it, and what to leave to you. Paste it into the agent's instructions.
-        </span>
-      </div>
-      <div class="cli-action">
-        <Btn
-          variant="secondary"
-          icon={copied ? 'check' : 'copy'}
-          onClick={() => {
-            void navigator.clipboard.writeText(AGENT_PROMPT);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-          }}
-        >
-          {copied ? 'Copied' : 'Copy agent prompt'}
-        </Btn>
-      </div>
-    </div>
-  );
-}
-
-function Command({ cmd, what }: { cmd: string; what: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div class="cmd">
-      <div class="cmd-about">
-        <code>{cmd}</code>
-        <span class="note">{what}</span>
-      </div>
-      <Btn
-        variant="icon"
-        class={`copy-btn ${copied ? 'copied' : ''}`}
-        aria-label={`Copy: ${cmd}`}
-        title="Copy"
-        onClick={() => {
-          void navigator.clipboard.writeText(cmd);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        }}
-      >
-        <Icon name="copy" />
-        <Icon name="check" />
-      </Btn>
-    </div>
+    <TipBtn
+      variant={label ? 'outline' : 'icon'}
+      class={`copy-btn ${copied ? 'copied' : ''}`}
+      aria-label={label ?? title}
+      tip={[copied ? 'Copied' : title]}
+      onClick={() => {
+        void navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }}
+    >
+      <Icon name="copy" />
+      <Icon name="check" />
+      {label}
+    </TipBtn>
   );
 }

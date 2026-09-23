@@ -3,17 +3,17 @@
 // accounts use, and which dialog is up.
 
 import { useEffect, useState } from 'preact/hooks';
-import { Accounts } from './accounts';
+import { Profiles } from './profiles';
 import { KeepAwake } from './awake';
 import { Buckets } from './buckets';
 import { Cli } from './cli';
 import { AddDialog, BucketDialog, SettingsDialog, type SetupRequest } from './dialogs';
-import { act, type AccountsView, type ProfileView, type State } from './lib';
+import { act, type ProfilesView, type ProfileView, type State } from './lib';
 import { ActionsCtx } from './ui/actions';
 import { OverlayProvider, useOverlays } from './ui/overlays';
-import { Btn, Icon, type IconName } from './ui/primitives';
+import { Btn, Icon, TipBtn, type IconName } from './ui/primitives';
 
-type Tab = 'accounts' | 'buckets' | 'cli';
+type Tab = 'profiles' | 'buckets' | 'cli';
 
 export function App() {
   const [state, setState] = useState<State | null>(null);
@@ -35,7 +35,7 @@ export function App() {
 
 function Shell({ state }: { state: State | null }) {
   const { closeMenu, hideTip } = useOverlays();
-  const [tab, setTabState] = useState<Tab>('accounts');
+  const [tab, setTabState] = useState<Tab>('profiles');
   const [setup, setSetup] = useState<SetupRequest>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [bucketOpen, setBucketOpen] = useState(false);
@@ -44,8 +44,8 @@ function Shell({ state }: { state: State | null }) {
     hideTip();
     setTabState(t);
   };
-  const view: AccountsView = state?.settings.view ?? 'list';
-  const setView = (v: AccountsView) => void act(() => window.sb.saveSettings({ view: v }));
+  const view: ProfilesView = state?.settings.view ?? 'list';
+  const setView = (v: ProfilesView) => void act(() => window.sb.saveSettings({ view: v }));
   const openSetup = (target?: ProfileView) => setSetup({ target: target ?? null });
 
   return (
@@ -54,16 +54,16 @@ function Shell({ state }: { state: State | null }) {
         <div class="brand">Switchboard</div>
         <div class="actions">
           <KeepAwake />
-          <Btn
+          <TipBtn
             variant="icon"
             icon="refresh"
             id="refresh"
             class="outline"
-            title="Refresh usage"
             aria-label="Refresh usage"
+            tip={['Refresh usage']}
             onClick={(e) => act(() => window.sb.refresh(), e.currentTarget)}
           />
-          {tab === 'accounts' ? (
+          {tab === 'profiles' ? (
             <Btn variant="secondary" icon="plus" id="add" onClick={() => openSetup()}>
               <span class="lbl">Profile</span>
             </Btn>
@@ -73,25 +73,25 @@ function Shell({ state }: { state: State | null }) {
               <span class="lbl">Proxy bucket</span>
             </Btn>
           ) : null}
-          <Btn
+          <TipBtn
             variant="icon"
             icon="sliders"
             id="settings"
-            title="Settings"
             aria-label="Settings"
+            tip={['Settings']}
             onClick={() => setSettingsOpen(true)}
           />
         </div>
       </header>
       <nav class="tabs" role="tablist" aria-label="Sections">
         <TabButton
-          id="tab-accounts"
+          id="tab-profiles"
           icon="users"
-          on={tab === 'accounts'}
-          onClick={() => setTab('accounts')}
+          on={tab === 'profiles'}
+          onClick={() => setTab('profiles')}
           count={state?.profiles.length}
         >
-          Accounts
+          Profiles
         </TabButton>
         <TabButton
           id="tab-buckets"
@@ -107,8 +107,8 @@ function Shell({ state }: { state: State | null }) {
         </TabButton>
       </nav>
       <main id="root" role="tabpanel">
-        {!state ? null : tab === 'accounts' ? (
-          <Accounts state={state} view={view} setView={setView} />
+        {!state ? null : tab === 'profiles' ? (
+          <Profiles state={state} view={view} setView={setView} />
         ) : tab === 'buckets' ? (
           <Buckets state={state} />
         ) : (
