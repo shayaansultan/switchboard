@@ -143,13 +143,13 @@ function AccountRow({
       </div>
       <div class="foot">
         <label class="toggle">
-          <span>{off ? 'Paused' : 'Takes traffic'}</span>
           <Switch
             small
             checked={!off}
             label={`Take traffic from ${name}`}
             onChange={(on) => act(() => window.sb.setBucketAccount(bucket.id, account.name, on))}
           />
+          <span>{off ? 'Paused' : 'Takes traffic'}</span>
         </label>
       </div>
     </div>
