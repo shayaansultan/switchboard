@@ -49,6 +49,26 @@
   --danger-bg: #fdf2f0;
   --skel-a: #eeebe3;
   --skel-b: #f5f4f0;
+  --line-2: #eeebe3;
+  --dawn-text: #1a1a1a;
+  --focus: #1a1a1a;
+  --dialog-bg: #fcfcfb;
+  --dialog-border: transparent;
+  --tip-bg: #1a1a1a;
+  --tip-text: #fcfcfb;
+  --tip-border: transparent;
+  --switch-off: #c5c0b3;
+  --switch-on: #1a1a1a;
+  --switch-on-sm: #369489;
+  --knob: #ffffff;
+  --term-bg: #1a1a1a;
+  --term-text: #fcfcfb;
+  --term-line: #30302f;
+  --term-muted: #9d9c98;
+  --term-prompt: #84cdc1;
+  --term-ok: #34d399;
+  --term-hover: rgba(255, 255, 255, 0.08);
+  --term-border: transparent;
   --shadow-1: 0 1px 2px 0 rgba(26, 26, 26, 0.05);
   --shadow-2: 0 10px 15px -3px rgba(26, 26, 26, 0.1), 0 4px 6px -4px rgba(26, 26, 26, 0.1);
   --shadow-3: 0 20px 25px -5px rgba(26, 26, 26, 0.1), 0 8px 10px -6px rgba(26, 26, 26, 0.1);
@@ -56,41 +76,66 @@
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
+  /* After hours: the same warm sand, turned down. Raised means lighter, so a
+     panel sits above the canvas and its head above the panel; borders stay
+     visible; ink is warm rather than white; the primary flips to cream; and
+     every colour that carries meaning becomes a pastel that can hold dark
+     text. Purple, the app's one selection hue, marks a switch that is on. */
   :root {
-    --bg: #202020;
-    --panel: #000000;
-    --panel-2: #1a1a1a;
-    --field: #1a1a1a;
-    --line: #30302f;
-    --text: #e9e8e1;
-    --text-2: #deddd7;
-    --muted: #9d9c98;
-    --ink: #fcfcfb;
-    --on-ink: #1a1a1a;
-    --ink-hover: #deddd7;
-    --btn-bg: #202020;
-    --btn-border: #30302f;
-    --secondary: #30302f;
-    --hover: rgba(197, 192, 179, 0.12);
-    --track: #30302f;
-    --fill: #84cdc1;
-    --warn: #f97316;
-    --warn-text: #fb923c;
-    --bad: #ff5757;
-    --bad-text: #ff8080;
-    --run: #34d399;
-    --run-bg: rgba(52, 211, 153, 0.15);
-    --run-text: #6ee7b7;
-    --dawn: #f0d7ff;
-    --dawn-strong: #d2ace9;
-    --dawn-tint: #3c2947;
-    --danger-bg: #3d2724;
-    --skel-a: #30302f;
-    --skel-b: #3a3a39;
-    --shadow-1: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
-    --shadow-2: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
-    --shadow-3: 0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.6);
-    --backdrop: rgba(0, 0, 0, 0.45);
+    --bg: #181917;
+    --panel: #20211e;
+    --panel-2: #242521;
+    --field: #181917;
+    --line: #34362f;
+    --line-2: #41433b;
+    --text: #eeeae0;
+    --text-2: #c2bfb4;
+    --muted: #aba99e;
+    --ink: #e9e3d7;
+    --on-ink: #272620;
+    --ink-hover: #f5f0e7;
+    --btn-bg: #20221e;
+    --btn-border: #41433b;
+    --secondary: #41423b;
+    --hover: #30322c;
+    --track: #34362f;
+    --fill: #8fc7b5;
+    --warn: #e8b575;
+    --warn-text: #f2c58e;
+    --bad: #ed9690;
+    --bad-text: #f7b2aa;
+    --run: #a8e2c4;
+    --run-bg: #244439;
+    --run-text: #a8e2c4;
+    --dawn: #463650;
+    --dawn-text: #e4c8f5;
+    --dawn-strong: #cba2e7;
+    --dawn-tint: #302735;
+    --danger-bg: #482d2d;
+    --skel-a: #34362f;
+    --skel-b: #3d3f38;
+    --focus: #bda4cc;
+    --dialog-bg: #242521;
+    --dialog-border: #41433b;
+    --tip-bg: #3a3b35;
+    --tip-text: #eeeae0;
+    --tip-border: #4a4c44;
+    --switch-off: #41433b;
+    --switch-on: #a26ec1;
+    --switch-on-sm: #a26ec1;
+    --knob: #eeeae0;
+    --term-bg: #111210;
+    --term-text: #eeeae0;
+    --term-line: #34362f;
+    --term-muted: #aba99e;
+    --term-prompt: #8fc7b5;
+    --term-ok: #a8e2c4;
+    --term-hover: rgba(255, 255, 255, 0.06);
+    --term-border: #34362f;
+    --shadow-1: 0 1px 2px 0 rgba(0, 0, 0, 0.25);
+    --shadow-2: 0 10px 15px -3px rgba(0, 0, 0, 0.35), 0 4px 6px -4px rgba(0, 0, 0, 0.35);
+    --shadow-3: 0 20px 25px -5px rgba(0, 0, 0, 0.45), 0 8px 10px -6px rgba(0, 0, 0, 0.45);
+    --backdrop: rgba(0, 0, 0, 0.5);
     color-scheme: dark;
   }
 }
@@ -122,7 +167,7 @@ button.quiet:hover, button.ghost:hover { background: var(--hover); color: var(--
 button.danger { color: var(--bad-text); }
 button.danger:hover { background: var(--danger-bg); }
 button:disabled { opacity: 0.5; cursor: default; pointer-events: none; }
-button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .ico { width: 16px; height: 16px; display: inline-block; flex: none; }
 .ico svg { width: 100%; height: 100%; display: block; }
 .icon-btn { width: 32px; padding: 0; color: var(--text-2); }
@@ -210,7 +255,7 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
 .badge {
   display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 6px;
   font-size: 11px; line-height: 16px; font-weight: 550; white-space: nowrap;
-  background: var(--dawn); color: #1a1a1a;
+  background: var(--dawn); color: var(--dawn-text);
 }
 .ident { color: var(--muted); font-size: 12px; line-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ident.err { color: var(--warn-text); }
@@ -271,12 +316,12 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
 .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); cursor: pointer; }
 
 /* --- tooltip, menu, notes --- */
-.tip { position: fixed; z-index: 20; pointer-events: none; max-width: calc(100vw - 16px); white-space: nowrap; padding: 5px 9px; border-radius: 6px; background: #1a1a1a; color: #fcfcfb; font-size: 12px; line-height: 16px; font-weight: 500; box-shadow: var(--shadow-2); animation: tip-in 0.09s ease-out; }
+.tip { position: fixed; z-index: 20; pointer-events: none; max-width: calc(100vw - 16px); white-space: nowrap; padding: 5px 9px; border-radius: 6px; background: var(--tip-bg); color: var(--tip-text); border: 1px solid var(--tip-border); font-size: 12px; line-height: 16px; font-weight: 500; box-shadow: var(--shadow-2); animation: tip-in 0.09s ease-out; }
 .tip div { overflow: hidden; text-overflow: ellipsis; }
 .tip .sub { opacity: 0.72; }
 @keyframes tip-in { from { opacity: 0; transform: translateY(2px); } }
 @media (prefers-reduced-motion: reduce) { .tip { animation: none; } }
-.menu { position: fixed; z-index: 10; min-width: 220px; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-2); animation: tip-in 0.08s ease-out; }
+.menu { position: fixed; z-index: 10; min-width: 220px; padding: 6px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--shadow-2); animation: tip-in 0.08s ease-out; }
 .menu.submenu { min-width: 190px; z-index: 11; }
 .menu-head { display: grid; gap: 1px; padding: 6px 10px 8px; }
 .menu-head b { font-size: 13px; font-weight: 600; }
@@ -303,7 +348,7 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
 .empty { color: var(--muted); padding: 24px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; }
 
 /* --- dialogs: a serif title, then rows of label, description and control --- */
-dialog { background: var(--bg); color: var(--text); border: 0; border-radius: 12px; padding: 24px 28px 28px; width: 520px; max-width: 90vw; box-shadow: var(--shadow-3); }
+dialog { background: var(--dialog-bg); color: var(--text); border: 1px solid var(--dialog-border); border-radius: 12px; padding: 24px 28px 28px; width: 520px; max-width: 90vw; box-shadow: var(--shadow-3); }
 dialog::backdrop { background: var(--backdrop); }
 dialog[open] { max-height: 90vh; overflow: auto; }
 dialog h2 { margin: 0 0 16px; font: 400 28px/28px 'EB Garamond', Georgia, serif; letter-spacing: -0.04em; }
@@ -312,10 +357,10 @@ dialog label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
 dialog label.check { grid-template-columns: auto 1fr; align-items: start; gap: 8px; color: var(--text); font-size: 13px; }
 dialog input:not([type='checkbox']):not([type='radio']), dialog select {
   font: 400 15px/20px 'Figtree', system-ui, sans-serif; color: var(--text); background: var(--field);
-  border: 1px solid var(--line); border-radius: 8px; height: 36px; padding: 0 12px;
+  border: 1px solid var(--line-2); border-radius: 8px; height: 36px; padding: 0 12px;
 }
 dialog input::placeholder { color: var(--muted); }
-dialog input:hover, dialog select:hover, dialog input:focus, dialog select:focus { outline: 2px solid var(--text-2); outline-offset: -1px; }
+dialog input:hover, dialog select:hover, dialog input:focus, dialog select:focus { outline: 2px solid var(--focus); outline-offset: -1px; }
 dialog menu { display: flex; justify-content: flex-end; gap: 12px; margin: 8px 0 0; padding: 0; }
 dialog menu button { height: 36px; padding: 0 16px; font-size: 15px; }
 /* Settings rows sit on the dialog itself, hairlines between them; every
@@ -333,21 +378,21 @@ dialog menu button { height: 36px; padding: 0 16px; font-size: 15px; }
 /* A switch, Wispr's 42 by 25, for the one yes-or-no setting. */
 .switch { position: relative; display: inline-block; width: 42px; height: 25px; flex: none; }
 .switch input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; margin: 0; cursor: pointer; }
-.switch .knob { position: absolute; inset: 0; border-radius: 999px; background: #c5c0b3; transition: background 0.1s; }
-.switch .knob::after { content: ''; position: absolute; top: 2px; left: 2px; width: 21px; height: 21px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(26, 26, 26, 0.2); transition: transform 0.15s; }
-.switch input:checked + .knob { background: var(--ink); }
+.switch .knob { position: absolute; inset: 0; border-radius: 999px; background: var(--switch-off); transition: background 0.1s; }
+.switch .knob::after { content: ''; position: absolute; top: 2px; left: 2px; width: 21px; height: 21px; border-radius: 50%; background: var(--knob); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); transition: transform 0.15s; }
+.switch input:checked + .knob { background: var(--switch-on); }
 .switch input:checked + .knob::after { transform: translateX(17px); }
-.switch input:focus-visible + .knob { outline: 2px solid var(--text); outline-offset: 2px; }
-/* The row-sized one, teal when the account is taking traffic. */
+.switch input:focus-visible + .knob { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* The row-sized one: teal in the light, the same purple at night. */
 .switch.sm { width: 34px; height: 20px; }
 .switch.sm .knob::after { width: 16px; height: 16px; }
-.switch.sm input:checked + .knob { background: var(--fill); }
+.switch.sm input:checked + .knob { background: var(--switch-on-sm); }
 .switch.sm input:checked + .knob::after { transform: translateX(14px); }
 /* Which app, as two selection cards in Wispr's lilac selected style. */
 .choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .choice { position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); cursor: pointer; color: var(--text); }
 .choice input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; margin: 0; cursor: pointer; }
-.choice .mark { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid #c5c0b3; flex: none; display: flex; align-items: center; justify-content: center; color: #fff; }
+.choice .mark { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--switch-off); flex: none; display: flex; align-items: center; justify-content: center; color: var(--knob); }
 .choice .mark .ico { width: 12px; height: 12px; display: none; }
 .choice .what { display: grid; gap: 2px; }
 .choice .what b { font-weight: 600; font-size: 15px; }
@@ -355,8 +400,8 @@ dialog menu button { height: 36px; padding: 0 16px; font-size: 15px; }
 .choice:has(input:checked) { border: 2px solid var(--dawn-strong); background: var(--dawn-tint); padding: 15px; }
 .choice:has(input:checked) .mark { background: var(--dawn-strong); border-color: var(--dawn-strong); }
 .choice:has(input:checked) .mark .ico { display: block; }
-.choice:has(input:focus-visible) { outline: 2px solid var(--text); outline-offset: 2px; }
-fieldset { border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px 14px; margin: 0; display: grid; gap: 10px; background: var(--panel); }
+.choice:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+fieldset { border: 1px solid var(--line-2); border-radius: 12px; padding: 12px 16px 14px; margin: 0; display: grid; gap: 10px; background: var(--panel); }
 legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
 .items { display: grid; gap: 8px; }
 .items label.check { align-items: baseline; }
@@ -408,15 +453,14 @@ code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; 
 .cli-body { padding: 16px 0 20px; display: grid; gap: 12px; }
 .cli-intro { margin: 0; font-size: 13px; line-height: 20px; color: var(--text-2); }
 .cli-body .note { font-size: 13px; line-height: 20px; }
-.term { background: #1a1a1a; color: #fcfcfb; border-radius: 12px; padding: 6px 8px 6px 20px; display: grid; }
+.term { background: var(--term-bg); color: var(--term-text); border: 1px solid var(--term-border); border-radius: 12px; padding: 6px 8px 6px 20px; display: grid; }
 .term-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'cmt btn' 'cmd btn'; align-items: center; column-gap: 12px; padding: 10px 0; }
-.term-line + .term-line { border-top: 1px solid #30302f; }
-.term-cmt { grid-area: cmt; font: 400 12px/18px ui-monospace, 'SF Mono', Menlo, monospace; color: #9d9c98; }
+.term-line + .term-line { border-top: 1px solid var(--term-line); }
+.term-cmt { grid-area: cmt; font: 400 12px/18px ui-monospace, 'SF Mono', Menlo, monospace; color: var(--term-muted); }
 .term-cmd { grid-area: cmd; font: 400 13px/20px ui-monospace, 'SF Mono', Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.term-prompt { color: #84cdc1; }
-.term-line .icon-btn { grid-area: btn; color: #9d9c98; border-color: transparent; background: transparent; }
-.term-line .icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: #fcfcfb; }
-.term-line .ico-check { color: #34d399; }
-@media (prefers-color-scheme: dark) { .term { background: #000000; border: 1px solid var(--line); } }
+.term-prompt { color: var(--term-prompt); }
+.term-line .icon-btn { grid-area: btn; color: var(--term-muted); border-color: transparent; background: transparent; }
+.term-line .icon-btn:hover { background: var(--term-hover); color: var(--term-text); }
+.term-line .ico-check { color: var(--term-ok); }
 .badge.ok { background: var(--run-bg); color: var(--run-text); }
 .badge.mute { background: var(--panel-2); color: var(--muted); }
