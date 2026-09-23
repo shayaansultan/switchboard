@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright';
 
@@ -38,6 +39,23 @@ async function until(check) {
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
   throw new Error('Timed out waiting for bucket state');
+}
+async function portClosed(port) {
+  return new Promise((resolve) => {
+    const socket = net.connect(port, '127.0.0.1');
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.once('error', () => resolve(true));
+  });
+}
+async function crashWorker(receipt) {
+  // The detached worker and its proxy share a process group. This models a
+  // reboot: neither can clean its receipt or lease before both disappear.
+  process.kill(-receipt.pid, 'SIGKILL');
+  await until(() => portClosed(receipt.controlPort));
+  await until(() => portClosed(receipt.proxyPort));
 }
 try {
   app = await electron.launch(options);
@@ -100,6 +118,21 @@ try {
     await fs.readFile(path.join(home, '.switchboard', 'buckets', 'team', 'runtime', 'worker.json')),
   );
   assert.equal(reused.instance, receipt.instance, 'Restart must reuse the same worker');
+  await crashWorker(reused);
+  await page.evaluate(() => window.sb.bucketAction('team', 'start'));
+  const restarted = JSON.parse(
+    await fs.readFile(path.join(home, '.switchboard', 'buckets', 'team', 'runtime', 'worker.json')),
+  );
+  assert.notEqual(restarted.instance, reused.instance, 'Start must recover a dead worker');
+  await app.close();
+  await crashWorker(restarted);
+  app = await electron.launch(options);
+  page = await app.firstWindow();
+  await until(() => page.evaluate(async () => (await window.sb.getState()).buckets[0]?.status === 'running'));
+  const resumed = JSON.parse(
+    await fs.readFile(path.join(home, '.switchboard', 'buckets', 'team', 'runtime', 'worker.json')),
+  );
+  assert.notEqual(resumed.instance, restarted.instance, 'App startup must resume an interrupted bucket');
   // Empty pools fail closed rather than launching the native desktop account.
   assert.equal(
     await page.evaluate(async () => {
@@ -117,17 +150,45 @@ try {
   await page.evaluate(() => window.sb.bucketAction('team', 'stop'));
   for (let attempt = 0; attempt < 50; attempt++) {
     try {
-      process.kill(receipt.pid, 0);
+      process.kill(resumed.pid, 0);
     } catch {
       break;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  assert.throws(() => process.kill(receipt.pid, 0));
+  assert.throws(() => process.kill(resumed.pid, 0));
+  const runtime = path.join(home, '.switchboard', 'buckets', 'team', 'runtime');
+  await fs.writeFile(path.join(runtime, 'worker.lock'), JSON.stringify({ pid: process.pid, instance: 'fixture' }));
+  const failure = await page.evaluate(async () => {
+    try {
+      await window.sb.bucketAction('team', 'start');
+      return '';
+    } catch (error) {
+      return error.message;
+    }
+  });
+  assert.match(failure, /worker lease without a receipt/);
+  await until(() =>
+    page.evaluate(async () =>
+      (await window.sb.getState()).buckets[0]?.error?.includes('worker lease without a receipt'),
+    ),
+  );
+  await fs.rm(path.join(runtime, 'worker.lock'));
+  await app.close();
+  app = await electron.launch(options);
+  page = await app.firstWindow();
+  await until(() => page.evaluate(async () => (await window.sb.getState()).buckets[0]?.status === 'stopped'));
+  assert.equal(
+    await fs.stat(path.join(runtime, 'worker.json')).then(
+      () => true,
+      () => false,
+    ),
+    false,
+  );
   state = await page.evaluate(() => window.sb.getState());
   assert.equal(JSON.stringify(state).includes('managementKey'), false);
   assert.equal(JSON.stringify(state).includes('apiKey'), false);
-  console.log('Bucket UI, IPC, assignment persistence, worker reuse, fail-closed launch and native reset passed.');
+  console.log('Bucket UI, interrupted-worker recovery, startup resume, visible errors and normal Stop passed.');
 } finally {
   if (app) {
     try {
