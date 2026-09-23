@@ -68,7 +68,8 @@ function BucketPanel({ bucket, state }: { bucket: BucketView; state: State }) {
           )}
           {bucket.status === 'stopped' ? null : (
             <Btn
-              variant="ghost"
+              variant="outline"
+              class="danger"
               onClick={(e) =>
                 act(async () => {
                   if (confirm(`Stop ${bucket.name}? This interrupts model requests from every app using this bucket.`))
@@ -119,7 +120,7 @@ function AccountRow({
         ))}
       </div>
       <Btn
-        variant="ghost"
+        variant="outline"
         onClick={(e) => act(() => window.sb.setBucketAccount(bucket.id, account.name, off), e.currentTarget)}
       >
         {off ? 'Enable' : 'Disable'}

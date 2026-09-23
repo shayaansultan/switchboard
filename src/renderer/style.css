@@ -119,6 +119,8 @@ button.secondary { background: var(--secondary); border-color: var(--secondary);
 button.secondary:hover { filter: brightness(0.96); }
 button.quiet, button.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
 button.quiet:hover, button.ghost:hover { background: var(--hover); color: var(--text); }
+button.danger { color: var(--bad-text); }
+button.danger:hover { background: var(--danger-bg); }
 button:disabled { opacity: 0.5; cursor: default; pointer-events: none; }
 button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .ico { width: 16px; height: 16px; display: inline-block; flex: none; }
@@ -183,18 +185,14 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
 .panel-body { padding: 0 20px; }
 .panel-body > .empty { margin: 14px 0; }
 
-/* Five fixed columns, so the rings, names, bars and buttons line up down the
-   whole list. Rows are top-aligned: the ring, the name, the first bar and the
-   button share one baseline, and a row with more windows grows downward. */
+/* Two columns: the profile and its actions on the left, its usage on the
+   right, so names, bars and buttons line up down the whole list. */
 .card {
-  display: grid; grid-template-columns: 28px minmax(200px, 250px) minmax(280px, 1fr) auto auto;
-  grid-template-areas: 'ring who bars actions tools';
-  gap: 0 24px; align-items: start; padding: 14px 0;
+  display: grid; grid-template-columns: minmax(220px, 300px) minmax(280px, 1fr);
+  grid-template-areas: 'who bars' 'foot bars';
+  gap: 12px 32px; align-items: start; padding: 16px 0;
 }
 .card + .card { border-top: 1px solid var(--line); }
-.card .ring { grid-area: ring; padding-top: 4px; }
-.card .ring svg { display: block; width: 28px; height: 28px; transform: rotate(-90deg); }
-.card .ring .empty-ring { display: block; width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--track); }
 .card .who { grid-area: who; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .card .head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .card .head .color { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 2px; background: var(--card-color, var(--muted)); flex: none; cursor: pointer; }
@@ -212,9 +210,10 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
 .ident.err { color: var(--warn-text); }
 .ident a { color: var(--text); font-weight: 550; text-decoration: none; border-bottom: 1px solid var(--muted); }
 .card .bars { grid-area: bars; min-width: 0; display: grid; gap: 6px; align-content: start; }
-.card .actions { grid-area: actions; display: flex; justify-content: flex-end; }
+.card .foot { grid-area: foot; display: flex; align-items: center; gap: 8px; }
+.card .actions { display: flex; }
 .card .actions button { min-width: 88px; }
-.card .tools { grid-area: tools; display: flex; gap: 2px; justify-content: flex-end; }
+.card .tools { display: flex; gap: 2px; margin-left: auto; }
 .card .tools .icon-btn { width: 28px; height: 28px; border-color: transparent; background: transparent; }
 .card .tools .icon-btn:hover { background: var(--hover); }
 .ico-check { display: none; color: var(--run-text); }
@@ -255,19 +254,17 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
 .bars .note { padding-top: 2px; }
 .bars .note.warn { color: var(--warn-text); }
 
-/* Narrow windows: identity and button on the first line, bars under them. */
+/* Narrow windows: one column, usage under the profile. */
 @container (max-width: 720px) {
   .card {
-    grid-template-columns: 28px minmax(0, 1fr) auto auto;
-    grid-template-areas: 'ring who actions tools' 'ring bars bars bars';
-    gap: 10px 12px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'who' 'bars' 'foot';
+    gap: 12px;
   }
-  .card .who { grid-column: who; }
   .card .actions button { min-width: 0; }
-  .card .tools .icon-btn.copy-btn { display: none; }
 }
 @container (max-width: 480px) {
-  .card .tools .icon-btn:not(.more-btn) { display: none; }
+  .card .tools .icon-btn.copy-btn { display: none; }
 }
 
 /* --- Buckets tab: a card per bucket, then one line per account --- */
@@ -290,7 +287,7 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
 .acct .who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .acct .prov { color: var(--muted); }
 .acct-windows { display: grid; gap: 6px; min-width: 0; }
-.acct > button { height: 28px; margin-top: -4px; }
+.acct > button { height: 28px; margin-top: -4px; font-size: 13px; }
 @media (max-width: 700px) {
   .acct { grid-template-columns: 1fr auto; }
   .acct-windows { grid-column: 1 / -1; grid-row: 2; }
@@ -381,9 +378,6 @@ legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
 .track.skel { height: 5px; width: 100%; }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
-.ring-fill { stroke: var(--fill); }
-.ring-fill.warn { stroke: var(--warn); }
-.ring-fill.bad { stroke: var(--bad); }
 
 /* --- the toolbar above the accounts: refresh line, then Cards or List --- */
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; }
@@ -399,7 +393,7 @@ legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
 .card.tile { display: flex; flex-direction: column; align-items: stretch; gap: 14px; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow-1); min-width: 0; }
 .card.tile + .card.tile { border-top: 1px solid var(--line); }
 .card.tile .bars { flex-grow: 1; }
-.card.tile .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 4px; }
+.card.tile .foot { justify-content: space-between; padding-top: 4px; }
 .card.tile .actions button { min-width: 0; }
 .card.tile .tools .icon-btn { width: 32px; height: 32px; border-color: var(--line); background: var(--btn-bg); }
 .card.tile .tools .icon-btn:hover { background: var(--hover); }

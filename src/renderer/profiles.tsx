@@ -8,7 +8,6 @@ import {
   act,
   ago,
   clock,
-  fullest,
   relShort,
   relTime,
   severityClass,
@@ -21,7 +20,7 @@ import {
   type UsageWindow,
   type ProfilesView,
 } from './lib';
-import { Badge, Bar, Btn, Dot, Icon, Note, Ring, Seg, Skeleton, TipBtn } from './ui/primitives';
+import { Badge, Bar, Btn, Dot, Icon, Note, Seg, Skeleton, TipBtn } from './ui/primitives';
 import { useOverlays, useTip, type MenuItem } from './ui/overlays';
 import { useActions } from './ui/actions';
 
@@ -95,7 +94,7 @@ export function Profiles({
   return (
     <>
       <div class="toolbar">
-        <span class="note">{refreshed}. The ring is each profile's fullest window.</span>
+        <span class="note">{refreshed}.</span>
         <Seg
           label="Show profiles as"
           value={view}
@@ -162,8 +161,6 @@ function Profile({
   class: string;
   dnd: Dnd;
 }) {
-  const w = p.proxyBucket ? null : fullest(p.usage?.windows);
-  const ringTip = useTip(w ? [`${w.label} · ${w.pct}% used`, relTime(w.resetsAt)].filter(Boolean) : null);
   if (view === 'cards') {
     return (
       <div class={`card tile ${cls}`} style={{ '--card-color': p.color }} {...dnd}>
@@ -178,13 +175,12 @@ function Profile({
   }
   return (
     <div class={`card ${cls}`} style={{ '--card-color': p.color }} {...dnd}>
-      <div class="ring" tabIndex={w ? 0 : -1} {...ringTip}>
-        <Ring w={w} />
-      </div>
       <IdentityBlock p={p} state={state} />
       <UsageBlock p={p} state={state} />
-      <ActionButton p={p} state={state} />
-      <Tools p={p} state={state} />
+      <div class="foot">
+        <ActionButton p={p} state={state} />
+        <Tools p={p} state={state} />
+      </div>
     </div>
   );
 }
