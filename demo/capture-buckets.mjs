@@ -164,7 +164,7 @@ try {
   await page.waitForTimeout(2000);
   await page.getByRole('button', { name: 'Enable', exact: true }).click();
   await page.waitForTimeout(1200);
-  await page.locator('#tab-accounts').click();
+  await page.locator('#tab-profiles').click();
   await page.getByLabel('Model connection for Work').selectOption('');
   await page.getByLabel('Model connection for Work').blur();
   await page.waitForTimeout(1600);

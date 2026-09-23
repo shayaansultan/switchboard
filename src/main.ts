@@ -24,7 +24,11 @@ import { AwakeController, isAwakeValue, macAwakeSystem } from './awake';
 import { barPng, meterPng, stripPng } from './trayart';
 import { composeTrayText, type TrayText } from './tray-status';
 import { PollingPause, type PauseReason } from './polling-pause';
+import { installShim, launcherScript } from './shim';
+import { INSTALLED_APP } from './buckets/runtime';
+import { HOME } from './store';
 import type {
+  CliStatus,
   AddOptions,
   BringOptions,
   Live,
@@ -245,6 +249,7 @@ function stateSnapshot(): State {
       cli: launch.cliCommand(p),
       ...live.get(p.id),
     })),
+    cli: cliStatus(),
   };
 }
 
@@ -351,7 +356,7 @@ async function resumePolling(reason: PauseReason): Promise<void> {
 // The window's own background, painted before the page loads and behind it
 // while it resizes. Must match --bg in the stylesheet for each scheme.
 function windowBackground(): string {
-  return nativeTheme.shouldUseDarkColors ? '#1d1d1b' : '#f1f1ee';
+  return nativeTheme.shouldUseDarkColors ? '#202020' : '#fcfcfb';
 }
 
 // The Appearance setting drives Electron's theme source, which in turn
@@ -370,7 +375,10 @@ function createWindow(): BrowserWindow {
     minWidth: 560,
     minHeight: 420,
     title: 'Switchboard',
-    titleBarStyle: 'hiddenInset',
+    // The traffic lights sit on the title bar's centre line: the bar is 56 px
+    // and the lights draw 14 tall, so 19 from the top puts their centre on the text.
+    titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 20, y: 19 },
     backgroundColor: windowBackground(),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   });
@@ -686,7 +694,46 @@ ipcMain.handle('profiles:update', (_e, id: string, patch: { name?: string; color
   mutate(() => profiles.update(data, id, patch));
   broadcast();
 });
-ipcMain.handle('profiles:move', (_e, id: string, delta: -1 | 1) => {
+// The `switchboard` command: a launcher shim in ~/.local/bin that runs
+// cli.js on this app's own runtime. A packaged app points the shim at the
+// installed app; a checkout points it at itself.
+const appLauncher = launcherScript(
+  'Switchboard CLI launcher',
+  [
+    path.join(INSTALLED_APP, 'Contents', 'MacOS', 'Switchboard'),
+    path.join(INSTALLED_APP, 'Contents', 'Resources', 'app.asar', 'out', 'cli.js'),
+  ],
+  { ELECTRON_RUN_AS_NODE: '1' },
+);
+const devLauncher = launcherScript(
+  'Switchboard CLI launcher (development checkout)',
+  [process.execPath, path.join(__dirname, 'cli.js')],
+  { ELECTRON_RUN_AS_NODE: '1' },
+);
+function cliLauncher(): string {
+  return app.isPackaged ? appLauncher : devLauncher;
+}
+function cliStatus(): CliStatus {
+  const file = path.join(HOME, '.local', 'bin', 'switchboard');
+  const installed = fs.existsSync(file);
+  let ours = false;
+  try {
+    // Either of this app's launchers counts, so a checkout does not call the
+    // installed app's launcher foreign, nor the other way round.
+    const content = installed ? fs.readFileSync(file, 'utf8') : '';
+    ours = installed && (content === appLauncher || content === devLauncher);
+  } catch {
+    ours = false;
+  }
+  const onPath = launch.loginShellPath ? launch.loginShellPath.split(':').includes(path.dirname(file)) : true;
+  return { file, installed, ours, onPath, appInstalled: !app.isPackaged || fs.existsSync(INSTALLED_APP) };
+}
+ipcMain.handle('cli:install', () => {
+  installShim('switchboard', cliLauncher());
+  broadcast();
+  return cliStatus();
+});
+ipcMain.handle('profiles:move', (_e, id: string, delta: number) => {
   const moved = mutate(() => profiles.move(data, id, delta));
   if (moved) broadcast();
   return moved;

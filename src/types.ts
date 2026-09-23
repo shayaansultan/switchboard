@@ -33,6 +33,7 @@ export type UsageMode = 'used' | 'remaining';
 
 export type Appearance = 'system' | 'light' | 'dark';
 export type MenuBarStyle = 'icon' | 'percent';
+export type ProfilesView = 'cards' | 'list';
 
 export interface Settings {
   terminal: string;
@@ -41,6 +42,7 @@ export interface Settings {
   openAtLogin?: boolean;
   appearance?: Appearance;
   menuBar?: MenuBarStyle;
+  view?: ProfilesView;
 }
 
 export interface Store {
@@ -158,6 +160,15 @@ export interface BucketView {
   error?: string;
 }
 
+// Whether the `switchboard` command is installed, and where.
+export interface CliStatus {
+  file: string;
+  installed: boolean;
+  ours: boolean;
+  onPath: boolean;
+  appInstalled: boolean;
+}
+
 // Everything the window renders from. Never a token.
 export interface State {
   awake: AwakeState;
@@ -169,6 +180,7 @@ export interface State {
   profiles: ProfileView[];
   buckets: BucketView[];
   bucketsError?: string;
+  cli?: CliStatus;
 }
 
 // The preload bridge, as `window.sb` in the renderer.
@@ -190,7 +202,7 @@ export interface SwitchboardApi {
   addProfile(p: AddOptions): Promise<{ profile: Profile; result: BringResult }>;
   removeProfile(id: string): Promise<boolean>;
   updateProfile(id: string, patch: { name?: string; color?: string }): Promise<void>;
-  moveProfile(id: string, delta: -1 | 1): Promise<boolean>;
+  moveProfile(id: string, delta: number): Promise<boolean>;
   bringOver(id: string, sourceId: string, opts: BringOptions): Promise<BringResult>;
   saveSettings(s: Partial<Settings>): Promise<void>;
   launch(id: string): Promise<void>;
@@ -200,5 +212,6 @@ export interface SwitchboardApi {
   shell(id: string): Promise<void>;
   reveal(id: string): Promise<void>;
   copyCommand(id: string): Promise<void>;
+  installCli(): Promise<CliStatus>;
   onState(fn: (s: State) => void): void;
 }

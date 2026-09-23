@@ -51,6 +51,9 @@ export function run(
 // space-separated, which would produce a nonsense PATH. Every shell exports it
 // to a child process colon-separated, so reading it back from `env` works the
 // same everywhere. Taking the last match steps over anything the rc files echo.
+// The login shell's own PATH, once known, so the window can say whether
+// ~/.local/bin is really on it rather than only on ours.
+export let loginShellPath: string | null = null;
 export async function adoptLoginShellPath(): Promise<boolean> {
   try {
     const shell = process.env.SHELL || '/bin/zsh';
@@ -61,6 +64,7 @@ export async function adoptLoginShellPath(): Promise<boolean> {
       .find((l) => l.startsWith('PATH='));
     const found = line ? line.slice('PATH='.length).trim() : '';
     if (found) {
+      loginShellPath = found;
       const seen = new Set<string>();
       process.env.PATH = [...found.split(':'), ...(process.env.PATH || '').split(':')]
         .filter((p) => p && !seen.has(p) && seen.add(p))

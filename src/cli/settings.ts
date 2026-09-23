@@ -33,6 +33,7 @@ const PARSERS: Record<keyof Settings, Parser> = {
   },
   appearance: oneOf('system', 'light', 'dark'),
   menuBar: oneOf('icon', 'percent'),
+  view: oneOf('cards', 'list'),
 };
 
 const isKey = (key: string): key is keyof Settings => key in PARSERS;

@@ -319,14 +319,15 @@ export function remove(data: Store, id: string): void {
 // Move a profile one step left or right among its vendor's added profiles.
 // The Default profile stays first; the order of the other vendor's profiles
 // is untouched. Returns false when there was nowhere to move.
-export function move(data: Store, id: string, delta: -1 | 1): boolean {
+export function move(data: Store, id: string, delta: number): boolean {
   const p = data.profiles.find((x) => x.id === id);
   if (!p) throw new Error('no such profile');
   if (p.isDefault) return false;
   const row = data.profiles.filter((x) => x.vendor === p.vendor && !x.isDefault);
   const i = row.indexOf(p);
-  const j = i + delta;
-  if (j < 0 || j >= row.length) return false;
+  // Any whole number of places; a drag lands wherever it was dropped.
+  const j = Math.max(0, Math.min(row.length - 1, i + Math.trunc(delta)));
+  if (j === i) return false;
   row.splice(i, 1);
   row.splice(j, 0, p);
   // Refill this vendor's slots in the new order; every other entry stays put.

@@ -17,7 +17,7 @@ const api: SwitchboardApi = {
   addProfile: (p: AddOptions) => ipcRenderer.invoke('profiles:add', p),
   removeProfile: (id: string) => ipcRenderer.invoke('profiles:remove', id),
   updateProfile: (id: string, patch) => ipcRenderer.invoke('profiles:update', id, patch),
-  moveProfile: (id: string, delta: -1 | 1) => ipcRenderer.invoke('profiles:move', id, delta),
+  moveProfile: (id: string, delta: number) => ipcRenderer.invoke('profiles:move', id, delta),
   bringOver: (id: string, sourceId: string, opts: BringOptions) =>
     ipcRenderer.invoke('profiles:bringOver', id, sourceId, opts),
   saveSettings: (s: Partial<Settings>) => ipcRenderer.invoke('settings:save', s),
@@ -28,6 +28,7 @@ const api: SwitchboardApi = {
   shell: (id: string) => ipcRenderer.invoke('cli:shell', id),
   reveal: (id: string) => ipcRenderer.invoke('profile:reveal', id),
   copyCommand: (id: string) => ipcRenderer.invoke('cli:copy', id),
+  installCli: () => ipcRenderer.invoke('cli:install'),
   onState: (fn: (s: State) => void) => {
     ipcRenderer.on('state', (_e, s: State) => fn(s));
   },

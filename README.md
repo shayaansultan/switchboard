@@ -43,7 +43,10 @@ them itself.
 
 Yes. Each profile gets its own CLI login, and the **Terminal** button opens a
 shell already inside that account, so `claude` or `codex` in that window uses
-it. The copy icon on each card copies the one-line command, which can go into an alias.
+it. The copy icon on each profile copies the one-line command, which can go into an alias.
+
+Profiles show as a list or as cards; pick either with the toggle above them.
+Drag a profile to reorder it within its app; the Default profile stays first.
 
 Signing a profile's CLI in is also what enables its usage bars.
 
@@ -138,11 +141,12 @@ switch; started that way it stays in the menu bar until you click it.
 
 ## Adding an account
 
-1. Click **+ Profile**, pick the app and name it, then choose which existing
-   profile to start from and what to bring over.
-2. Click **Launch app**. A fresh window opens with no session. Quit the other
-   windows of that app first, using the "Quit others now" link on the card. The
-   sign-in link is delivered to whichever window macOS picks.
+1. Click **+ Profile** in the Claude or Codex panel and name it, then choose
+   which existing profile to start from and what to bring over.
+2. Click the launch button (the filled play icon on the row). A fresh window
+   opens with no session. Quit the other windows of that app first, using the
+   "Quit others now" link on the card. The sign-in link is delivered to
+   whichever window macOS picks.
 3. Click **Sign in CLI** on the card's warning line (or in its **⋯** menu). A
    terminal opens running `claude auth login` or
    `codex login` inside that profile. This is what enables the usage bars.
@@ -191,8 +195,9 @@ switchboard launch work               # open its desktop window
 switchboard add codex Client --from codex   # a new profile, set up like the Default
 ```
 
-Install it once with `switchboard install-cli` (or `node out/cli.js install-cli`
-from this checkout) after `bun run install-app`. The command runs on the
+Install it from the **CLI** tab in the window, or once with
+`switchboard install-cli` (or `node out/cli.js install-cli` from this checkout)
+after `bun run install-app`. The command runs on the
 installed app's own runtime and code, so it is always the same version as the
 app, and `bun run install-app` updates both. `bun run cli -- list` runs it from
 source without installing.
@@ -236,8 +241,11 @@ window and the command line never disagree about which profiles exist.
 
 ## Development
 
-The source is TypeScript, compiled by `tsc` alone into `out/`, which is what
-Electron runs. There is no bundler. Tests import the `.ts` files directly.
+The source is TypeScript. The main process is compiled by `tsc` into `out/`,
+which is what Electron runs. The window is a small Preact app under
+`src/renderer/`, bundled by `bun build` into `out/renderer/main.js`; its
+styling is one stylesheet of tokens and primitives modelled on Wispr Flow, with
+Figtree and EB Garamond bundled. Tests import the `.ts` files directly.
 
 ```bash
 bun test          # profile isolation, setup logic and the usage parsers

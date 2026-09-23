@@ -60,18 +60,20 @@ async function crashWorker(receipt) {
 try {
   app = await electron.launch(options);
   let page = await app.firstWindow();
-  await page.getByLabel('Model connection for Work').waitFor();
+  await page.getByRole('button', { name: 'More actions for Work' }).waitFor();
   await page.locator('#tab-buckets').click();
-  await page.getByRole('button', { name: '+ Bucket', exact: true }).click();
+  await page.getByRole('button', { name: 'Proxy bucket', exact: true }).click();
   await page.locator('#bucket-name').fill('Team');
   await page.getByRole('button', { name: 'Create bucket', exact: true }).click();
   await page.locator('[data-bucket="team"]').waitFor();
-  await page.getByRole('button', { name: 'Add account ▾', exact: true }).click();
+  await page.getByRole('button', { name: 'Add account', exact: true }).click();
   assert.equal(await page.getByRole('menuitem', { name: 'Add Claude account', exact: true }).count(), 1);
   assert.equal(await page.getByRole('menuitem', { name: 'Add ChatGPT account', exact: true }).count(), 1);
   await page.keyboard.press('Escape');
-  await page.locator('#tab-accounts').click();
-  await page.getByLabel('Model connection for Work').selectOption('team');
+  await page.locator('#tab-profiles').click();
+  await page.getByRole('button', { name: 'More actions for Work' }).click();
+  await page.getByRole('menuitem', { name: 'Connection' }).click();
+  await page.getByRole('menuitemradio', { name: 'Team' }).click();
   await until(() =>
     page.evaluate(
       async () => (await window.sb.getState()).profiles.find((p) => p.id === 'codex-work').proxyBucket === 'team',
@@ -94,7 +96,7 @@ try {
   await page.getByRole('button', { name: 'Start bucket', exact: true }).click();
   await until(() => page.evaluate(async () => (await window.sb.getState()).buckets[0]?.status === 'running'));
   await page.screenshot({ path: path.join(output, 'light.png'), fullPage: true });
-  await page.locator('#tab-accounts').click();
+  await page.locator('#tab-profiles').click();
   await page.getByText('Usage from the Team bucket', { exact: true }).waitFor();
   await page.screenshot({ path: path.join(output, 'light-accounts.png'), fullPage: true });
   const receipt = JSON.parse(
@@ -111,8 +113,14 @@ try {
   await app.close();
   app = await electron.launch(options);
   page = await app.firstWindow();
-  await page.getByLabel('Model connection for Work').waitFor();
-  assert.equal(await page.getByLabel('Model connection for Work').inputValue(), 'team');
+  await page.getByRole('button', { name: 'More actions for Work' }).waitFor();
+  // The bucket list arrives a moment after the window; until then the menu
+  // can only call the assignment unavailable.
+  await until(() => page.evaluate(async () => (await window.sb.getState()).buckets?.some((b) => b.id === 'team')));
+  await page.getByRole('button', { name: 'More actions for Work' }).click();
+  await page.getByRole('menuitem', { name: 'Connection' }).click();
+  assert.equal(await page.getByRole('menuitemradio', { name: 'Team' }).getAttribute('aria-checked'), 'true');
+  await page.keyboard.press('Escape');
   await page.evaluate(() => window.sb.bucketAction('team', 'start'));
   const reused = JSON.parse(
     await fs.readFile(path.join(home, '.switchboard', 'buckets', 'team', 'runtime', 'worker.json')),
@@ -146,7 +154,10 @@ try {
     true,
   );
   await page.evaluate(() => window.sb.setProxyBucket('codex-work', null));
-  assert.equal(await page.getByLabel('Model connection for Work').inputValue(), '');
+  await page.getByRole('button', { name: 'More actions for Work' }).click();
+  await page.getByRole('menuitem', { name: 'Connection' }).click();
+  assert.equal(await page.getByRole('menuitemradio', { name: 'Native account' }).getAttribute('aria-checked'), 'true');
+  await page.keyboard.press('Escape');
   await page.evaluate(() => window.sb.bucketAction('team', 'stop'));
   for (let attempt = 0; attempt < 50; attempt++) {
     try {

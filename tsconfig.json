@@ -12,5 +12,6 @@
     "sourceMap": false,
     "moduleDetection": "legacy"
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/renderer"]
 }
