@@ -95,10 +95,10 @@ try {
   await page.locator('#tab-buckets').click();
   await page.getByRole('button', { name: 'Start bucket', exact: true }).click();
   await until(() => page.evaluate(async () => (await window.sb.getState()).buckets[0]?.status === 'running'));
-  await page.screenshot({ path: path.join(output, 'light.png'), fullPage: true });
+  await page.screenshot({ path: path.join(output, 'light.png') });
   await page.locator('#tab-profiles').click();
   await page.getByText('Usage from the Team bucket', { exact: true }).waitFor();
-  await page.screenshot({ path: path.join(output, 'light-accounts.png'), fullPage: true });
+  await page.screenshot({ path: path.join(output, 'light-accounts.png') });
   const receipt = JSON.parse(
     await fs.readFile(path.join(home, '.switchboard', 'buckets', 'team', 'runtime', 'worker.json')),
   );
@@ -108,8 +108,13 @@ try {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.waitForFunction(() => matchMedia('(prefers-color-scheme: dark)').matches);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(560, 640));
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.screenshot({ path: path.join(output, 'dark-minimum.png'), fullPage: true });
+  assert.equal(
+    await page.evaluate(() =>
+      [document.documentElement, document.getElementById('root')].every((el) => el.scrollWidth <= el.clientWidth),
+    ),
+    true,
+  );
+  await page.screenshot({ path: path.join(output, 'dark-minimum.png') });
   await app.close();
   app = await electron.launch(options);
   page = await app.firstWindow();
