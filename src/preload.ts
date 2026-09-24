@@ -23,6 +23,7 @@ const api: SwitchboardApi = {
   saveSettings: (s: Partial<Settings>) => ipcRenderer.invoke('settings:save', s),
   launch: (id: string) => ipcRenderer.invoke('app:launch', id),
   quit: (id: string) => ipcRenderer.invoke('app:quit', id),
+  forceQuit: (id: string) => ipcRenderer.invoke('app:forceQuit', id),
   quitOthers: (id: string) => ipcRenderer.invoke('app:quitOthers', id),
   login: (id: string) => ipcRenderer.invoke('cli:login', id),
   shell: (id: string) => ipcRenderer.invoke('cli:shell', id),

@@ -60,6 +60,20 @@ as a window runs out.
 
 You can read them in the menu bar without opening the window.
 
+## Is the app running?
+
+Each profile shows whether its desktop app is running: a green dot in the list,
+a pill on a card, and "(not running)" after its line in the menu bar. It keeps
+up on its own. Launching or quitting an app from anywhere, the Dock, Cmd+Q or
+the `switchboard` command, shows up within about a second, so there is no need
+to press Refresh, which is for the usage numbers.
+
+Launch is the black play button and Quit the red power button. While one is on
+its way the button spins and the profile reads **Starting…** or **Quitting…**.
+An app still running ten seconds after Quit reads **Won't quit**, usually
+because it is asking you to confirm; switch to the app and answer it, or use
+**Force quit**, which loses anything unsaved in it.
+
 ## Keep the Mac awake
 
 Use **Keep awake** beside Refresh to turn macOS's system sleep setting on or
@@ -93,6 +107,10 @@ find-generic-password` for the entry the Claude Code CLI already created.
   rebuild, because ad-hoc signing produces a new code hash and the keychain
   entry's permission no longer recognises the app. Codex tokens are read from a file
   instead, so they produce no prompt.
+- **App launches and quits.** A small helper bundled with the app listens for
+  macOS's notice that some app started or stopped, so the window can show a
+  profile's app opening or closing at once. It reports only the process and
+  its path, to Switchboard alone, and exits with it.
 - **Usage requests per signed-in profile, on a timer.** Normally one call to the same endpoints
   the two CLIs use for their own usage screens, authorised with that profile's
   existing CLI token. The interval in Settings is the rate while you are using

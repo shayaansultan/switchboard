@@ -25,7 +25,7 @@
     "format": "oxfmt",
     "lint": "oxlint",
     "typecheck": "tsc --noEmit && tsc -p src/renderer",
-    "build": "rm -rf out && tsc && bun build src/renderer/main.tsx --outdir out/renderer --target browser && cp src/renderer/index.html src/renderer/style.css out/renderer/ && cp -R src/renderer/fonts out/renderer/fonts"
+    "build": "rm -rf out && tsc && bun build src/renderer/main.tsx --outdir out/renderer --target browser && cp src/renderer/index.html src/renderer/style.css out/renderer/ && cp -R src/renderer/fonts out/renderer/fonts && sh src/native/build.sh"
   },
   "dependencies": {
     "jsonc-parser": "^3.3.1",
@@ -50,6 +50,9 @@
       "identity": null,
       "icon": "build/icon.icns"
     },
+    "asarUnpack": [
+      "out/app-events"
+    ],
     "files": [
       "out/**/*",
       "build/trayTemplate.png",

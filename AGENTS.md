@@ -46,6 +46,11 @@ bun run cli -- list --human     # the CLI straight from source
   rate-limit lookups. Runs only in the main process.
 - `src/launch.ts`, `src/shell.ts`: launching and quitting desktop apps and
   opening terminals.
+- `src/app-state.ts`, `src/desktop-watch.ts`, `src/native/`: what each
+  desktop app is doing (off, starting, running, quitting, won't quit) and when
+  to look. `src/native/app-events.swift` is a helper that reports app launches
+  and quits; `bun run build` compiles it on macOS and skips it elsewhere, and
+  the app falls back to polling without it.
 - `src/cli.ts` and `src/cli/`: the `switchboard` command. JSON on stdout by
   default, `--human` for prose; `src/cli/output.ts` is the contract.
 - `src/buckets/`: proxy buckets, the local proxy and its worker.

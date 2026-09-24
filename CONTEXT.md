@@ -17,6 +17,14 @@ Codex, routed through a proxy bucket. Every vendor has a Default profile,
 which uses the vendor's normal locations and cannot be removed or reordered.
 A profile holds at most one account, and may hold none.
 
+## App state
+
+What a profile's desktop app is doing: **Off**, **Running**, or on its way,
+**Starting…** after Launch and **Quitting…** after Quit. A quit the app has
+not honoured after ten seconds is **Won't quit**, and offers **Force quit**.
+Use these words for the desktop app. "Stopped" is a proxy bucket's word, and a
+window is a rate limit, so say "the app", not "its window".
+
 ## Account
 
 A sign-in: the email address and the plan it carries. An account lives either

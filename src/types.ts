@@ -119,10 +119,16 @@ export interface CacheEntry {
 }
 export type LiveCache = Record<string, CacheEntry>;
 
-// What the main process knows about a profile beyond the store: whether its
-// window is running, who is signed in, and the last usage numbers.
+// A profile's desktop app, as the window and tray show it. `starting` and
+// `quitting` are a launch or quit Switchboard sent that the process list has
+// not confirmed yet; `stalled` is a quit that passed its deadline with the
+// app still running. See app-state.ts.
+export type AppState = 'off' | 'starting' | 'running' | 'quitting' | 'stalled';
+
+// What the main process knows about a profile beyond the store: what its
+// desktop app is doing, who is signed in, and the last usage numbers.
 export interface Live {
-  running?: boolean;
+  app?: AppState;
   identity?: Identity;
   usage?: Usage;
   cached?: boolean;
@@ -207,6 +213,7 @@ export interface SwitchboardApi {
   saveSettings(s: Partial<Settings>): Promise<void>;
   launch(id: string): Promise<void>;
   quit(id: string): Promise<void>;
+  forceQuit(id: string): Promise<void>;
   quitOthers(id: string): Promise<number>;
   login(id: string): Promise<void>;
   shell(id: string): Promise<void>;

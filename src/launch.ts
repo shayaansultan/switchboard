@@ -179,6 +179,16 @@ export async function quitDesktop(profile: Profile): Promise<boolean> {
   return true;
 }
 
+// For an app that ignored the polite quit, usually because it is showing a
+// "quit anyway?" dialog. Anything unsaved in it is lost; its helper processes
+// exit with it.
+export async function forceQuitDesktop(profile: Profile): Promise<boolean> {
+  const inst = instanceFor(profile, await runningInstances());
+  if (!inst) return false;
+  process.kill(inst.pid, 'SIGKILL');
+  return true;
+}
+
 // Quit every instance of a vendor's app except the given profile's. Used
 // before a first sign-in, because the login deep link is delivered to
 // whichever instance macOS picks.

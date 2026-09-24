@@ -18,7 +18,7 @@ const profiles = ['Work', 'Personal'].map((name, index) => ({
   name,
   isDefault: false,
   color: PALETTE[index + 1],
-  running: false,
+  app: 'off',
   identity: { loggedIn: true, email: `Demo account ${index + 1}`, plan: 'Pro' },
   usage: { windows: [{ label: '7d', pct: index ? 18 : 48, resetsAt: reset }] },
   dirs: { home: `~/.switchboard/codex/${name.toLowerCase()}/home`, isDefault: false },

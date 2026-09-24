@@ -36,6 +36,9 @@ const PATHS = {
   play: '<polygon points="7 4 20 12 7 20 7 4" fill="currentColor" stroke="none"/>',
   power: '<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>',
+  // A launch or quit on its way (spun in CSS), and forcing one through.
+  loader: '<path d="M21 12a9 9 0 1 1-6.22-8.56"/>',
+  zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
 };
 export type IconName = keyof typeof PATHS;
 
@@ -110,11 +113,24 @@ export function Panel({
   );
 }
 
-// Running or not, as a pill: mint with a filled dot when on.
-export function StatusPill({ on, children }: { on: boolean; children: ComponentChildren }) {
+// Running or not, as a pill: mint with a filled dot when on. `tone` and
+// `dot` override that for states in between, such as a desktop app starting
+// (pulsing dot) or refusing to quit (amber).
+export type DotKind = 'on' | 'off' | 'busy' | 'warn';
+export function StatusPill({
+  on,
+  tone,
+  dot,
+  children,
+}: {
+  on: boolean;
+  tone?: 'ok' | 'mute' | 'warn';
+  dot?: DotKind;
+  children: ComponentChildren;
+}) {
   return (
-    <span class={`badge ${on ? 'ok' : 'mute'} status`}>
-      <span class={`dot ${on ? 'on' : 'off'}`} />
+    <span class={`badge ${tone ?? (on ? 'ok' : 'mute')} status`}>
+      <span class={`dot ${dot ?? (on ? 'on' : 'off')}`} />
       {children}
     </span>
   );
@@ -124,8 +140,10 @@ export function Badge({ children, tone = 'plan' }: { children: ComponentChildren
   return <span class={`badge ${tone}`}>{children}</span>;
 }
 
-export function Dot({ on, title }: { on: boolean; title?: string }) {
-  return <span class={`dot ${on ? 'on' : ''}`} title={title} />;
+// Hidden when off, so a list of stopped profiles stays quiet.
+export function Dot({ on, kind, title }: { on: boolean; kind?: DotKind; title?: string }) {
+  const k = kind ?? (on ? 'on' : 'off');
+  return <span class={`dot ${k === 'off' ? '' : k}`} title={title} />;
 }
 
 export function Skeleton({ width }: { width: number }) {
