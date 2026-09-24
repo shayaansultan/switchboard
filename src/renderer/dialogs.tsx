@@ -188,6 +188,7 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
   const [menuBar, setMenuBar] = useState(s.menuBar || 'icon');
   const [appearance, setAppearance] = useState(s.appearance || 'system');
   const [openAtLogin, setOpenAtLogin] = useState(!!s.openAtLogin);
+  const [noticeClosedWindows, setNoticeClosedWindows] = useState(!!s.noticeClosedWindows);
   const submit = (e: Event) => {
     e.preventDefault();
     void act(async () => {
@@ -195,6 +196,7 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
         terminal,
         pollMinutes: Number(pollMinutes) || 5,
         openAtLogin,
+        noticeClosedWindows,
         usageMode,
         appearance,
         menuBar,
@@ -290,6 +292,32 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
           'Starts in the menu bar without a window.',
           <Switch name="openAtLogin" checked={openAtLogin} onChange={setOpenAtLogin} label="Open at login" />,
         )}
+        {state.desktop.helper
+          ? row(
+              'Notice closed windows',
+              'Shows "No window" when an app is running with its window closed. Needs Accessibility permission, which macOS asks for again after each rebuild.',
+              <Switch
+                name="noticeClosedWindows"
+                checked={noticeClosedWindows}
+                onChange={setNoticeClosedWindows}
+                label="Notice closed windows"
+              />,
+            )
+          : null}
+        {noticeClosedWindows && s.noticeClosedWindows && state.desktop.accessibility === 'missing' ? (
+          <p class="hint warn-hint">
+            Switchboard doesn't have Accessibility permission yet, so every running app reads as Running.{' '}
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                void act(() => window.sb.grantAccessibility());
+              }}
+            >
+              Grant access
+            </a>
+          </p>
+        ) : null}
       </div>
       <menu>
         <Btn variant="secondary" id="settings-cancel" onClick={onClose}>

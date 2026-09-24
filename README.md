@@ -74,6 +74,16 @@ An app still running ten seconds after Quit reads **Won't quit**, usually
 because it is asking you to confirm; switch to the app and answer it, or use
 **Force quit**, which loses anything unsaved in it.
 
+Closing an app's window with its red button leaves the app running. Turn on
+**Notice closed windows** in Settings and such a profile reads **No window**,
+with a hollow dot, instead of Running. This needs Accessibility permission,
+which Switchboard asks for when you turn it on; because the app is ad-hoc
+signed, macOS forgets it after each rebuild, and the setting then shows a
+Grant access link. A window that is minimised, hidden or on another desktop
+still counts as open. Whether or not the setting is on, **Show window** (a
+button on a No window row, and in each running profile's menu) brings that
+profile's window back, as clicking its Dock icon would.
+
 ## Keep the Mac awake
 
 Use **Keep awake** beside Refresh to turn macOS's system sleep setting on or
@@ -111,6 +121,10 @@ find-generic-password` for the entry the Claude Code CLI already created.
   macOS's notice that some app started or stopped, so the window can show a
   profile's app opening or closing at once. It reports only the process and
   its path, to Switchboard alone, and exits with it.
+- **Other apps' windows, only if you turn on Notice closed windows.** The
+  helper then counts the Claude and ChatGPT windows each profile has open,
+  through the Accessibility API and an undocumented macOS call that says which
+  desktop a window is on. It reads counts, not window contents.
 - **Usage requests per signed-in profile, on a timer.** Normally one call to the same endpoints
   the two CLIs use for their own usage screens, authorised with that profile's
   existing CLI token. The interval in Settings is the rate while you are using

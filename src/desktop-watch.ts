@@ -10,6 +10,11 @@
 // every 30 s when it is closed, minimised or covered, with a check the
 // moment it is shown again. Either way a launch or quit
 // Switchboard is waiting on is checked every 250 ms until it settles.
+//
+// Closing an app's window sends no event, so while closed windows are being
+// noticed the 2 s pace holds whenever Switchboard is on screen, helper or
+// not. Switching to or away from a tracked app also triggers a check, which
+// catches the usual close-then-click-elsewhere at once.
 
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
 
@@ -17,10 +22,10 @@ export const BUSY_MS = 250;
 export const VISIBLE_MS = 2_000;
 export const BACKGROUND_MS = 30_000;
 
-export function nextCheckDelay(o: { busy: boolean; events: boolean; visible: boolean }): number {
+export function nextCheckDelay(o: { busy: boolean; events: boolean; visible: boolean; windows?: boolean }): number {
   if (o.busy) return BUSY_MS;
-  if (o.events) return BACKGROUND_MS;
-  return o.visible ? VISIBLE_MS : BACKGROUND_MS;
+  if (!o.visible) return BACKGROUND_MS;
+  return o.events && !o.windows ? BACKGROUND_MS : VISIBLE_MS;
 }
 
 export interface WatchOptions {
@@ -28,6 +33,8 @@ export interface WatchOptions {
   check: () => Promise<void>;
   // Whether a launch or quit is waiting to settle.
   busy: () => boolean;
+  // Whether each check also counts windows, which no event announces.
+  windows?: () => boolean;
   // Whether an executable path is one of the desktop apps we track.
   tracks: (exe: string) => boolean;
   // The compiled helper, or null to rely on the timer alone.
@@ -112,7 +119,12 @@ export class DesktopWatch {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     if (this.stopped || this.paused || this.running) return;
-    const delay = nextCheckDelay({ busy: this.o.busy(), events: this.events, visible: this.visible });
+    const delay = nextCheckDelay({
+      busy: this.o.busy(),
+      events: this.events,
+      visible: this.visible,
+      windows: this.o.windows?.() ?? false,
+    });
     this.timer = setTimeout(() => {
       this.timer = null;
       this.poke();
@@ -164,11 +176,13 @@ export class DesktopWatch {
     if (msg.event === 'ready') {
       this.events = true;
       this.schedule();
-    } else if ((msg.event === 'launch' || msg.event === 'terminate') && msg.exe && this.o.tracks(msg.exe)) {
+    } else if (msg.event && TRACKED_EVENTS.has(msg.event) && msg.exe && this.o.tracks(msg.exe)) {
       this.poke();
     }
   }
 }
+
+const TRACKED_EVENTS = new Set(['launch', 'terminate', 'activate', 'deactivate']);
 
 // stdin stays a pipe we never write to: the helper exits when it closes,
 // which happens however Switchboard ends.

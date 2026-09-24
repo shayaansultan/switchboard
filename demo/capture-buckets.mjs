@@ -26,6 +26,7 @@ const profiles = ['Work', 'Personal'].map((name, index) => ({
 }));
 const state = {
   palette: PALETTE,
+  desktop: { helper: true, accessibility: 'off' },
   awake: { status: 'ready', value: 'off', notice: null },
   settings: { terminal: 'Terminal', pollMinutes: 5, usageMode: 'used', appearance: 'light' },
   terminals: [{ id: 'Terminal', label: 'Terminal' }],

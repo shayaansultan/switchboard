@@ -8,6 +8,10 @@
 // that happens outside Switchboard, a Cmd+Q, a crash, the CLI, simply shows
 // up in the next observation.
 //
+// When closed windows are being noticed, the observation also says which
+// running apps have no window open. Those read as background, and a launch
+// counts as done only once its window is up, not merely its process.
+//
 // Pure and clock-injected so the transitions can be tested without processes.
 
 import type { AppState } from './types';
@@ -63,18 +67,20 @@ export class AppStates {
     });
   }
 
-  // Fold in which profiles have a process. Returns whether any state changed,
-  // so the caller only redraws when there is something new to show.
-  observe(alive: Map<string, boolean>): boolean {
+  // Fold in which profiles have a process, and which of those are known to
+  // have no window. Returns whether any state changed, so the caller only
+  // redraws when there is something new to show.
+  observe(alive: Map<string, boolean>, windowless: ReadonlySet<string> = new Set()): boolean {
     let changed = false;
     const now = this.now();
     for (const [id, isAlive] of alive) {
       const p = this.pending.get(id);
       let next: AppState;
       let failedToStart = false;
-      if (!p) next = isAlive ? 'running' : 'off';
+      const shown: AppState = windowless.has(id) ? 'background' : 'running';
+      if (!p) next = isAlive ? shown : 'off';
       else if (p.kind === 'starting') {
-        if (isAlive) next = 'running';
+        if (isAlive) next = shown === 'running' || now >= p.deadline ? shown : 'starting';
         else if (now < p.deadline) next = 'starting';
         else {
           next = 'off';

@@ -39,6 +39,7 @@ const PATHS = {
   // A launch or quit on its way (spun in CSS), and forcing one through.
   loader: '<path d="M21 12a9 9 0 1 1-6.22-8.56"/>',
   zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  window: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 8h20"/><path d="M6 4v4"/><path d="M10 4v4"/>',
 };
 export type IconName = keyof typeof PATHS;
 
@@ -115,8 +116,8 @@ export function Panel({
 
 // Running or not, as a pill: mint with a filled dot when on. `tone` and
 // `dot` override that for states in between, such as a desktop app starting
-// (pulsing dot) or refusing to quit (amber).
-export type DotKind = 'on' | 'off' | 'busy' | 'warn';
+// (pulsing dot), running with no window (a ring) or refusing to quit (amber).
+export type DotKind = 'on' | 'off' | 'busy' | 'warn' | 'ring';
 export function StatusPill({
   on,
   tone,

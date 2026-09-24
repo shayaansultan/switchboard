@@ -22,6 +22,8 @@ A profile holds at most one account, and may hold none.
 What a profile's desktop app is doing: **Off**, **Running**, or on its way,
 **Starting…** after Launch and **Quitting…** after Quit. A quit the app has
 not honoured after ten seconds is **Won't quit**, and offers **Force quit**.
+With closed windows noticed, an app running with its window closed is
+**No window**, and offers **Show**.
 Use these words for the desktop app. "Stopped" is a proxy bucket's word, and a
 window is a rate limit, so say "the app", not "its window".
 

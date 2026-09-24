@@ -18,6 +18,14 @@ const oneOf =
     throw usageError(`Value must be one of: ${options.join(', ')}`);
   };
 
+function bool(name: string): (text: string) => boolean {
+  return (text) => {
+    if (/^(true|on|yes|1)$/i.test(text)) return true;
+    if (/^(false|off|no|0)$/i.test(text)) return false;
+    throw usageError(`${name} must be true or false`);
+  };
+}
+
 const PARSERS: Record<keyof Settings, Parser> = {
   terminal: (text) => text,
   pollMinutes: (text) => {
@@ -26,14 +34,12 @@ const PARSERS: Record<keyof Settings, Parser> = {
     return n;
   },
   usageMode: oneOf('used', 'remaining'),
-  openAtLogin: (text) => {
-    if (/^(true|on|yes|1)$/i.test(text)) return true;
-    if (/^(false|off|no|0)$/i.test(text)) return false;
-    throw usageError('openAtLogin must be true or false');
-  },
+  openAtLogin: bool('openAtLogin'),
   appearance: oneOf('system', 'light', 'dark'),
   menuBar: oneOf('icon', 'percent'),
   view: oneOf('cards', 'list'),
+  // Only records the choice: the app asks for Accessibility itself.
+  noticeClosedWindows: bool('noticeClosedWindows'),
 };
 
 const isKey = (key: string): key is keyof Settings => key in PARSERS;

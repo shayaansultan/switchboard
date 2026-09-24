@@ -32,6 +32,7 @@ import { HOME } from './store';
 import type {
   AppState,
   CliStatus,
+  DesktopSupport,
   AddOptions,
   BringOptions,
   Live,
@@ -253,6 +254,7 @@ function stateSnapshot(): State {
       ...live.get(p.id),
     })),
     cli: cliStatus(),
+    desktop: desktopSupport(),
   };
 }
 
@@ -280,22 +282,40 @@ function applyAppStates(): void {
   for (const p of data.profiles) liveFor(p).app = appStates.get(p.id);
 }
 
+const helper = launch.appEventsHelper();
+// Whether closed windows can be noticed right now: the setting is on, and
+// macOS has granted Accessibility, which is re-read on each check because the
+// person can revoke it at any time.
+let accessibility: DesktopSupport['accessibility'] = 'off';
+function desktopSupport(): DesktopSupport {
+  return { helper: !!helper, accessibility };
+}
+
 // Returns whether anything changed. A failed `ps` keeps the last answer
-// rather than calling every app off.
+// rather than calling every app off; a failed window count only loses the
+// distinction between running and background.
 async function refreshRunning(): Promise<boolean> {
   const instances = await launch.runningInstances().catch(() => null);
   if (!instances) return false;
-  const alive = new Map(data.profiles.map((p) => [p.id, !!launch.instanceFor(p, instances)]));
-  const changed = appStates.observe(alive);
+  const pids = new Map<string, number>();
+  for (const p of data.profiles) {
+    const inst = launch.instanceFor(p, instances);
+    if (inst) pids.set(p.id, inst.pid);
+  }
+  const alive = new Map(data.profiles.map((p) => [p.id, pids.has(p.id)]));
+  const windowless = new Set<string>();
+  const before = accessibility;
+  if (helper && data.settings.noticeClosedWindows) {
+    const counts = await launch.windowCounts(helper, [...pids.values()]).catch(() => undefined);
+    if (counts === null) accessibility = 'missing';
+    else if (counts) {
+      accessibility = 'granted';
+      for (const [id, pid] of pids) if (counts.get(pid) === 0) windowless.add(id);
+    }
+  } else accessibility = 'off';
+  const changed = appStates.observe(alive, windowless);
   applyAppStates();
-  return changed;
-}
-
-// The helper is a native binary, which cannot run from inside app.asar;
-// electron-builder unpacks it beside the archive (asarUnpack in package.json).
-function appEventsHelper(): string | null {
-  const file = path.join(__dirname, 'app-events').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
-  return fs.existsSync(file) ? file : null;
+  return changed || before !== accessibility;
 }
 
 const desktopWatch = new DesktopWatch({
@@ -303,8 +323,9 @@ const desktopWatch = new DesktopWatch({
     if (await refreshRunning()) broadcast();
   },
   busy: () => appStates.busy,
+  windows: () => accessibility === 'granted',
   tracks: (exe) => profiles.VENDOR_IDS.some((v) => profiles.VENDORS[v].appBinary === exe),
-  helper: appEventsHelper(),
+  helper,
 });
 
 // Show the launch or quit at once, then hold the caller until the process
@@ -328,6 +349,13 @@ async function launchApp(p: Profile): Promise<void> {
     throw new Error(
       `${profiles.VENDORS[p.vendor].label} for "${p.name}" did not start within ${START_DEADLINE_MS / 1000} seconds.`,
     );
+}
+
+async function showApp(p: Profile): Promise<void> {
+  if (!helper) throw new Error('Show window needs the app-events helper, which this build of Switchboard lacks.');
+  if (!(await launch.showDesktop(p, helper)))
+    throw new Error(`Could not bring back the ${profiles.VENDORS[p.vendor].label} window for "${p.name}".`);
+  desktopWatch.poke();
 }
 
 // Resolves once the app is gone or has passed the deadline; a stalled app is
@@ -594,6 +622,15 @@ function rebuildTray(): void {
           ...windowLines,
           ...(windowLines.length ? [{ type: 'separator' as const }] : []),
           trayAppItem(p, s.app ?? 'off'),
+          ...(helper && ['running', 'background', 'stalled'].includes(s.app ?? 'off')
+            ? [
+                {
+                  label: 'Show window',
+                  click: () =>
+                    void showApp(p).catch((e: Error) => dialog.showErrorBox('Could not show window', e.message)),
+                },
+              ]
+            : []),
           { label: 'Open terminal here', click: () => launch.openShell(p, data.settings) },
           { label: 'Refresh usage', click: () => refreshAll(p.id, true) },
         ],
@@ -613,6 +650,7 @@ const TRAY_SUFFIX: Record<AppState, string> = {
   off: '  (not running)',
   starting: '  (starting…)',
   running: '',
+  background: '  (no window)',
   quitting: '  (quitting…)',
   stalled: "  (won't quit)",
 };
@@ -623,6 +661,7 @@ function trayAppItem(p: Profile, state: AppState): Electron.MenuItemConstructorO
     case 'off':
       return { label: 'Launch app', click: () => void launchApp(p).catch(fail('Could not launch app')) };
     case 'running':
+    case 'background':
       return { label: 'Quit app', click: () => void quitApp(p).catch(fail('Could not quit app')) };
     case 'stalled':
       return { label: 'Force quit app', click: () => void quitApp(p, true).catch(fail('Could not quit app')) };
@@ -837,10 +876,14 @@ ipcMain.handle('profiles:move', (_e, id: string, delta: number) => {
   return moved;
 });
 ipcMain.handle('settings:save', (_e, s: Partial<Settings>) => {
+  const turningOn = !!s.noticeClosedWindows && !data.settings.noticeClosedWindows;
   mutate(() => {
     data.settings = { ...data.settings, ...s };
     profiles.save(data);
   });
+  // Ask for Accessibility the moment the person opts in, not later.
+  if (turningOn && helper) void launch.accessibilityGranted(helper, true).catch(() => false);
+  desktopWatch.poke();
   schedulePolling();
   applyLoginItem();
   applyAppearance();
@@ -849,6 +892,14 @@ ipcMain.handle('settings:save', (_e, s: Partial<Settings>) => {
 ipcMain.handle('app:launch', (_e, id: string) => launchApp(byId(id)));
 ipcMain.handle('app:quit', (_e, id: string) => quitApp(byId(id)));
 ipcMain.handle('app:forceQuit', (_e, id: string) => quitApp(byId(id), true));
+ipcMain.handle('app:show', (_e, id: string) => showApp(byId(id)));
+// macOS shows its own dialog pointing at Privacy & Security; the next check
+// after the person flips the switch picks it up.
+ipcMain.handle('app:grantAccessibility', async () => {
+  if (!helper) return;
+  await launch.accessibilityGranted(helper, true).catch(() => false);
+  desktopWatch.poke();
+});
 ipcMain.handle('app:quitOthers', async (_e, id: string) => {
   const target = byId(id);
   const n = await launch.quitOthers(target);

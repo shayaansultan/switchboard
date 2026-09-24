@@ -51,7 +51,7 @@ function bridge(state) {
       onState: (fn) => { window.__push = fn; },
       refresh: noop, addProfile: () => Promise.resolve({ result: { done: [], skipped: [] } }),
       removeProfile: noop, updateProfile: noop, moveProfile: () => Promise.resolve(true), bringOver: () => Promise.resolve({ done: [], skipped: [] }),
-      saveSettings: noop, launch: noop, quit: noop, forceQuit: noop, quitOthers: () => Promise.resolve(0),
+      saveSettings: noop, launch: noop, quit: noop, forceQuit: noop, showWindow: noop, grantAccessibility: noop, quitOthers: () => Promise.resolve(0),
       login: noop, shell: noop, reveal: noop, copyCommand: noop,
     };
     const s = document.createElement('style');
@@ -63,6 +63,7 @@ function bridge(state) {
 const state = {
   awake: { status: 'ready', value: 'off', notice: null },
   palette: PALETTE,
+  desktop: { helper: true, accessibility: 'off' },
   settings: fixture.settings,
   terminals: fixture.terminals,
   vendors: fixture.vendors,

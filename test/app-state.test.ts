@@ -98,3 +98,43 @@ test('a removed profile drops its state and releases anyone waiting', async () =
   expect(s.busy).toBe(false);
   expect(await done).toEqual({ id: 'a', state: 'off' });
 });
+
+test('a running app with no window open reads as background, and back when one opens', () => {
+  const s = new AppStates();
+  s.observe(alive({ a: true }), new Set(['a']));
+  expect(s.get('a')).toBe('background');
+  expect(s.observe(alive({ a: true }))).toBe(true);
+  expect(s.get('a')).toBe('running');
+});
+
+test('with windows noticed, a launch waits for the window, not just the process', async () => {
+  const c = clock();
+  const s = new AppStates(c.now);
+  s.expect('a', 'starting');
+  const done = s.settled('a');
+  s.observe(alive({ a: true }), new Set(['a']));
+  expect(s.get('a')).toBe('starting');
+  c.advance(700);
+  s.observe(alive({ a: true }));
+  expect(s.get('a')).toBe('running');
+  expect(await done).toEqual({ id: 'a', state: 'running' });
+});
+
+test('a launch whose window never appears settles as background, not as a failure', async () => {
+  const c = clock();
+  const s = new AppStates(c.now);
+  s.expect('a', 'starting');
+  const done = s.settled('a');
+  c.advance(START_DEADLINE_MS);
+  s.observe(alive({ a: true }), new Set(['a']));
+  expect(s.get('a')).toBe('background');
+  expect(await done).toEqual({ id: 'a', state: 'background' });
+});
+
+test('quitting ignores windows: a windowless app being quit still reads as quitting', () => {
+  const s = new AppStates();
+  s.observe(alive({ a: true }), new Set(['a']));
+  s.expect('a', 'quitting');
+  s.observe(alive({ a: true }), new Set(['a']));
+  expect(s.get('a')).toBe('quitting');
+});

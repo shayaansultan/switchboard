@@ -193,6 +193,7 @@ function Profile({
   const foot = (
     <div class="foot">
       <PrimaryButton p={p} state={state} />
+      <ShowButton p={p} state={state} />
       <Tools p={p} state={state} items={items} />
     </div>
   );
@@ -340,6 +341,9 @@ function useMenuItems(p: ProfileView, state: State, rename: () => void): MenuIte
     [{ header: p.name, sub: who }],
     p.isDefault ? [] : [{ label: 'Rename', run: rename }],
     connectionItems(p, state, newBucket),
+    state.desktop.helper && (p.app === 'running' || p.app === 'background' || p.app === 'stalled')
+      ? [{ label: 'Show window', run: () => window.sb.showWindow(p.id) }]
+      : [],
     [
       { label: 'Refresh usage', run: () => window.sb.refresh(p.id) },
       { label: id.loggedIn ? 'Sign in CLI again' : 'Sign in CLI', run: () => window.sb.login(p.id) },
@@ -492,16 +496,34 @@ function PrimaryButton({ p, state }: { p: ProfileView; state: State }) {
       />
     );
   }
-  const verb = app === 'running' ? 'Quit' : 'Launch';
+  const up = app === 'running' || app === 'background';
+  const verb = up ? 'Quit' : 'Launch';
   return (
     <TipBtn
-      class={`icon-btn primary-btn ${app === 'running' ? 'quit' : 'primary'}`}
-      icon={app === 'running' ? 'power' : 'play'}
+      class={`icon-btn primary-btn ${up ? 'quit' : 'primary'}`}
+      icon={up ? 'power' : 'play'}
       disabled={!vendor.installed}
       aria-label={`${verb} ${p.name}`}
       tip={[`${verb} ${p.name}`, vendor.installed ? `${vendor.label} desktop app` : `${vendor.label} is not installed`]}
-      onClick={(e) => act(() => (app === 'running' ? window.sb.quit(p.id) : window.sb.launch(p.id)), e.currentTarget)}
+      onClick={(e) => act(() => (up ? window.sb.quit(p.id) : window.sb.launch(p.id)), e.currentTarget)}
     />
+  );
+}
+
+// Beside the primary when the app is up but not in view: running with its
+// window closed, or refusing to quit (usually behind a confirm dialog).
+function ShowButton({ p, state }: { p: ProfileView; state: State }) {
+  if (!state.desktop.helper || (p.app !== 'background' && p.app !== 'stalled')) return null;
+  return (
+    <TipBtn
+      class="show-btn"
+      icon="window"
+      aria-label={`Show ${p.name}`}
+      tip={[`Show ${p.name}`, 'Bring back its window']}
+      onClick={(e) => act(() => window.sb.showWindow(p.id), e.currentTarget)}
+    >
+      Show
+    </TipBtn>
   );
 }
 
@@ -511,6 +533,7 @@ const APP_UI: Record<AppState, { label: string; title: string; tone: 'ok' | 'mut
   off: { label: 'Off', title: 'App not running', tone: 'mute', dot: 'off' },
   starting: { label: 'Starting…', title: 'App starting', tone: 'ok', dot: 'busy' },
   running: { label: 'Running', title: 'App running', tone: 'ok', dot: 'on' },
+  background: { label: 'No window', title: 'App running with no window open', tone: 'ok', dot: 'ring' },
   quitting: { label: 'Quitting…', title: 'App quitting', tone: 'mute', dot: 'busy' },
   stalled: { label: "Won't quit", title: 'App still running after Quit', tone: 'warn', dot: 'warn' },
 };

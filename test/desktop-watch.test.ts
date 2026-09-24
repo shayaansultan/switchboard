@@ -11,6 +11,9 @@ test('the cadence is fast while waiting, slow when events cover it or nobody is 
   expect(nextCheckDelay({ busy: false, events: true, visible: true })).toBe(BACKGROUND_MS);
   expect(nextCheckDelay({ busy: false, events: false, visible: true })).toBe(VISIBLE_MS);
   expect(nextCheckDelay({ busy: false, events: false, visible: false })).toBe(BACKGROUND_MS);
+  // No event announces a closed window, so counting windows keeps the pace up.
+  expect(nextCheckDelay({ busy: false, events: true, visible: true, windows: true })).toBe(VISIBLE_MS);
+  expect(nextCheckDelay({ busy: false, events: true, visible: false, windows: true })).toBe(BACKGROUND_MS);
 });
 
 // A stand-in for the app-events helper: a process whose stdout we write to.
@@ -43,6 +46,9 @@ test('a launch or quit of a tracked app triggers a check; other apps do not', as
   helper.say({ event: 'terminate', pid: 2, exe: '/Applications/Claude.app/Contents/MacOS/Claude' });
   await tick();
   expect(checks).toBe(2);
+  helper.say({ event: 'deactivate', pid: 3, exe: '/Applications/Claude.app/Contents/MacOS/Claude' });
+  await tick();
+  expect(checks).toBe(3);
   watch.stop();
   expect(watch.usingEvents).toBe(false);
 });
