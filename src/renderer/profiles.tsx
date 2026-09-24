@@ -20,8 +20,22 @@ import {
   type UsageWindow,
   type ProfilesView,
   type Vendor,
+  type AppState,
 } from './lib';
-import { Badge, Bar, Btn, Dot, Icon, Note, Panel, Seg, Skeleton, StatusPill, TipBtn } from './ui/primitives';
+import {
+  Badge,
+  Bar,
+  Btn,
+  Dot,
+  Icon,
+  Note,
+  Panel,
+  Seg,
+  Skeleton,
+  StatusPill,
+  TipBtn,
+  type DotKind,
+} from './ui/primitives';
 import { useOverlays, useTip, type MenuItem } from './ui/overlays';
 import { useActions } from './ui/actions';
 
@@ -179,6 +193,7 @@ function Profile({
   const foot = (
     <div class="foot">
       <PrimaryButton p={p} state={state} />
+      <ShowButton p={p} state={state} />
       <Tools p={p} state={state} items={items} />
     </div>
   );
@@ -221,6 +236,7 @@ function IdentityBlock({
   // Nothing known yet (first launch, no cache): show placeholders, not
   // misleading "not signed in" text.
   const pending = !p.identity;
+  const app = p.app ?? 'off';
   const [draft, setDraft] = useState(p.name);
   const finish = () => {
     setEditing(false);
@@ -272,9 +288,11 @@ function IdentityBlock({
         {pill && p.isDefault ? <Badge tone="mute">default dirs</Badge> : null}
         {u.plan || id.plan ? <Badge>{u.plan || id.plan}</Badge> : null}
         {pill ? (
-          <StatusPill on={!!p.running}>{p.running ? 'Running' : 'Off'}</StatusPill>
+          <StatusPill on={app === 'running'} tone={APP_UI[app].tone} dot={APP_UI[app].dot}>
+            {APP_UI[app].label}
+          </StatusPill>
         ) : (
-          <Dot on={!!p.running} title={p.running ? 'App running' : 'App not running'} />
+          <Dot on={app === 'running'} kind={APP_UI[app].dot} title={APP_UI[app].title} />
         )}
       </div>
       {pending ? (
@@ -323,6 +341,9 @@ function useMenuItems(p: ProfileView, state: State, rename: () => void): MenuIte
     [{ header: p.name, sub: who }],
     p.isDefault ? [] : [{ label: 'Rename', run: rename }],
     connectionItems(p, state, newBucket),
+    state.desktop.helper && (p.app === 'running' || p.app === 'background' || p.app === 'stalled')
+      ? [{ label: 'Show window', run: () => window.sb.showWindow(p.id) }]
+      : [],
     [
       { label: 'Refresh usage', run: () => window.sb.refresh(p.id) },
       { label: id.loggedIn ? 'Sign in CLI again' : 'Sign in CLI', run: () => window.sb.login(p.id) },
@@ -408,7 +429,13 @@ function UsageBlock({ p, state }: { p: ProfileView; state: State }) {
     <div class="bars">
       {body}
       {installed ? null : <Note>{vendorLabel} desktop app not found in /Applications.</Note>}
-      {!p.isDefault && !p.running && !id.loggedIn ? (
+      {p.app === 'stalled' ? (
+        <Note tone="warn">
+          {vendorLabel} is still running after Quit. It may be asking you to confirm: switch to it and answer, or force
+          quit it.
+        </Note>
+      ) : null}
+      {!p.isDefault && (p.app ?? 'off') === 'off' && !id.loggedIn ? (
         <Note>
           Before the first sign-in, quit the other {vendorLabel} windows: the login link opens in whichever is running.{' '}
           <a
@@ -433,22 +460,83 @@ function UsageBlock({ p, state }: { p: ProfileView; state: State }) {
 }
 
 // The one action that changes the desktop app's state: filled play to
-// launch, an outlined power sign to quit. Icon only, so a row of profiles
-// stays quiet; the tooltip names the profile.
+// launch, a red power sign to quit. Icon only, so a row of profiles stays
+// quiet; the tooltip names the profile. While a launch or quit is on its way
+// the button spins; an app that ignored Quit gets a labelled Force quit.
 function PrimaryButton({ p, state }: { p: ProfileView; state: State }) {
   const vendor = state.vendors[p.vendor];
-  const verb = p.running ? 'Quit' : 'Launch';
+  const app = p.app ?? 'off';
+  if (app === 'stalled') {
+    return (
+      <TipBtn
+        class="primary-btn force"
+        icon="zap"
+        aria-label={`Force quit ${p.name}`}
+        tip={[`Force quit ${p.name}`, 'Anything unsaved in it is lost']}
+        onClick={(e) =>
+          act(async () => {
+            if (!confirm(`Force quit ${vendor.label} for "${p.name}"?\n\nAnything unsaved in it is lost.`)) return;
+            await window.sb.forceQuit(p.id);
+          }, e.currentTarget)
+        }
+      >
+        Force quit
+      </TipBtn>
+    );
+  }
+  if (app === 'starting' || app === 'quitting') {
+    const label = `${APP_UI[app].label.replace('…', '')} ${p.name}…`;
+    return (
+      <TipBtn
+        class={`icon-btn primary-btn busy ${app === 'starting' ? 'primary' : 'quit'}`}
+        icon="loader"
+        disabled
+        aria-label={label}
+        tip={[label]}
+      />
+    );
+  }
+  const up = app === 'running' || app === 'background';
+  const verb = up ? 'Quit' : 'Launch';
   return (
     <TipBtn
-      class={`icon-btn primary-btn ${p.running ? 'quit' : 'primary'}`}
-      icon={p.running ? 'power' : 'play'}
+      class={`icon-btn primary-btn ${up ? 'quit' : 'primary'}`}
+      icon={up ? 'power' : 'play'}
       disabled={!vendor.installed}
       aria-label={`${verb} ${p.name}`}
       tip={[`${verb} ${p.name}`, vendor.installed ? `${vendor.label} desktop app` : `${vendor.label} is not installed`]}
-      onClick={(e) => act(() => (p.running ? window.sb.quit(p.id) : window.sb.launch(p.id)), e.currentTarget)}
+      onClick={(e) => act(() => (up ? window.sb.quit(p.id) : window.sb.launch(p.id)), e.currentTarget)}
     />
   );
 }
+
+// Beside the primary when the app is up but not in view: running with its
+// window closed, or refusing to quit (usually behind a confirm dialog).
+function ShowButton({ p, state }: { p: ProfileView; state: State }) {
+  if (!state.desktop.helper || (p.app !== 'background' && p.app !== 'stalled')) return null;
+  return (
+    <TipBtn
+      class="show-btn"
+      icon="window"
+      aria-label={`Show ${p.name}`}
+      tip={[`Show ${p.name}`, 'Bring back its window']}
+      onClick={(e) => act(() => window.sb.showWindow(p.id), e.currentTarget)}
+    >
+      Show
+    </TipBtn>
+  );
+}
+
+// How each desktop-app state reads: the card's pill, the list's dot and its
+// tooltip. The dot is hidden when the app is off.
+const APP_UI: Record<AppState, { label: string; title: string; tone: 'ok' | 'mute' | 'warn'; dot: DotKind }> = {
+  off: { label: 'Off', title: 'App not running', tone: 'mute', dot: 'off' },
+  starting: { label: 'Starting…', title: 'App starting', tone: 'ok', dot: 'busy' },
+  running: { label: 'Running', title: 'App running', tone: 'ok', dot: 'on' },
+  background: { label: 'No window', title: 'App running with no window open', tone: 'ok', dot: 'ring' },
+  quitting: { label: 'Quitting…', title: 'App quitting', tone: 'mute', dot: 'busy' },
+  stalled: { label: "Won't quit", title: 'App still running after Quit', tone: 'warn', dot: 'warn' },
+};
 
 function Tools({ p, state, items }: { p: ProfileView; state: State; items: MenuItem[] }) {
   const { openMenu } = useOverlays();

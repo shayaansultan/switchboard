@@ -43,6 +43,9 @@ export interface Settings {
   appearance?: Appearance;
   menuBar?: MenuBarStyle;
   view?: ProfilesView;
+  // Tell an app running with its window closed from one in use. Needs
+  // Accessibility permission; see src/native/app-events.swift.
+  noticeClosedWindows?: boolean;
 }
 
 export interface Store {
@@ -119,10 +122,25 @@ export interface CacheEntry {
 }
 export type LiveCache = Record<string, CacheEntry>;
 
-// What the main process knows about a profile beyond the store: whether its
-// window is running, who is signed in, and the last usage numbers.
+// A profile's desktop app, as the window and tray show it. `starting` and
+// `quitting` are a launch or quit Switchboard sent that the process list has
+// not confirmed yet; `stalled` is a quit that passed its deadline with the
+// app still running; `background` is running with no window open, known only
+// when closed windows are being noticed. See app-state.ts.
+export type AppState = 'off' | 'starting' | 'running' | 'background' | 'quitting' | 'stalled';
+
+// What the native helper makes possible here: Show window needs the helper;
+// noticing closed windows also needs Accessibility, which is `missing` until
+// the person grants it and `off` while the setting is off.
+export interface DesktopSupport {
+  helper: boolean;
+  accessibility: 'granted' | 'missing' | 'off';
+}
+
+// What the main process knows about a profile beyond the store: what its
+// desktop app is doing, who is signed in, and the last usage numbers.
 export interface Live {
-  running?: boolean;
+  app?: AppState;
   identity?: Identity;
   usage?: Usage;
   cached?: boolean;
@@ -181,6 +199,7 @@ export interface State {
   buckets: BucketView[];
   bucketsError?: string;
   cli?: CliStatus;
+  desktop: DesktopSupport;
 }
 
 // The preload bridge, as `window.sb` in the renderer.
@@ -207,6 +226,9 @@ export interface SwitchboardApi {
   saveSettings(s: Partial<Settings>): Promise<void>;
   launch(id: string): Promise<void>;
   quit(id: string): Promise<void>;
+  forceQuit(id: string): Promise<void>;
+  showWindow(id: string): Promise<void>;
+  grantAccessibility(): Promise<void>;
   quitOthers(id: string): Promise<number>;
   login(id: string): Promise<void>;
   shell(id: string): Promise<void>;

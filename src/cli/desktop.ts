@@ -2,7 +2,7 @@
 
 import * as launch from '../launch';
 import { receipt } from '../buckets/proxy';
-import type { Instance, Profile } from '../types';
+import type { Instance, Profile, Settings } from '../types';
 import type { Context } from './context';
 import { parse, required } from './context';
 import { confirm, resolveProfile } from './resolve';
@@ -23,6 +23,21 @@ export function assertNotRunning(profile: Profile, running: Instance[], why: str
   if (runningPid(profile, running) !== null) {
     throw refused('desktop-running', `Quit the ${profile.name} window first: ${why}`, `switchboard quit ${profile.id}`);
   }
+}
+
+// Whether each running pid has a window open, when the app is set to notice
+// closed windows and this process may ask. Null otherwise: the CLI does not
+// guess, and runs in a terminal whose Accessibility permission is its own.
+export async function windowStates(settings: Settings, running: Instance[]): Promise<Map<number, boolean> | null> {
+  const helper = launch.appEventsHelper();
+  if (!helper || !settings.noticeClosedWindows || !running.length) return null;
+  const counts = await launch
+    .windowCounts(
+      helper,
+      running.map((i) => i.pid),
+    )
+    .catch(() => null);
+  return counts ? new Map([...counts].map(([pid, n]) => [pid, n > 0])) : null;
 }
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

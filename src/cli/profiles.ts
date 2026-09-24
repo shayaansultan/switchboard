@@ -9,7 +9,7 @@ import * as buckets from '../buckets';
 import type { BringMode, Instance, Profile, SetupItem, Vendor } from '../types';
 import type { Context } from './context';
 import { parse, required } from './context';
-import { assertNotRunning, instances, runningPid } from './desktop';
+import { assertNotRunning, instances, runningPid, windowStates } from './desktop';
 import { notFound, ref, refused, table, usageError, type ProfileRef } from './output';
 import { confirm, mutateStore, parseVendor, resolveProfile } from './resolve';
 import { identityOut, readLiveCache, usageOut, type CacheRead, type IdentityOut, type UsageOut } from './usage';
@@ -21,10 +21,18 @@ export interface ProfileSummary extends ProfileRef {
   command: string;
   running: boolean;
   pid: number | null;
+  // Whether the running app has a window open; null when it is not running or
+  // this cannot be told (see windowStates).
+  window: boolean | null;
   identity: IdentityOut;
 }
 
-export function summary(profile: Profile, running: Instance[], cache: CacheRead): ProfileSummary {
+export function summary(
+  profile: Profile,
+  running: Instance[],
+  cache: CacheRead,
+  windows: Map<number, boolean> | null = null,
+): ProfileSummary {
   const pid = runningPid(profile, running);
   return {
     ...ref(profile),
@@ -34,6 +42,7 @@ export function summary(profile: Profile, running: Instance[], cache: CacheRead)
     command: launch.cliCommand(profile),
     running: pid !== null,
     pid,
+    window: pid !== null ? (windows?.get(pid) ?? null) : null,
     identity: identityOut(cache.entries[profile.id]?.identity),
   };
 }
@@ -44,13 +53,16 @@ export async function listCommand(rest: string[], ctx: Context): Promise<void> {
   const { values } = parse(rest, { vendor: { type: 'string' } });
   const vendor = values.vendor === undefined ? null : parseVendor(values.vendor);
   const [running, cache] = [await instances(), readLiveCache()];
-  const rows = ctx.data.profiles.filter((p) => !vendor || p.vendor === vendor).map((p) => summary(p, running, cache));
+  const windows = await windowStates(ctx.data.settings, running);
+  const rows = ctx.data.profiles
+    .filter((p) => !vendor || p.vendor === vendor)
+    .map((p) => summary(p, running, cache, windows));
   ctx.out.result({ profiles: rows, ...warnings(ctx) }, () =>
     table(
       rows.map((r) => ({
         id: r.id,
         name: r.name,
-        running: r.running ? 'yes' : '',
+        running: r.running ? (r.window === false ? 'no window' : 'yes') : '',
         bucket: r.proxyBucket,
         account: r.identity?.email ?? (r.identity ? 'signed out' : ''),
       })),
@@ -65,7 +77,10 @@ export async function showCommand(rest: string[], ctx: Context): Promise<void> {
   const entry = cache.entries[profile.id];
   const usage: UsageOut = usageOut(entry?.identity, entry?.usage, Date.now());
   ctx.out.result({
-    ...summary(profile, await instances(), cache),
+    ...(await (async () => {
+      const running = await instances();
+      return summary(profile, running, cache, await windowStates(ctx.data.settings, running));
+    })()),
     createdAt: profile.createdAt,
     setup: profile.setup,
     usage,

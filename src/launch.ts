@@ -179,6 +179,53 @@ export async function quitDesktop(profile: Profile): Promise<boolean> {
   return true;
 }
 
+// For an app that ignored the polite quit, usually because it is showing a
+// "quit anyway?" dialog. Anything unsaved in it is lost; its helper processes
+// exit with it.
+export async function forceQuitDesktop(profile: Profile): Promise<boolean> {
+  const inst = instanceFor(profile, await runningInstances());
+  if (!inst) return false;
+  process.kill(inst.pid, 'SIGKILL');
+  return true;
+}
+
+// ---- the native helper (src/native/app-events.swift) ----
+
+// A native binary cannot run from inside app.asar; electron-builder unpacks
+// it beside the archive (asarUnpack in package.json). Null when this build
+// has none, e.g. one made off macOS.
+export function appEventsHelper(): string | null {
+  const file = path.join(__dirname, 'app-events').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
+  return fs.existsSync(file) ? file : null;
+}
+
+// How many windows each process has open, or null without Accessibility
+// permission, in which case nobody should guess.
+export async function windowCounts(helper: string, pids: number[]): Promise<Map<number, number> | null> {
+  if (!pids.length) return new Map();
+  const { stdout } = await run(helper, ['windows', ...pids.map(String)], { timeout: 5000 });
+  const r = JSON.parse(stdout) as { trusted: boolean; windows?: Record<string, number> };
+  if (!r.trusted) return null;
+  return new Map(Object.entries(r.windows ?? {}).map(([pid, n]) => [Number(pid), n]));
+}
+
+// Whether Switchboard may read other apps' windows. With `prompt`, macOS
+// shows its own dialog offering to open the Accessibility settings.
+export async function accessibilityGranted(helper: string, prompt = false): Promise<boolean> {
+  const { stdout } = await run(helper, ['trust', ...(prompt ? ['--prompt'] : [])], { timeout: 5000 });
+  return (JSON.parse(stdout) as { trusted: boolean }).trusted;
+}
+
+// Bring back a profile's window, closed or minimised, as a click on its Dock
+// icon would. Sent to that one process, so it reaches the right profile even
+// with several instances of the same app running.
+export async function showDesktop(profile: Profile, helper: string): Promise<boolean> {
+  const inst = instanceFor(profile, await runningInstances());
+  if (!inst) return false;
+  const { stdout } = await run(helper, ['reopen', String(inst.pid)], { timeout: 5000 });
+  return (JSON.parse(stdout) as { ok: boolean }).ok;
+}
+
 // Quit every instance of a vendor's app except the given profile's. Used
 // before a first sign-in, because the login deep link is delivered to
 // whichever instance macOS picks.

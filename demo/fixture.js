@@ -19,7 +19,7 @@ export const profiles = [
     name: 'Personal',
     isDefault: true,
     color: '#d97757',
-    running: true,
+    app: 'running',
     identity: { loggedIn: true, email: 'you@example.com', plan: 'Max' },
     usage: {
       plan: 'Max',
@@ -38,7 +38,7 @@ export const profiles = [
     name: 'Work',
     isDefault: false,
     color: '#3b82f6',
-    running: false,
+    app: 'off',
     setup: { from: 'claude-default' },
     identity: { loggedIn: true, email: 'you@acme.example', plan: 'Team' },
     usage: {
@@ -56,7 +56,7 @@ export const profiles = [
     name: 'Personal',
     isDefault: true,
     color: '#10a37f',
-    running: true,
+    app: 'running',
     identity: { loggedIn: true, email: 'you@example.com', plan: 'Pro' },
     usage: {
       plan: 'Pro',
@@ -74,7 +74,7 @@ export const profiles = [
     name: 'Client',
     isDefault: false,
     color: '#a855f7',
-    running: false,
+    app: 'off',
     setup: { from: 'codex-default' },
     identity: { loggedIn: true, email: 'you@client.example', plan: 'Business' },
     usage: {

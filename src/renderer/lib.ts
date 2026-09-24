@@ -7,6 +7,7 @@ export type UsageWindow = import('../types').UsageWindow;
 export type Identity = import('../types').Identity;
 export type Usage = import('../types').Usage;
 export type Vendor = import('../types').Vendor;
+export type AppState = import('../types').AppState;
 export type BringMode = import('../types').BringMode;
 export type Settings = import('../types').Settings;
 export type ProfilesView = import('../types').ProfilesView;

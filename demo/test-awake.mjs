@@ -16,6 +16,7 @@ await fs.mkdir(output, { recursive: true });
 
 const state = {
   palette: PALETTE,
+  desktop: { helper: true, accessibility: 'off' },
   awake: { status: 'ready', value: 'off', notice: null },
   settings: fixture.settings,
   terminals: fixture.terminals,

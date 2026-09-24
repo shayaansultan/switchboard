@@ -24,11 +24,15 @@ import { AwakeController, isAwakeValue, macAwakeSystem } from './awake';
 import { barPng, meterPng, stripPng } from './trayart';
 import { composeTrayText, type TrayText } from './tray-status';
 import { PollingPause, type PauseReason } from './polling-pause';
+import { AppStates, START_DEADLINE_MS } from './app-state';
+import { DesktopWatch } from './desktop-watch';
 import { installShim, launcherScript } from './shim';
 import { INSTALLED_APP } from './buckets/runtime';
 import { HOME } from './store';
 import type {
+  AppState,
   CliStatus,
+  DesktopSupport,
   AddOptions,
   BringOptions,
   Live,
@@ -250,6 +254,7 @@ function stateSnapshot(): State {
       ...live.get(p.id),
     })),
     cli: cliStatus(),
+    desktop: desktopSupport(),
   };
 }
 
@@ -267,9 +272,101 @@ function liveFor(p: Profile): Live {
   return cur;
 }
 
-async function refreshRunning(): Promise<void> {
-  const instances = await launch.runningInstances().catch(() => []);
-  for (const p of data.profiles) liveFor(p).running = !!launch.instanceFor(p, instances);
+// ---- desktop apps ----
+// What each profile's desktop app is doing. The process list is read by the
+// watcher (see desktop-watch.ts) on app launch and quit events and on its own
+// timer, independently of the usage poll.
+const appStates = new AppStates();
+
+function applyAppStates(): void {
+  for (const p of data.profiles) liveFor(p).app = appStates.get(p.id);
+}
+
+const helper = launch.appEventsHelper();
+// Whether closed windows can be noticed right now: the setting is on, and
+// macOS has granted Accessibility, which is re-read on each check because the
+// person can revoke it at any time.
+let accessibility: DesktopSupport['accessibility'] = 'off';
+function desktopSupport(): DesktopSupport {
+  return { helper: !!helper, accessibility };
+}
+
+// Returns whether anything changed. A failed `ps` keeps the last answer
+// rather than calling every app off; a failed window count only loses the
+// distinction between running and background.
+async function refreshRunning(): Promise<boolean> {
+  const instances = await launch.runningInstances().catch(() => null);
+  if (!instances) return false;
+  const pids = new Map<string, number>();
+  for (const p of data.profiles) {
+    const inst = launch.instanceFor(p, instances);
+    if (inst) pids.set(p.id, inst.pid);
+  }
+  const alive = new Map(data.profiles.map((p) => [p.id, pids.has(p.id)]));
+  const windowless = new Set<string>();
+  const before = accessibility;
+  if (helper && data.settings.noticeClosedWindows) {
+    const counts = await launch.windowCounts(helper, [...pids.values()]).catch(() => undefined);
+    if (counts === null) accessibility = 'missing';
+    else if (counts) {
+      accessibility = 'granted';
+      for (const [id, pid] of pids) if (counts.get(pid) === 0) windowless.add(id);
+    }
+  } else accessibility = 'off';
+  const changed = appStates.observe(alive, windowless);
+  applyAppStates();
+  return changed || before !== accessibility;
+}
+
+const desktopWatch = new DesktopWatch({
+  check: async () => {
+    if (await refreshRunning()) broadcast();
+  },
+  busy: () => appStates.busy,
+  windows: () => accessibility === 'granted',
+  tracks: (exe) => profiles.VENDOR_IDS.some((v) => profiles.VENDORS[v].appBinary === exe),
+  helper,
+});
+
+// Show the launch or quit at once, then hold the caller until the process
+// list confirms it or its deadline passes.
+async function expectApp(p: Profile, kind: 'starting' | 'quitting') {
+  appStates.expect(p.id, kind);
+  applyAppStates();
+  broadcast();
+  desktopWatch.poke();
+  const settled = await appStates.settled(p.id);
+  // A proxy launch changes what its bucket reports.
+  await refreshBuckets();
+  broadcast();
+  return settled;
+}
+
+async function launchApp(p: Profile): Promise<void> {
+  await launch.launchDesktop(p);
+  const { failedToStart } = await expectApp(p, 'starting');
+  if (failedToStart)
+    throw new Error(
+      `${profiles.VENDORS[p.vendor].label} for "${p.name}" did not start within ${START_DEADLINE_MS / 1000} seconds.`,
+    );
+}
+
+async function showApp(p: Profile): Promise<void> {
+  if (!helper) throw new Error('Show window needs the app-events helper, which this build of Switchboard lacks.');
+  if (!(await launch.showDesktop(p, helper)))
+    throw new Error(`Could not bring back the ${profiles.VENDORS[p.vendor].label} window for "${p.name}".`);
+  desktopWatch.poke();
+}
+
+// Resolves once the app is gone or has passed the deadline; a stalled app is
+// shown as such, with Force quit, rather than reported as an error.
+async function quitApp(p: Profile, force = false): Promise<void> {
+  const sent = force ? await launch.forceQuitDesktop(p) : await launch.quitDesktop(p);
+  if (!sent) {
+    desktopWatch.poke();
+    return;
+  }
+  await expectApp(p, 'quitting');
 }
 
 const IDENTITY_TTL = 60 * 60 * 1000;
@@ -326,12 +423,6 @@ async function refreshAll(onlyId?: string, force = false): Promise<void> {
   broadcast();
 }
 
-// Launching or quitting an app only changes what's running, not the quota.
-async function refreshRunningOnly(): Promise<void> {
-  await Promise.all([refreshRunning(), refreshBuckets()]);
-  broadcast();
-}
-
 function schedulePolling(): void {
   if (pollTimer) clearTimeout(pollTimer);
   pollTimer = null;
@@ -344,11 +435,13 @@ function schedulePolling(): void {
 
 function pausePolling(reason: PauseReason): void {
   pollingPause.pause(reason);
+  desktopWatch.setPaused(true);
   schedulePolling();
 }
 
 async function resumePolling(reason: PauseReason): Promise<void> {
   if (!pollingPause.resume(reason)) return;
+  desktopWatch.setPaused(pollingPause.paused);
   await refreshAll().catch(() => {});
   schedulePolling();
 }
@@ -385,12 +478,25 @@ function createWindow(): BrowserWindow {
   w.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   w.on('closed', () => {
     win = null;
+    desktopWatch.setVisible(false);
   });
   w.on('focus', () => {
     noteInteraction();
     void awake.refresh();
+    desktopWatch.poke();
   });
-  w.on('show', noteInteraction);
+  w.on('show', () => {
+    noteInteraction();
+    desktopWatch.setVisible(true);
+  });
+  // macOS also sends hide and show when the window is fully covered and
+  // uncovered, which is what the watcher wants: look often only while
+  // someone can see the window, and look at once when they can again.
+  w.on('hide', () => desktopWatch.setVisible(false));
+  w.on('minimize', () => desktopWatch.setVisible(false));
+  w.on('restore', () => desktopWatch.setVisible(true));
+  // Windows are created shown.
+  desktopWatch.setVisible(true);
   win = w;
   return w;
 }
@@ -508,20 +614,23 @@ function rebuildTray(): void {
         : usageLine(p);
       const fills = windows.slice(0, 4).map((w) => ({ fill: laneFill(w) }));
       items.push({
-        label: `${p.name}  ${summary}${s.running ? '' : '  (not running)'}`,
+        label: `${p.name}  ${summary}${TRAY_SUFFIX[s.app ?? 'off']}`,
         icon: fills.length
           ? art(`strip:${fills.map((l) => l.fill.toFixed(2)).join(',')}:${stale}`, () => stripPng(fills, stale))
           : undefined,
         submenu: [
           ...windowLines,
           ...(windowLines.length ? [{ type: 'separator' as const }] : []),
-          {
-            label: s.running ? 'Quit app' : 'Launch app',
-            click: () =>
-              (s.running ? launch.quitDesktop(p) : launch.launchDesktop(p))
-                .then(() => setTimeout(() => refreshRunningOnly(), 1500))
-                .catch((error: Error) => dialog.showErrorBox('Could not launch app', error.message)),
-          },
+          trayAppItem(p, s.app ?? 'off'),
+          ...(helper && ['running', 'background', 'stalled'].includes(s.app ?? 'off')
+            ? [
+                {
+                  label: 'Show window',
+                  click: () =>
+                    void showApp(p).catch((e: Error) => dialog.showErrorBox('Could not show window', e.message)),
+                },
+              ]
+            : []),
           { label: 'Open terminal here', click: () => launch.openShell(p, data.settings) },
           { label: 'Refresh usage', click: () => refreshAll(p.id, true) },
         ],
@@ -536,13 +645,41 @@ function rebuildTray(): void {
   tray.setContextMenu(Menu.buildFromTemplate(items));
 }
 
+// After the profile's usage in its tray line.
+const TRAY_SUFFIX: Record<AppState, string> = {
+  off: '  (not running)',
+  starting: '  (starting…)',
+  running: '',
+  background: '  (no window)',
+  quitting: '  (quitting…)',
+  stalled: "  (won't quit)",
+};
+
+function trayAppItem(p: Profile, state: AppState): Electron.MenuItemConstructorOptions {
+  const fail = (title: string) => (error: Error) => dialog.showErrorBox(title, error.message);
+  switch (state) {
+    case 'off':
+      return { label: 'Launch app', click: () => void launchApp(p).catch(fail('Could not launch app')) };
+    case 'running':
+    case 'background':
+      return { label: 'Quit app', click: () => void quitApp(p).catch(fail('Could not quit app')) };
+    case 'stalled':
+      return { label: 'Force quit app', click: () => void quitApp(p, true).catch(fail('Could not quit app')) };
+    default:
+      return { label: state === 'starting' ? 'Starting…' : 'Quitting…', enabled: false };
+  }
+}
+
 function createTray(): void {
   // Template image: macOS recolours it for light/dark menu bars.
   const img = nativeImage.createFromPath(path.join(__dirname, '..', 'build', 'trayTemplate.png'));
   img.setTemplateImage(true);
   tray = new Tray(img);
   tray.setToolTip('Switchboard');
-  tray.on('mouse-enter', noteInteraction);
+  tray.on('mouse-enter', () => {
+    noteInteraction();
+    desktopWatch.poke();
+  });
   rebuildTray();
 }
 
@@ -739,26 +876,38 @@ ipcMain.handle('profiles:move', (_e, id: string, delta: number) => {
   return moved;
 });
 ipcMain.handle('settings:save', (_e, s: Partial<Settings>) => {
+  const turningOn = !!s.noticeClosedWindows && !data.settings.noticeClosedWindows;
   mutate(() => {
     data.settings = { ...data.settings, ...s };
     profiles.save(data);
   });
+  // Ask for Accessibility the moment the person opts in, not later.
+  if (turningOn && helper) void launch.accessibilityGranted(helper, true).catch(() => false);
+  desktopWatch.poke();
   schedulePolling();
   applyLoginItem();
   applyAppearance();
   broadcast();
 });
-ipcMain.handle('app:launch', async (_e, id: string) => {
-  await launch.launchDesktop(byId(id));
-  setTimeout(() => refreshRunningOnly().catch(() => {}), 2500);
-});
-ipcMain.handle('app:quit', async (_e, id: string) => {
-  await launch.quitDesktop(byId(id));
-  setTimeout(() => refreshRunningOnly().catch(() => {}), 1500);
+ipcMain.handle('app:launch', (_e, id: string) => launchApp(byId(id)));
+ipcMain.handle('app:quit', (_e, id: string) => quitApp(byId(id)));
+ipcMain.handle('app:forceQuit', (_e, id: string) => quitApp(byId(id), true));
+ipcMain.handle('app:show', (_e, id: string) => showApp(byId(id)));
+// macOS shows its own dialog pointing at Privacy & Security; the next check
+// after the person flips the switch picks it up.
+ipcMain.handle('app:grantAccessibility', async () => {
+  if (!helper) return;
+  await launch.accessibilityGranted(helper, true).catch(() => false);
+  desktopWatch.poke();
 });
 ipcMain.handle('app:quitOthers', async (_e, id: string) => {
-  const n = await launch.quitOthers(byId(id));
-  setTimeout(() => refreshRunningOnly().catch(() => {}), 1500);
+  const target = byId(id);
+  const n = await launch.quitOthers(target);
+  const others = data.profiles.filter(
+    (p) => p.vendor === target.vendor && p.id !== target.id && appStates.get(p.id) === 'running',
+  );
+  await Promise.all(others.map((p) => expectApp(p, 'quitting')));
+  desktopWatch.poke();
   return n;
 });
 ipcMain.handle('cli:login', (_e, id: string) => launch.openLogin(byId(id), data.settings));
@@ -792,6 +941,9 @@ app.whenReady().then(async () => {
   powerMonitor.on('resume', () => void resumePolling('sleep'));
   powerMonitor.on('unlock-screen', () => void resumePolling('lock'));
   if (powerMonitor.getSystemIdleState(1) === 'locked') pollingPause.pause('lock');
+  desktopWatch.setPaused(pollingPause.paused);
+  desktopWatch.start();
+  app.on('will-quit', () => desktopWatch.stop());
   schedulePolling();
   if (!pollingPause.paused) await refreshAll().catch(() => {});
   const stopWatching = profiles.watchStore(applyReload);
