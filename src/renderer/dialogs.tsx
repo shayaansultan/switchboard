@@ -188,7 +188,35 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
   const [menuBar, setMenuBar] = useState(s.menuBar || 'icon');
   const [appearance, setAppearance] = useState(s.appearance || 'system');
   const [openAtLogin, setOpenAtLogin] = useState(!!s.openAtLogin);
-  const [noticeClosedWindows, setNoticeClosedWindows] = useState(!!s.noticeClosedWindows);
+  // On only while Switchboard holds Accessibility permission: a saved "on"
+  // that lost it (macOS forgets after each rebuild) opens as off.
+  const lostAccess = !!s.noticeClosedWindows && state.desktop.accessibility === 'missing';
+  const [noticeClosedWindows, setNoticeClosedWindows] = useState(!!s.noticeClosedWindows && !lostAccess);
+  const [awaitingAccess, setAwaitingAccess] = useState(false);
+  const turnNoticeClosedWindows = (on: boolean) => {
+    if (!on) {
+      setNoticeClosedWindows(false);
+      setAwaitingAccess(false);
+      return;
+    }
+    void act(async () => {
+      // Asks macOS to show its dialog; the switch stays off until granted.
+      if (await window.sb.accessibility('request')) setNoticeClosedWindows(true);
+      else setAwaitingAccess(true);
+    });
+  };
+  // While waiting, notice the grant as soon as it is made in System Settings.
+  useEffect(() => {
+    if (!awaitingAccess) return;
+    const t = setInterval(() => {
+      void window.sb.accessibility('check').then((ok) => {
+        if (!ok) return;
+        setNoticeClosedWindows(true);
+        setAwaitingAccess(false);
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, [awaitingAccess]);
   const submit = (e: Event) => {
     e.preventDefault();
     void act(async () => {
@@ -299,22 +327,28 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
               <Switch
                 name="noticeClosedWindows"
                 checked={noticeClosedWindows}
-                onChange={setNoticeClosedWindows}
+                onChange={turnNoticeClosedWindows}
                 label="Notice closed windows"
               />,
             )
           : null}
-        {noticeClosedWindows && s.noticeClosedWindows && state.desktop.accessibility === 'missing' ? (
-          <p class="hint warn-hint">
-            Switchboard doesn't have Accessibility permission yet, so every running app reads as Running.{' '}
+        {awaitingAccess || (lostAccess && !noticeClosedWindows) ? (
+          <p class="hint warn-hint" id="access-hint">
+            {awaitingAccess
+              ? 'Waiting for Accessibility permission. In System Settings, turn on Switchboard under Privacy & Security, Accessibility; this switch turns on by itself once you do.'
+              : 'Switchboard lost its Accessibility permission, as macOS does after each rebuild, so this is off.'}{' '}
+            If Switchboard is already listed there, turn it off and on again.{' '}
             <a
               href="#"
               onClick={(e) => {
                 e.preventDefault();
-                void act(() => window.sb.grantAccessibility());
+                void act(async () => {
+                  await window.sb.accessibility('open');
+                  setAwaitingAccess(true);
+                });
               }}
             >
-              Grant access
+              Open Accessibility settings
             </a>
           </p>
         ) : null}

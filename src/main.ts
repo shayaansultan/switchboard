@@ -9,6 +9,8 @@ import {
   clipboard,
   dialog,
   powerMonitor,
+  shell,
+  systemPreferences,
 } from 'electron';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -876,13 +878,13 @@ ipcMain.handle('profiles:move', (_e, id: string, delta: number) => {
   return moved;
 });
 ipcMain.handle('settings:save', (_e, s: Partial<Settings>) => {
-  const turningOn = !!s.noticeClosedWindows && !data.settings.noticeClosedWindows;
+  // The switch cannot be turned on without the permission it needs.
+  if (s.noticeClosedWindows && !data.settings.noticeClosedWindows && !accessibilityTrusted())
+    throw new Error('Allow Switchboard in Accessibility settings before turning on Notice closed windows.');
   mutate(() => {
     data.settings = { ...data.settings, ...s };
     profiles.save(data);
   });
-  // Ask for Accessibility the moment the person opts in, not later.
-  if (turningOn && helper) void launch.accessibilityGranted(helper, true).catch(() => false);
   desktopWatch.poke();
   schedulePolling();
   applyLoginItem();
@@ -893,12 +895,21 @@ ipcMain.handle('app:launch', (_e, id: string) => launchApp(byId(id)));
 ipcMain.handle('app:quit', (_e, id: string) => quitApp(byId(id)));
 ipcMain.handle('app:forceQuit', (_e, id: string) => quitApp(byId(id), true));
 ipcMain.handle('app:show', (_e, id: string) => showApp(byId(id)));
-// macOS shows its own dialog pointing at Privacy & Security; the next check
-// after the person flips the switch picks it up.
-ipcMain.handle('app:grantAccessibility', async () => {
-  if (!helper) return;
-  await launch.accessibilityGranted(helper, true).catch(() => false);
-  desktopWatch.poke();
+// Accessibility, asked of macOS as Switchboard itself. Its helper inherits
+// the answer, because macOS attributes a child process to the app that
+// started it. 'request' shows macOS's dialog, but only the first time: once
+// Switchboard is listed, even switched off or stale after a rebuild, macOS
+// stays silent, so the window also offers to open the pane directly.
+function accessibilityTrusted(prompt = false): boolean {
+  return process.platform === 'darwin' && systemPreferences.isTrustedAccessibilityClient(prompt);
+}
+ipcMain.handle('app:accessibility', async (_e, action: unknown) => {
+  const a = z.enum(['check', 'request', 'open']).parse(action);
+  if (a === 'open')
+    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
+  const trusted = accessibilityTrusted(a === 'request');
+  if (trusted) desktopWatch.poke();
+  return trusted;
 });
 ipcMain.handle('app:quitOthers', async (_e, id: string) => {
   const target = byId(id);

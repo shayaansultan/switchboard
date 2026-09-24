@@ -76,10 +76,12 @@ because it is asking you to confirm; switch to the app and answer it, or use
 
 Closing an app's window with its red button leaves the app running. Turn on
 **Notice closed windows** in Settings and such a profile reads **No window**,
-with a hollow dot, instead of Running. This needs Accessibility permission,
-which Switchboard asks for when you turn it on; because the app is ad-hoc
-signed, macOS forgets it after each rebuild, and the setting then shows a
-Grant access link. A window that is minimised, hidden or on another desktop
+with a hollow dot, instead of Running. This needs Accessibility permission:
+turning the switch on asks macOS for it, and the switch stays off until you
+allow Switchboard in System Settings, then turns on by itself. Because the app
+is ad-hoc signed, macOS forgets the permission after each rebuild; the switch
+then reads off again, with a link to the settings pane, where you turn
+Switchboard off and on. A window that is minimised, hidden or on another desktop
 still counts as open. Whether or not the setting is on, **Show window** (a
 button on a No window row, and in each running profile's menu) brings that
 profile's window back, as clicking its Dock icon would.
