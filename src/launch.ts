@@ -209,13 +209,6 @@ export async function windowCounts(helper: string, pids: number[]): Promise<Map<
   return new Map(Object.entries(r.windows ?? {}).map(([pid, n]) => [Number(pid), n]));
 }
 
-// Whether Switchboard may read other apps' windows. With `prompt`, macOS
-// shows its own dialog offering to open the Accessibility settings.
-export async function accessibilityGranted(helper: string, prompt = false): Promise<boolean> {
-  const { stdout } = await run(helper, ['trust', ...(prompt ? ['--prompt'] : [])], { timeout: 5000 });
-  return (JSON.parse(stdout) as { trusted: boolean }).trusted;
-}
-
 // Bring back a profile's window, closed or minimised, as a click on its Dock
 // icon would. Sent to that one process, so it reaches the right profile even
 // with several instances of the same app running.

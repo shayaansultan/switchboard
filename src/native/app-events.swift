@@ -3,8 +3,9 @@
 //   app-events                 Stream app launches, quits and activations.
 //   app-events windows PID...  How many windows each process has open.
 //   app-events reopen PID      Bring back that process's window.
-//   app-events trust [--prompt] Whether Accessibility is granted; --prompt
-//                              asks macOS to offer it.
+//
+// Asking for Accessibility is Switchboard's own job (Electron's
+// systemPreferences); this helper inherits the answer as its child.
 //
 // The stream prints one JSON object per line: {"event":"launch"|"terminate"|
 // "activate"|"deactivate","pid":N,"exe":"/path"}. Each instance of an app
@@ -140,10 +141,6 @@ case "windows":
 case "reopen":
   guard args.count > 1, let pid = pid_t(args[1]) else { exit(2) }
   print(json: ["ok": reopen(pid)])
-case "trust":
-  let prompt = args.contains("--prompt")
-  let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt] as CFDictionary
-  print(json: ["trusted": AXIsProcessTrustedWithOptions(options)])
 default:
   exit(2)
 }

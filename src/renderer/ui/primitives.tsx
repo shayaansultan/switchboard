@@ -225,7 +225,15 @@ export function Switch({
         name={name}
         checked={checked}
         aria-label={label}
-        onChange={(e) => onChange?.((e.currentTarget as HTMLInputElement).checked)}
+        onChange={(e) => {
+          // Controlled: show what the owner decides, not the click. A switch
+          // whose owner refuses the change (say, until a permission is
+          // granted) snaps back instead of looking on.
+          const el = e.currentTarget as HTMLInputElement;
+          const wanted = el.checked;
+          el.checked = checked;
+          onChange?.(wanted);
+        }}
       />
       <span class="knob" />
     </span>
