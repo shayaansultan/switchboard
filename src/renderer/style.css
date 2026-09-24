@@ -237,11 +237,14 @@ main { padding: 24px 24px 32px; display: grid; gap: 16px; align-content: start; 
 .panel-body > .note { padding: 12px 0; }
 
 /* Two columns: the profile and its actions on the left, its usage on the
-   right, so names, bars and buttons line up down the whole list. */
+   right, so names, bars and buttons line up down the whole list. The left
+   column and the gap shrink with the window, from 300px + 32px on a wide one
+   to 220px + 20px where the row stacks, so the bars close in rather than
+   leaving the same gap at every width. */
 .card {
-  display: grid; grid-template-columns: minmax(220px, 300px) minmax(280px, 1fr);
+  display: grid; grid-template-columns: clamp(220px, 21cqi + 69px, 300px) minmax(280px, 1fr);
   grid-template-rows: auto 1fr; grid-template-areas: 'who bars' 'foot bars';
-  gap: 12px 32px; align-items: start; padding: 16px 0;
+  gap: 12px clamp(20px, 3.2cqi - 3px, 32px); align-items: start; padding: 16px 0;
 }
 .card + .card { border-top: 1px solid var(--line); }
 .card .who { grid-area: who; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
