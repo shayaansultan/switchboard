@@ -4,7 +4,7 @@
 // re-render of the row underneath never removes them.
 
 import { createContext, type ComponentChildren } from 'preact';
-import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { useContext, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { act } from '../lib';
 import { Icon } from './primitives';
 
@@ -69,7 +69,10 @@ export function OverlayProvider({ children }: { children: ComponentChildren }) {
     hideTip: () => setTip(null),
   };
 
-  useEffect(() => {
+  // A layout effect, so Escape and outside clicks are heard from the commit
+  // that puts the menu on screen. A plain effect waits for the next paint,
+  // and a key pressed in between would leave the menu open.
+  useLayoutEffect(() => {
     if (!menu) return;
     const onOutside = (e: MouseEvent) => {
       const m = menuRef.current;
