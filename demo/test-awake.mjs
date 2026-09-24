@@ -206,6 +206,16 @@ try {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.setViewportSize({ width: 560, height: 420 });
   await page.evaluate(() => window.__awakeTest.publish({ status: 'ready', value: 'on', notice: null }));
+  // The popover moves on the window's resize event, which lands a frame after
+  // the viewport changes; measure once it has, rather than racing it.
+  await page.waitForFunction(
+    () => {
+      const r = document.querySelector('#awake-popover').getBoundingClientRect();
+      return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+    },
+    null,
+    { timeout: 3000 },
+  );
   const popoverBox = await page.locator('#awake-popover').boundingBox();
   assert.ok(popoverBox.x >= 0 && popoverBox.x + popoverBox.width <= 560);
   assert.ok(popoverBox.y + popoverBox.height <= 420);
