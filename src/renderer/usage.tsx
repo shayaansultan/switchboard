@@ -286,10 +286,9 @@ function Forecast({ state, report }: { state: State; report: UsageReport }) {
   if (!f || dismissed === key || !known(state, f.profile)) return null;
   const early = Date.parse(f.resetsAt) - Date.parse(f.fullAt);
   const gap = early >= 3_600_000 ? 'over an hour' : `${Math.round(early / 60_000)} minutes`;
-  const alt = f.alternative && known(state, f.alternative.profile) ? f.alternative : null;
-  const altProfile = alt ? state.profiles.find((p) => p.id === alt.profile) : undefined;
-  // Its desktop app where there is one; a terminal in it otherwise.
-  const hasApp = !!altProfile && state.vendors[altProfile.vendor].installed;
+  const alt = f.alternative;
+  const other = alt ? state.profiles.find((p) => p.id === alt.profile) : undefined;
+  const otherName = other ? profileName(state, other.id) : '';
   return (
     <div class="forecast" role="status">
       <PctRing pct={f.pct} />
@@ -302,21 +301,18 @@ function Forecast({ state, report }: { state: State; report: UsageReport }) {
           {paceWords(f.pace)}
           {paceWords(f.pace) ? ', and ' : ''}
           {Math.round(f.ratePerHour)}% an hour lately.
-          {alt ? ` ${profileName(state, alt.profile)} has ${100 - alt.pct}% of its ${alt.label} window left.` : ''}
+          {alt && other ? ` ${otherName} has ${100 - alt.pct}% of its ${alt.label} window left.` : ''}
         </span>
       </div>
       <div class="forecast-actions">
-        {altProfile && hasApp ? (
-          <Btn variant="primary" onClick={(e) => act(() => window.sb.openApp(altProfile.id), e.currentTarget)}>
-            Open {profileName(state, altProfile.id)}
+        {/* Its desktop app where there is one; a terminal in it otherwise. */}
+        {other && state.vendors[other.vendor].installed ? (
+          <Btn variant="primary" onClick={(e) => act(() => window.sb.openApp(other.id), e.currentTarget)}>
+            Open {otherName}
           </Btn>
-        ) : altProfile ? (
-          <Btn
-            variant="primary"
-            icon="terminal"
-            onClick={(e) => act(() => window.sb.shell(altProfile.id), e.currentTarget)}
-          >
-            Open a terminal in {altProfile.name}
+        ) : other ? (
+          <Btn variant="primary" icon="terminal" onClick={(e) => act(() => window.sb.shell(other.id), e.currentTarget)}>
+            Open a terminal in {otherName}
           </Btn>
         ) : null}
         <Btn onClick={() => setDismissed(key)}>Dismiss</Btn>

@@ -20,8 +20,10 @@ import { valueParts } from './prices';
 
 export const DAY_MS = 86_400_000;
 export const SLOT_MS = 5 * 60_000;
-// A pause longer than this between two responses is not counted as work.
-const IDLE_MS = 5 * 60_000;
+// The most one step of a session (a prompt or response to the next response)
+// counts as work. Long builds and subagents run well past five minutes; a
+// permission prompt left overnight should not count as a night's work.
+const STEP_MS = 30 * 60_000;
 const SESSION_DAYS = 90;
 const FACT_DAYS = 400;
 const SEEN_DAYS = 45;
@@ -71,8 +73,12 @@ export interface ProfileLedger {
   sessions: Record<string, SessionRecord>;
 }
 
+// Bumped when what is stored changes meaning, so an older ledger is read
+// again from the logs rather than mixed with the new.
+const VERSION = 2;
+
 export interface Ledger {
-  v: 1;
+  v: typeof VERSION;
   since: string | null;
   indexedAt: string | null;
   profiles: Record<string, ProfileLedger>;
@@ -113,13 +119,13 @@ export function dayOf(ms: number): string {
 }
 
 export function emptyLedger(now = Date.now()): Ledger {
-  return { v: 1, since: new Date(now).toISOString(), indexedAt: null, profiles: {} };
+  return { v: VERSION, since: new Date(now).toISOString(), indexedAt: null, profiles: {} };
 }
 
 export function loadLedger(file: string): Ledger | null {
   try {
     const l = JSON.parse(fs.readFileSync(file, 'utf8')) as Ledger;
-    return l && l.v === 1 && l.profiles ? l : null;
+    return l && l.v === VERSION && l.profiles ? l : null;
   } catch {
     return null;
   }
@@ -241,10 +247,10 @@ function applyCall(pl: ProfileLedger, c: Call, file: string): void {
   if (value) agg.v = value;
   else agg.u = aggTokens(agg);
   if (!c.subagent) {
-    // Time since the last response or prompt, unless the session sat idle
-    // in between, which is not work.
-    const gap = c.at - (s.last ?? s.start);
-    agg.ms = gap > 0 && gap <= IDLE_MS ? gap : 0;
+    // Time since the last response or prompt: the agent thinking, running
+    // tools or waiting on a subagent. The time before a prompt is never
+    // counted, since a prompt restarts the clock.
+    agg.ms = Math.min(Math.max(c.at - (s.last ?? s.start), 0), STEP_MS);
     s.last = Math.max(s.last ?? 0, c.at);
     s.ms += agg.ms;
   }

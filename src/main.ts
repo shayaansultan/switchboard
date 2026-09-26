@@ -193,17 +193,17 @@ function usageChanged(): void {
   if (win && !win.isDestroyed()) win.webContents.send('usage:changed');
 }
 
-async function indexUsage(minGapMs = 0): Promise<void> {
+// A poll or a refresh of one profile is a reason to read the logs, but not
+// more than once a minute; opening the Usage tab asks the same.
+const INDEX_GAP_MS = 60_000;
+
+async function indexUsage(): Promise<void> {
   try {
-    if (await history.index(ledgerProfiles(), minGapMs)) usageChanged();
+    if (await history.index(ledgerProfiles(), INDEX_GAP_MS)) usageChanged();
   } catch {
     /* history is a nicety; the next refresh tries again */
   }
 }
-
-// A poll or a refresh of one profile is a reason to read the logs, but not
-// more than once a minute; opening the Usage tab asks the same.
-const INDEX_GAP_MS = 60_000;
 
 function recordUsage(list: Profile[]): void {
   const fresh = new Map<string, UsageWindow[]>();
@@ -219,14 +219,20 @@ function recordUsage(list: Profile[]): void {
     }
   }
   if (data.settings.usageAlerts !== false && Notification.isSupported()) {
-    const current = new Map(liveProfiles().map((p) => [p.id, p.windows ?? []]));
+    // An account whose last reading failed or came from the cache is not
+    // suggested: its room may be long gone.
+    const current = new Map<string, UsageWindow[]>();
+    for (const p of data.profiles) {
+      const u = live.get(p.id)?.usage;
+      if (u?.windows && !u.stale && !u.error) current.set(p.id, u.windows);
+    }
     const all = data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, label: profileLabel(p) }));
     for (const a of alertsFor(alertBaseline, current, all, new Set(fresh.keys())))
       new Notification({ title: a.title, body: a.body }).show();
   }
   for (const [id, windows] of fresh) alertBaseline.set(id, windows);
   if (wrote) usageChanged();
-  void indexUsage(INDEX_GAP_MS);
+  void indexUsage();
 }
 
 // ---- store shared with the CLI ----
@@ -427,11 +433,16 @@ async function showApp(p: Profile): Promise<void> {
 
 // The app in front, whatever it is doing now: see openAction.
 async function openApp(p: Profile): Promise<void> {
-  const action = openAction(appStates.get(p.id), { helper: !!helper, isDefault: p.isDefault });
+  const state = appStates.get(p.id);
+  const action = openAction(state, { helper: !!helper, isDefault: p.isDefault, routed: !!p.proxyBucket });
   if (action === 'launch') return launchApp(p);
   if (action === 'show') return showApp(p);
-  if (action === null)
-    throw new Error(`${profiles.VENDORS[p.vendor].label} for "${p.name}" is already open. Switch to it from the Dock.`);
+  if (action === null) {
+    const app = `${profiles.VENDORS[p.vendor].label} for "${p.name}"`;
+    if (state === 'quitting') throw new Error(`${app} is still quitting. Open it once it has.`);
+    if (state === 'stalled') throw new Error(`${app} has not quit. Force quit it from Profiles first.`);
+    throw new Error(`${app} is already open. Switch to it from the Dock.`);
+  }
 }
 
 // Resolves once the app is gone or has passed the deadline; a stalled app is
@@ -918,7 +929,7 @@ ipcMain.handle('buckets:account', async (event, id: string, name: unknown, enabl
 
 ipcMain.handle('usage:report', (event, days: unknown) => {
   validateSender(event);
-  void indexUsage(INDEX_GAP_MS);
+  void indexUsage();
   return history.report(liveProfiles(), z.number().int().min(1).max(366).parse(days));
 });
 function sessionFor(profileId: unknown, sessionId: unknown) {
@@ -933,19 +944,32 @@ ipcMain.handle('usage:resume', async (event, profileId: unknown, sessionId: unkn
   const cwd = s.cwd && fs.existsSync(s.cwd) ? s.cwd : undefined;
   await launch.openTerminal(launch.shellScript(p, launch.resumeArgs(p, id)), { terminal: data.settings.terminal, cwd });
 });
+const BUNDLE =
+  /\.(app|appex|pkg|mpkg|prefpane|workflow|action|bundle|plugin|framework|kext|saver|qlgenerator|mdimporter|xpc)$/i;
 ipcMain.handle('usage:open', async (event, profileId: unknown, sessionId: unknown, what: unknown) => {
   validateSender(event);
-  const { s } = sessionFor(profileId, sessionId);
+  const { p, s } = sessionFor(profileId, sessionId);
   if (z.enum(['folder', 'transcript']).parse(what) === 'transcript') {
     if (!fs.existsSync(s.file))
-      throw new Error('The transcript has been deleted since, as Claude Code does after 30 days.');
+      throw new Error(
+        p.vendor === 'claude'
+          ? 'The transcript has been deleted since, as Claude Code does after 30 days.'
+          : 'The rollout file has been deleted since.',
+      );
     shell.showItemInFolder(s.file);
   } else {
-    if (!s.cwd || !fs.statSync(s.cwd, { throwIfNoEntry: false })?.isDirectory())
+    let folder: string;
+    try {
+      if (!s.cwd) throw new Error('no folder');
+      folder = fs.realpathSync(s.cwd);
+    } catch {
       throw new Error('That folder no longer exists.');
-    // The path comes from a log file; opening an app bundle would launch it.
-    if (/\.app\/?$/i.test(s.cwd)) throw new Error('That folder is an app.');
-    const failed = await shell.openPath(s.cwd);
+    }
+    if (!fs.statSync(folder).isDirectory()) throw new Error('That folder no longer exists.');
+    // The path comes from a log file, and opening a bundle runs it: an app
+    // launches, an installer package installs. Checked after following links.
+    if (BUNDLE.test(folder)) throw new Error('That folder is an app or package, so it is not opened.');
+    const failed = await shell.openPath(folder);
     if (failed) throw new Error(failed);
   }
 });

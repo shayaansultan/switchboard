@@ -101,22 +101,41 @@ export class WindowHistory {
     return out.sort((a, b) => a.at - b.at);
   }
 
-  // When recording began, from the oldest month file present.
+  // When recording began: the first whole line of the oldest month file
+  // present. It only changes if that file goes, so it is looked up once.
+  private began: number | null = null;
   firstRecordAt(): number | null {
+    if (this.began !== null) return this.began;
     let names: string[];
     try {
       names = fs.readdirSync(this.dir).filter((n) => /^windows-\d{4}-\d{2}\.jsonl$/.test(n));
     } catch {
       return null;
     }
-    const oldest = names.sort()[0];
-    if (!oldest) return null;
-    try {
-      const line = fs.readFileSync(path.join(this.dir, oldest), 'utf8').split('\n')[0];
-      return (JSON.parse(line) as WindowRecord).at;
-    } catch {
-      return null;
+    for (const name of names.sort()) {
+      let head = '';
+      try {
+        const fd = fs.openSync(path.join(this.dir, name), 'r');
+        try {
+          const buf = Buffer.alloc(64 * 1024);
+          head = buf.toString('utf8', 0, fs.readSync(fd, buf, 0, buf.length, 0));
+        } finally {
+          fs.closeSync(fd);
+        }
+      } catch {
+        continue;
+      }
+      // The last piece may be cut short by the read or still being written.
+      for (const line of head.split('\n').slice(0, -1)) {
+        try {
+          const at = (JSON.parse(line) as WindowRecord).at;
+          if (typeof at === 'number') return (this.began = at);
+        } catch {
+          /* a torn line */
+        }
+      }
     }
+    return null;
   }
 }
 

@@ -46,6 +46,15 @@ test('records only changes, and reads them back across months', () => {
   expect(h.firstRecordAt()).toBe(sept);
 });
 
+test('recording began at the first whole record, even after a torn one', () => {
+  fs.mkdirSync(dir, { recursive: true });
+  const line = (at: number) => JSON.stringify({ at, profile: 'p', windows: [w('5h', 10, at + H)] });
+  // A crash mid-write left half a line at the top of the oldest month.
+  fs.writeFileSync(path.join(dir, 'windows-2026-08.jsonl'), '{"at":17\n' + line(NOW - 40 * 24 * H) + '\n');
+  fs.writeFileSync(path.join(dir, 'windows-2026-09.jsonl'), line(NOW) + '\n');
+  expect(new WindowHistory(dir).firstRecordAt()).toBe(NOW - 40 * 24 * H);
+});
+
 test('instances split at resets and note when the limit was hit', () => {
   const end1 = NOW - 2 * H;
   const end2 = NOW + 3 * H;

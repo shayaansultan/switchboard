@@ -65,15 +65,27 @@ test('agent time is the conversation, not the pauses in it', async () => {
   write(transcript, [
     claudeUser({ session: 's1', at: T, text: 'Start' }),
     claudeAssistant({ session: 's1', at: T + 60_000, id: 'a', output: 1 }),
-    claudeAssistant({ session: 's1', at: T + 120_000, id: 'b', output: 1 }),
+    // A twelve-minute build between two responses is work.
+    claudeAssistant({ session: 's1', at: T + 13 * 60_000, id: 'b', output: 1 }),
     // Picked up again five hours later: the pause is not work, the wait for
     // the answer to the new prompt is.
     claudeUser({ session: 's1', at: T + 5 * H, text: 'Carry on' }),
     claudeAssistant({ session: 's1', at: T + 5 * H + 90_000, id: 'c', output: 1 }),
+    // A permission prompt left for two hours counts no more than half an hour.
+    claudeAssistant({ session: 's1', at: T + 7 * H + 90_000, id: 'd', output: 1 }),
   ]);
   const ledger = emptyLedger(T);
-  await indexLogs(ledger, [claude], T + 6 * H);
-  expect(ledger.profiles['claude-work'].sessions.s1.ms).toBe(60_000 + 60_000 + 90_000);
+  await indexLogs(ledger, [claude], T + 8 * H);
+  expect(ledger.profiles['claude-work'].sessions.s1.ms).toBe(60_000 + 12 * 60_000 + 90_000 + 30 * 60_000);
+});
+
+test('a ledger from an older version is read again from the logs', () => {
+  const file = path.join(base, 'ledger.json');
+  fs.mkdirSync(base, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ ...emptyLedger(T), v: 1 }));
+  expect(loadLedger(file)).toBeNull();
+  saveLedger(file, emptyLedger(T));
+  expect(loadLedger(file)).not.toBeNull();
 });
 
 test('a half-written last line waits for the next pass', async () => {

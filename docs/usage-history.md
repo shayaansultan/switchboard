@@ -50,10 +50,13 @@ something new.
   which is skipped.
 - A line still being written is left for the next pass.
 - Agent time is the time from each prompt or response to the next response
-  in a session. A gap longer than five minutes is a pause, not work, and is
-  not counted.
+  in a session: the agent thinking, running tools, waiting on a subagent. The
+  time before a prompt is not counted, and no single step counts for more
+  than half an hour, so a permission prompt left overnight is not a night's
+  work.
 
-What is kept, in `~/.switchboard/usage/ledger.json`: totals per day, model and
+What is kept, in `~/.switchboard/usage/ledger.json` (read again from the
+logs when its format changes): totals per day, model and
 folder for 400 days, and per session (title from its first prompt, folder,
 tools used, files edited, value per five-minute slot) for 90 days. Claude Code
 deletes its own logs after 30 days by default, so the ledger is the only record
