@@ -144,8 +144,15 @@ test('the Codex engine is the package entrypoint when the app ships one, else th
     fs.mkdirSync(path.dirname(manifest));
     fs.writeFileSync(manifest, JSON.stringify({ layoutVersion: 1, entrypoint: 'bin/codex' }));
     expect(codexBinary(resources)).toBe(path.join(resources, 'codex-cli', 'bin', 'codex'));
-    fs.writeFileSync(manifest, JSON.stringify({ entrypoint: '../../elsewhere' }));
-    expect(() => codexBinary(resources)).toThrow('outside itself');
+    for (const entrypoint of ['../../elsewhere', '/usr/bin/true']) {
+      fs.writeFileSync(manifest, JSON.stringify({ layoutVersion: 1, entrypoint }));
+      expect(() => codexBinary(resources)).toThrow('outside its folder');
+    }
+    // A manifest caught mid-update, or a layout this was not written for.
+    for (const text of ['{"layoutVer', JSON.stringify({ layoutVersion: 2, entrypoint: 'bin/codex' })]) {
+      fs.writeFileSync(manifest, text);
+      expect(() => codexBinary(resources)).toThrow(`Cannot read the ChatGPT app's Codex package at ${manifest}`);
+    }
   } finally {
     fs.rmSync(resources, { recursive: true, force: true });
   }
