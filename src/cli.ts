@@ -68,6 +68,8 @@ Shell
 
 Buckets
   switchboard bucket list|show|create|start|stop|refresh|enable|disable|login|install-proxy ...
+  switchboard bucket remove BUCKET --yes      Delete it (and its OpenCode profile) and unassign its profiles
+  switchboard bucket remove-account BUCKET ACCOUNT --yes
 
 Setup
   switchboard settings set KEY VALUE

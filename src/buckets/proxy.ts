@@ -160,10 +160,12 @@ async function management(
   id: string,
   port: number,
   endpoint: 'auth-files' | 'api-call' | 'auth-files/fields' | 'auth-files/status',
-  method: 'GET' | 'POST' | 'PATCH' = 'GET',
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = 'GET',
   body?: unknown,
+  query?: Record<string, string>,
 ): Promise<unknown> {
-  const response = await fetch(`http://127.0.0.1:${port}/v0/management/${endpoint}`, {
+  const search = query ? `?${new URLSearchParams(query)}` : '';
+  const response = await fetch(`http://127.0.0.1:${port}/v0/management/${endpoint}${search}`, {
     method,
     headers: { Authorization: `Bearer ${secrets(id).managementKey}`, 'Content-Type': 'application/json' },
     ...(method !== 'GET' && body !== undefined ? { body: JSON.stringify(body) } : {}),
@@ -182,6 +184,11 @@ export async function setAccountEnabled(id: string, port: number, name: string, 
   if (!(await accounts(id, port)).some((account) => account.name === name))
     throw new Error('Account is not in this bucket');
   await management(id, port, 'auth-files/status', 'PATCH', { name, disabled: !enabled });
+}
+export async function removeAccount(id: string, port: number, name: string): Promise<void> {
+  if (!(await accounts(id, port)).some((account) => account.name === name))
+    throw new Error('Account is not in this bucket');
+  await management(id, port, 'auth-files', 'DELETE', undefined, { name });
 }
 
 // Codex reports its plan alongside usage; Claude's usage endpoint does not,
@@ -313,6 +320,25 @@ function processAlive(pid: number): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code !== 'ESRCH';
   }
+}
+
+// Holds the lock a worker start takes, so no start can begin until release
+// runs. A lock left by a dead process is taken over, as ensureWorker does.
+export function holdStartLock(id: string): () => void {
+  const directory = paths(id).runtime;
+  const lock = path.join(directory, 'starting.lock');
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const claim = () => fs.writeFileSync(lock, String(process.pid), { flag: 'wx', mode: 0o600 });
+  try {
+    claim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    if (processAlive(Number(fs.readFileSync(lock, 'utf8'))))
+      throw new Error(`Bucket ${id}'s worker is starting. Try again once it has started.`);
+    fs.unlinkSync(lock);
+    claim();
+  }
+  return () => fs.rmSync(lock, { force: true });
 }
 
 async function portListening(port: number): Promise<boolean> {

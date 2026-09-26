@@ -2,7 +2,8 @@
 
 Switchboard's **Proxy buckets** tab manages account pools shared with OpenCode. Use it to
 create a bucket, start or stop its worker, refresh usage, add an account through the
-proxy's OAuth flow, or enable/disable individual accounts. Each account is one row
+proxy's OAuth flow, enable/disable individual accounts, or remove an account or the
+whole bucket. Each account is one row
 with all of its usage windows. Add one account
 at a time because the OAuth callback uses a fixed port. After login completes, refresh
 the bucket to see the account.
@@ -79,6 +80,20 @@ model names. A desktop restart is needed to pick up a changed label or connectio
 - Recovery clears a stale receipt and lease only when their worker is gone and
   neither old port is listening. An active or ambiguous worker is left alone;
   the bucket card shows the reason until the next successful action.
+- **Remove account…** (the account's menu, or `switchboard bucket remove-account`)
+  deletes the account's token file through the proxy. The vendor's grant is not
+  revoked, and the account's other sign-ins, such as the desktop app's, are
+  untouched.
+- **Remove bucket…** (the bucket's menu, or `switchboard bucket remove`) stops the
+  worker, interrupting every client routed through it as Stop does, deletes the
+  bucket's directory with its accounts' token files, and moves every profile
+  routed through it back to its own sign-in. A bucket stored with an OpenCode
+  profile shares that profile's directory, so the OpenCode profile goes with it.
+  Removing a bucket refuses while a profile routed through it is running, and
+  while its worker is unreachable: recover or stop it first. It holds the lock a
+  worker start takes, so a launch cannot start a new worker until it is done.
+  Removing an account starts a stopped bucket's worker to reach its proxy; the
+  CLI stops it again afterwards.
 - A dead controller with an orphan proxy requires explicit recovery as described
   in [OpenCode profiles](opencode-profiles.md#isolation-and-routing).
 

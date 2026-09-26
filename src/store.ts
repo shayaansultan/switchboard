@@ -358,3 +358,12 @@ export function setProxyBucket(data: Store, id: string, bucket: string | null): 
   save(data);
   return p;
 }
+
+// Moves every profile routed through a bucket back to its own sign-in, for
+// when the bucket is deleted. Returns the ids it moved.
+export function clearProxyBucket(data: Store, bucket: string): string[] {
+  const moved = data.profiles.filter((p) => p.proxyBucket === bucket);
+  for (const p of moved) delete p.proxyBucket;
+  if (moved.length) save(data);
+  return moved.map((p) => p.id);
+}
