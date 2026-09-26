@@ -188,6 +188,7 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
   const [menuBar, setMenuBar] = useState(s.menuBar || 'icon');
   const [appearance, setAppearance] = useState(s.appearance || 'system');
   const [openAtLogin, setOpenAtLogin] = useState(!!s.openAtLogin);
+  const [usageAlerts, setUsageAlerts] = useState(s.usageAlerts !== false);
   // On only while Switchboard holds Accessibility permission: a saved "on"
   // that lost it (macOS forgets after each rebuild) opens as off.
   const lostAccess = !!s.noticeClosedWindows && state.desktop.accessibility === 'missing';
@@ -224,6 +225,7 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
         terminal,
         pollMinutes: Number(pollMinutes) || 5,
         openAtLogin,
+        usageAlerts,
         noticeClosedWindows,
         usageMode,
         appearance,
@@ -319,6 +321,11 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
           'Open at login',
           'Starts in the menu bar without a window.',
           <Switch name="openAtLogin" checked={openAtLogin} onChange={setOpenAtLogin} label="Open at login" />,
+        )}
+        {row(
+          'Usage alerts',
+          'A notification when a window reaches 90%, naming the account with the most room, and when a full one resets.',
+          <Switch name="usageAlerts" checked={usageAlerts} onChange={setUsageAlerts} label="Usage alerts" />,
         )}
         {state.desktop.helper
           ? row(

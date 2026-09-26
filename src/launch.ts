@@ -323,6 +323,11 @@ export function shellScript(profile: Profile, extra = ''): string {
   return assign ? `export ${assign}; ${cli}` : cli;
 }
 
+// The CLI arguments that pick an agent session back up.
+export function resumeArgs(profile: Profile, sessionId: string): string {
+  return profile.vendor === 'claude' ? `--resume ${shellQuote(sessionId)}` : `resume ${shellQuote(sessionId)}`;
+}
+
 // Open a window in the chosen terminal that runs `script` in `cwd`.
 // Unknown or uninstalled choices fall back to Terminal.app.
 export async function openTerminal(

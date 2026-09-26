@@ -29,6 +29,7 @@ import {
 } from './cli/profiles';
 import { settingsCommand } from './cli/settings';
 import { pickCommand, usageCommand } from './cli/usage';
+import { tokensCommand } from './cli/tokens';
 
 const help = `Switchboard: run and inspect Claude and Codex accounts from a terminal
 
@@ -37,6 +38,7 @@ Read
   switchboard show PROFILE                    One profile in full
   switchboard usage [PROFILE...] [--vendor V] [--max-age 15m | --refresh] [--no-renew]
   switchboard pick VENDOR [--window 5h|7d|LABEL] [--max-age 15m] [--min-headroom N]
+  switchboard tokens [--days 30] [--by account|model|project|day]   Usage history the app keeps
   switchboard running                         Desktop windows and which profile owns each
   switchboard setup-items VENDOR              What add --from and bring-over can carry
   switchboard doctor                          Installed apps, CLIs, proxy, store and cache health
@@ -86,6 +88,7 @@ const COMMANDS = z.enum([
   'show',
   'usage',
   'pick',
+  'tokens',
   'running',
   'setup-items',
   'doctor',
@@ -187,6 +190,8 @@ async function dispatch(rest: string[], out: Output): Promise<number | void> {
       return usageCommand(args, ctx);
     case 'pick':
       return pickCommand(args, ctx);
+    case 'tokens':
+      return tokensCommand(args, ctx);
     case 'running':
       return runningCommand(args, ctx);
     case 'setup-items':

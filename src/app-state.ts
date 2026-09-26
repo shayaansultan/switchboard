@@ -118,3 +118,22 @@ export class AppStates {
     return changed;
   }
 }
+
+// How to put a profile's desktop app in front of the person: start it when it
+// is off, bring its window back when it is running. Launching again is only
+// right for a running Default profile, where `open -a` focuses it; for any
+// other profile it would start a second copy, and a proxy-routed launch
+// refuses a running app. Without the window helper a running added profile
+// cannot be brought forward, and null says so; one quitting or refusing to
+// quit is not opened either, since a launch would race the quit. One on its
+// way up needs nothing more.
+export function openAction(
+  state: AppState,
+  { helper, isDefault, routed }: { helper: boolean; isDefault: boolean; routed: boolean },
+): 'launch' | 'show' | 'none' | null {
+  if (state === 'off') return 'launch';
+  if (state === 'starting') return 'none';
+  if (state === 'quitting') return null;
+  if (helper) return 'show';
+  return isDefault && !routed && state !== 'stalled' ? 'launch' : null;
+}
