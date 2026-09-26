@@ -223,7 +223,7 @@ async function run() {
       if (!ready) throw new Error('Proxy did not start');
     }
     const bundled = JSON.parse(
-      (await execute(codexBinary, ['debug', 'models', '--bundled'], { maxBuffer: 16 * 1024 * 1024 })).stdout,
+      (await execute(codexBinary(), ['debug', 'models', '--bundled'], { maxBuffer: 16 * 1024 * 1024 })).stdout,
     );
     const variants = [
       { name: 'production', mcp: true, overrides: {} },
@@ -283,7 +283,7 @@ async function run() {
           : 'Reply exactly CONTEXT_FIXTURE_OK.';
       const invoke = async (args: string[]) => {
         const invocation = execute(
-          codexBinary,
+          codexBinary(),
           [
             'exec',
             ...args,

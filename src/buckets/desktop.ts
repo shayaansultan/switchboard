@@ -1,12 +1,29 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { z } from 'zod';
 import { load, secrets, BucketId } from './store';
-import { desktopRouting, writeFileAtomic } from '../storage';
+import { desktopRouting, readJson, writeFileAtomic } from '../storage';
+import { VENDORS } from '../store';
 import { ensureWorker, accounts } from './proxy';
 import type { Profile } from '../types';
 import { desktopCatalog } from './models';
 import { runtime } from './runtime';
 import { shellQuote } from '../shell';
 
-export const codexBinary = '/Applications/ChatGPT.app/Contents/Resources/codex';
+const CodexPackage = z.object({ entrypoint: z.string().min(1) });
+
+// The desktop app's Codex engine. Recent releases (26.924 here) ship it as a
+// package under Resources/codex-cli whose manifest names its entrypoint;
+// earlier ones shipped one binary at Resources/codex. Read at each launch,
+// because the app can update while Switchboard runs.
+export function codexBinary(resources = path.join(VENDORS.codex.appPath, 'Contents', 'Resources')): string {
+  const root = path.join(resources, 'codex-cli');
+  const manifest = path.join(root, 'codex-package.json');
+  if (!fs.existsSync(manifest)) return path.join(resources, 'codex');
+  const entrypoint = path.resolve(root, CodexPackage.parse(readJson(manifest)).entrypoint);
+  if (!entrypoint.startsWith(root + path.sep)) throw new Error('The Codex package names an entrypoint outside itself');
+  return entrypoint;
+}
 
 // Only the desktop's embedded process receives these overrides. CODEX_HOME,
 // auth.json, connectors, and the user's config.toml retain their ownership.
@@ -43,14 +60,17 @@ export async function desktopEnvironment(profile: Profile, codexHome: string): P
   const endpoint = `http://127.0.0.1:${worker.receipt.proxyPort}/v1`;
   const adapter = runtime();
   const files = desktopRouting(profile.id);
-  const content = wrapperScript(codexBinary, endpoint, {
+  const binary = codexBinary();
+  if (!fs.existsSync(binary))
+    throw new Error(`The ChatGPT app's Codex engine is not at ${binary}. Update Switchboard for this ChatGPT version.`);
+  const content = wrapperScript(binary, endpoint, {
     bucket: bucket.name,
     runtime: adapter.execPath,
     adapter: adapter.script('desktop-stdio'),
     catalog: await desktopCatalog(
       id,
       worker.receipt.proxyPort,
-      codexBinary,
+      binary,
       { home: codexHome, overrides: providerOverrides(endpoint) },
       files.catalog,
     ),
