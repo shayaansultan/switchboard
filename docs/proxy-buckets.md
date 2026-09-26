@@ -87,10 +87,13 @@ model names. A desktop restart is needed to pick up a changed label or connectio
 - **Remove bucket…** (the bucket's menu, or `switchboard bucket remove`) stops the
   worker, interrupting every client routed through it as Stop does, deletes the
   bucket's directory with its accounts' token files, and moves every profile
-  routed through it back to its own sign-in. A bucket stored with an OpenCode profile shares that
-  profile's directory, so the OpenCode profile goes with it. Both refuse while a
-  profile routed through the bucket is running, and while the bucket's worker is
-  unreachable: recover or stop it first.
+  routed through it back to its own sign-in. A bucket stored with an OpenCode
+  profile shares that profile's directory, so the OpenCode profile goes with it.
+  Removing a bucket refuses while a profile routed through it is running, and
+  while its worker is unreachable: recover or stop it first. It holds the lock a
+  worker start takes, so a launch cannot start a new worker until it is done.
+  Removing an account starts a stopped bucket's worker to reach its proxy; the
+  CLI stops it again afterwards.
 - A dead controller with an orphan proxy requires explicit recovery as described
   in [OpenCode profiles](opencode-profiles.md#isolation-and-routing).
 

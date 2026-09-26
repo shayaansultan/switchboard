@@ -47,9 +47,8 @@ account with the most headroom for each request. An account in a bucket can
 be disabled: it stays signed in but takes no traffic, or removed: the
 bucket's sign-in for it is deleted. Removing a bucket stops its worker,
 deletes its accounts' sign-ins and moves the profiles routed through it back
-to their own sign-in. A bucket
-stored with an OpenCode profile is that profile, so removing one removes
-both.
+to their own sign-in. A bucket stored with an OpenCode profile is that
+profile, so removing one removes both.
 
 ## Window
 

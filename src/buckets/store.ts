@@ -78,10 +78,8 @@ export function withOpenCode(id: string): boolean {
 // and, for an OpenCode-backed bucket, the OpenCode profile. The caller stops
 // the worker first.
 export function remove(id: string): void {
-  const { base } = paths(id);
   load(id);
-  if (!base.startsWith(root() + path.sep)) throw new Error('Bucket directory is outside the Switchboard root');
-  fs.rmSync(base, { recursive: true, force: true });
+  fs.rmSync(paths(id).base, { recursive: true, force: true });
 }
 export function secrets(id: string) {
   return Secrets.parse(readJson(path.join(paths(id).base, 'secrets.json')));

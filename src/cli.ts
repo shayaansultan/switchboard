@@ -68,7 +68,7 @@ Shell
 
 Buckets
   switchboard bucket list|show|create|start|stop|refresh|enable|disable|login|install-proxy ...
-  switchboard bucket remove BUCKET --yes      Stops it and deletes its directory and sign-ins
+  switchboard bucket remove BUCKET --yes      Delete it (and its OpenCode profile) and unassign its profiles
   switchboard bucket remove-account BUCKET ACCOUNT --yes
 
 Setup

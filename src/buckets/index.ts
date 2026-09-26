@@ -73,9 +73,21 @@ export async function removeAccount(id: string, name: string): Promise<void> {
   await proxy.removeAccount(id, status.receipt.proxyPort, name);
   await refresh(id);
 }
-// Stops the worker, then deletes the bucket's directory. An unreachable
-// worker still holds its ports and lease, so that bucket is left alone.
-export async function remove(id: string): Promise<void> {
-  await stop(id);
+// Stops the worker and deletes the bucket's directory, holding the start lock
+// throughout so a launch cannot start a replacement whose files would be
+// deleted under it. beforeDelete runs just before the one irreversible step;
+// if it throws, the bucket stays. An unreachable worker still holds its ports
+// and lease, so that bucket is left alone.
+export async function remove(id: string, beforeDelete: () => void = () => {}): Promise<void> {
+  store.load(id);
+  const release = proxy.holdStartLock(id);
+  try {
+    await stop(id);
+    if (proxy.receipt(id)) throw new Error(`Bucket ${id} still has a worker. Stop it before removing the bucket.`);
+    beforeDelete();
+  } catch (error) {
+    release();
+    throw error;
+  }
   store.remove(id);
 }

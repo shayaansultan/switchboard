@@ -770,13 +770,17 @@ async function confirmRemove(message: string, detail: string): Promise<boolean> 
   const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
   return r.response === 0;
 }
+// A desktop app routed through a bucket loses its endpoint when the bucket
+// goes, so removal waits until each one has quit.
+function assertRoutedQuit(id: string, name: string): void {
+  const running = data.profiles.filter((p) => p.proxyBucket === id && appStates.get(p.id) !== 'off');
+  if (running.length) throw new Error(`Quit ${running.map((p) => p.name).join(', ')} first: it routes through ${name}`);
+}
 ipcMain.handle('buckets:remove', async (event, id: string) => {
   validateSender(event);
   const bucket = buckets.load(id);
   const users = data.profiles.filter((p) => p.proxyBucket === id);
-  const running = users.filter((p) => appStates.get(p.id) !== 'off');
-  if (running.length)
-    throw new Error(`Quit ${running.map((p) => p.name).join(', ')} first: it routes through ${bucket.name}`);
+  assertRoutedQuit(id, bucket.name);
   const withOpenCode = buckets.withOpenCode(id);
   const detail = [
     `This stops its worker, interrupting every client routed through it, and deletes ${buckets.paths(id).base} with the sign-ins of its accounts.`,
@@ -788,10 +792,11 @@ ipcMain.handle('buckets:remove', async (event, id: string) => {
   ];
   const message = `Remove "${bucket.name}"${withOpenCode ? ' and its OpenCode profile' : ''}?`;
   if (!(await confirmRemove(message, detail.filter(Boolean).join(' ')))) return false;
+  // A profile may have been launched while the dialog was open.
+  assertRoutedQuit(id, bucket.name);
   try {
-    await buckets.remove(id);
+    await buckets.remove(id, () => mutate(() => profiles.clearProxyBucket(data, id)));
     bucketFailures.delete(id);
-    mutate(() => profiles.clearProxyBucket(data, id));
   } catch (error) {
     bucketFailures.set(id, error instanceof Error ? error.message : String(error));
     throw error;

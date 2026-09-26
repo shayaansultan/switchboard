@@ -322,6 +322,25 @@ function processAlive(pid: number): boolean {
   }
 }
 
+// Holds the lock a worker start takes, so no start can begin until release
+// runs. A lock left by a dead process is taken over, as ensureWorker does.
+export function holdStartLock(id: string): () => void {
+  const directory = paths(id).runtime;
+  const lock = path.join(directory, 'starting.lock');
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const claim = () => fs.writeFileSync(lock, String(process.pid), { flag: 'wx', mode: 0o600 });
+  try {
+    claim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    if (processAlive(Number(fs.readFileSync(lock, 'utf8'))))
+      throw new Error(`Bucket ${id}'s worker is starting. Try again once it has started.`);
+    fs.unlinkSync(lock);
+    claim();
+  }
+  return () => fs.rmSync(lock, { force: true });
+}
+
 async function portListening(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = net.connect({ host: '127.0.0.1', port });

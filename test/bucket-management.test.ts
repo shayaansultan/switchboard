@@ -212,6 +212,24 @@ test('removing a bucket stops its worker before deleting its directory', async (
   });
 });
 
+test('removal holds the start lock, and a failure before the delete keeps the bucket', async () => {
+  await fixture(async (id) => {
+    const lock = path.join(store.paths(id).runtime, 'starting.lock');
+    await expect(
+      buckets.remove(id, () => {
+        expect(fs.readFileSync(lock, 'utf8')).toBe(String(process.pid));
+        throw new Error('store refused');
+      }),
+    ).rejects.toThrow('store refused');
+    expect(fs.existsSync(store.paths(id).base)).toBe(true);
+    expect(fs.existsSync(lock)).toBe(false);
+    // A start in progress by a live process blocks removal until it is done.
+    fs.writeFileSync(lock, String(process.pid));
+    await expect(buckets.remove(id)).rejects.toThrow('is starting');
+    fs.rmSync(lock);
+  });
+});
+
 test('an unreachable worker keeps its bucket', async () => {
   await fixture(async (id, _actions, port) => {
     const receipt = path.join(store.paths(id).runtime, 'worker.json');

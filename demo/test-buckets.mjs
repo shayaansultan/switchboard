@@ -220,9 +220,13 @@ try {
     app.evaluate(({ dialog }, response) => {
       dialog.showMessageBox = async () => ({ response, checkboxChecked: false });
     }, response);
+  // Cancel is checked through the IPC call itself, which resolves only once
+  // the dialog has answered.
   await answer(1);
-  await page.getByRole('button', { name: 'More actions for remove@example.test' }).click();
-  await page.getByRole('menuitem', { name: 'Remove account…' }).click();
+  assert.equal(
+    await page.evaluate(() => window.sb.removeBucketAccount('team', 'codex-fixture-remove@example.test-pro.json')),
+    false,
+  );
   assert.equal(await fs.stat(token).then(() => true), true, 'Cancel must keep the account');
   await answer(0);
   await page.getByRole('button', { name: 'More actions for remove@example.test' }).click();
@@ -238,8 +242,7 @@ try {
   );
   const live = JSON.parse(await fs.readFile(path.join(runtime, 'worker.json')));
   await answer(1);
-  await page.getByRole('button', { name: 'More actions for Team' }).click();
-  await page.getByRole('menuitem', { name: 'Remove bucket…' }).click();
+  assert.equal(await page.evaluate(() => window.sb.removeBucket('team')), false);
   assert.equal((await page.evaluate(() => window.sb.getState())).buckets.length, 1, 'Cancel must keep the bucket');
   await answer(0);
   await page.getByRole('button', { name: 'More actions for Team' }).click();
