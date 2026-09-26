@@ -6,6 +6,7 @@ import {
   Menu,
   nativeImage,
   nativeTheme,
+  Notification,
   clipboard,
   dialog,
   powerMonitor,
@@ -31,6 +32,9 @@ import { DesktopWatch } from './desktop-watch';
 import { installShim, launcherScript } from './shim';
 import { INSTALLED_APP } from './buckets/runtime';
 import { HOME } from './store';
+import { UsageHistory, type LedgerProfile, type LiveProfile } from './history';
+import { alertsFor } from './history/alerts';
+import { roomiest } from './history/windows';
 import type {
   AppState,
   CliStatus,
@@ -45,6 +49,7 @@ import type {
   SetupItemView,
   State,
   Store,
+  UsageWindow,
   Vendor,
 } from './types';
 
@@ -163,6 +168,63 @@ function saveCache(): void {
   }
 }
 loadCache();
+
+// ---- usage history ----
+// Every fresh reading of a profile's windows is kept (see history/windows.ts)
+// and checked for alerts, and each refresh reads what the profiles' agent
+// logs gained since the last (history/ledger.ts). The Usage tab asks for a
+// report and is told when there is something new to ask for.
+const history = new UsageHistory();
+const alertBaseline = new Map<string, UsageWindow[]>();
+
+function profileLabel(p: Profile): string {
+  return `${profiles.VENDORS[p.vendor].label} · ${p.name}`;
+}
+
+function liveProfiles(): LiveProfile[] {
+  return data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, windows: live.get(p.id)?.usage?.windows }));
+}
+
+function ledgerProfiles(): LedgerProfile[] {
+  return data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, home: profiles.dirs(p).home }));
+}
+
+function usageChanged(): void {
+  if (win && !win.isDestroyed()) win.webContents.send('usage:changed');
+}
+
+async function indexUsage(minGapMs = 0): Promise<void> {
+  try {
+    if (await history.index(ledgerProfiles(), minGapMs)) usageChanged();
+  } catch {
+    /* history is a nicety; the next refresh tries again */
+  }
+}
+
+function recordUsage(list: Profile[]): void {
+  const fresh = new Map<string, UsageWindow[]>();
+  let wrote = false;
+  for (const p of list) {
+    const u = live.get(p.id)?.usage;
+    if (!u?.windows || u.stale || u.error) continue;
+    fresh.set(p.id, u.windows);
+    try {
+      wrote = history.windows.record(p.id, u.windows) || wrote;
+    } catch {
+      /* as above */
+    }
+  }
+  if (data.settings.usageAlerts !== false && Notification.isSupported()) {
+    const now = new Map(liveProfiles().map((p) => [p.id, p.windows ?? []]));
+    const alertable = data.profiles
+      .filter((p) => fresh.has(p.id))
+      .map((p) => ({ id: p.id, vendor: p.vendor, label: profileLabel(p) }));
+    for (const a of alertsFor(alertBaseline, now, alertable)) new Notification({ title: a.title, body: a.body }).show();
+  }
+  for (const [id, windows] of fresh) alertBaseline.set(id, windows);
+  if (wrote) usageChanged();
+  void indexUsage();
+}
 
 // ---- store shared with the CLI ----
 // The CLI writes profiles.json directly. A foreign write arrives here through
@@ -422,6 +484,7 @@ async function refreshAll(onlyId?: string, force = false): Promise<void> {
   const list = onlyId ? data.profiles.filter((p) => p.id === onlyId) : data.profiles;
   await Promise.all(list.map((p) => refreshProfile(p, force).catch(() => {})));
   saveCache();
+  recordUsage(list);
   broadcast();
 }
 
@@ -596,7 +659,16 @@ function rebuildTray(): void {
   });
   items.push({ type: 'separator' });
   for (const vendor of profiles.VENDOR_IDS) {
-    items.push({ label: profiles.VENDORS[vendor].label, enabled: false });
+    // Where to go next: the account whose fullest window is emptiest.
+    const room = roomiest(liveProfiles(), { id: '', vendor }, Date.now());
+    const roomName = data.profiles.find((p) => p.id === room?.profile)?.name;
+    items.push({
+      label:
+        room && roomName && data.profiles.filter((p) => p.vendor === vendor).length > 1
+          ? `${profiles.VENDORS[vendor].label} · most room: ${roomName}, ${100 - room.pct}% left`
+          : profiles.VENDORS[vendor].label,
+      enabled: false,
+    });
     for (const p of data.profiles.filter((x) => x.vendor === vendor)) {
       const s = live.get(p.id) ?? {};
       const windows = s.usage?.windows ?? [];
@@ -764,6 +836,38 @@ ipcMain.handle('buckets:account', async (event, id: string, name: unknown, enabl
   } finally {
     await refreshBuckets();
     broadcast();
+  }
+});
+
+ipcMain.handle('usage:report', (event, days: unknown) => {
+  validateSender(event);
+  // Opening the tab is a reason to read the logs, but not more than once a minute.
+  void indexUsage(60_000);
+  return history.report(liveProfiles(), z.number().int().min(1).max(366).parse(days));
+});
+function sessionFor(profileId: unknown, sessionId: unknown) {
+  const p = byId(z.string().parse(profileId));
+  const s = history.session(p.id, z.string().parse(sessionId));
+  if (!s) throw new Error('That session is no longer in the usage history.');
+  return { p, s, id: sessionId as string };
+}
+ipcMain.handle('usage:resume', async (event, profileId: unknown, sessionId: unknown) => {
+  validateSender(event);
+  const { p, s, id } = sessionFor(profileId, sessionId);
+  const cwd = s.cwd && fs.existsSync(s.cwd) ? s.cwd : undefined;
+  await launch.openTerminal(launch.shellScript(p, launch.resumeArgs(p, id)), { terminal: data.settings.terminal, cwd });
+});
+ipcMain.handle('usage:open', async (event, profileId: unknown, sessionId: unknown, what: unknown) => {
+  validateSender(event);
+  const { s } = sessionFor(profileId, sessionId);
+  if (z.enum(['folder', 'transcript']).parse(what) === 'transcript') {
+    if (!fs.existsSync(s.file))
+      throw new Error('The transcript has been deleted since, as Claude Code does after 30 days.');
+    shell.showItemInFolder(s.file);
+  } else {
+    if (!s.cwd || !fs.existsSync(s.cwd)) throw new Error('That folder no longer exists.');
+    const failed = await shell.openPath(s.cwd);
+    if (failed) throw new Error(failed);
   }
 });
 

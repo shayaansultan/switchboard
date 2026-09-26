@@ -3,7 +3,7 @@
 //
 //   bun run demo
 //
-// Output: docs/screenshot.png, docs/social-card.png and docs/demo.mp4
+// Output: docs/screenshot.png, docs/usage.png, docs/social-card.png and docs/demo.mp4
 
 import { chromium } from 'playwright';
 import { execFileSync } from 'node:child_process';
@@ -21,6 +21,9 @@ const WORK = path.join(ROOT, 'docs', '.work');
 process.env.HOME = fs.mkdtempSync('/tmp/switchboard-demo-');
 const { SETUP_ITEMS, PALETTE } = await import(path.join(ROOT, 'src', 'profiles.ts'));
 const fixture = await import(path.join(ROOT, 'demo', 'fixture.js'));
+// The Usage tab's report, computed by the real indexer from invented logs.
+const { usageFixture } = await import(path.join(ROOT, 'demo', 'usage-fixture.ts'));
+const usageReport = await usageFixture(30);
 
 const VIEWPORT = { width: 920, height: 700 };
 
@@ -43,6 +46,7 @@ function bridge(state) {
   // anything; the demo only needs the UI to render and open its dialogs.
   return `
     window.__state = ${JSON.stringify(state)};
+    window.__usage = ${JSON.stringify(usageReport)};
     const noop = () => Promise.resolve();
     window.sb = {
       getState: () => Promise.resolve(window.__state),
@@ -53,6 +57,7 @@ function bridge(state) {
       removeProfile: noop, updateProfile: noop, moveProfile: () => Promise.resolve(true), bringOver: () => Promise.resolve({ done: [], skipped: [] }),
       saveSettings: noop, launch: noop, quit: noop, forceQuit: noop, showWindow: noop, accessibility: () => Promise.resolve(false), quitOthers: () => Promise.resolve(0),
       login: noop, shell: noop, reveal: noop, copyCommand: noop,
+      usageReport: () => Promise.resolve(window.__usage), onUsageChanged: () => {}, resumeSession: noop, openSession: noop,
     };
     const s = document.createElement('style');
     s.textContent = ${JSON.stringify(CHROME_CSS)};
@@ -125,6 +130,16 @@ async function newPage(ctxOptions = {}) {
   await page.screenshot({ path: path.join(DOCS, 'screenshot.png') });
   await ctx.close();
   console.log('wrote docs/screenshot.png');
+}
+
+// ---- the Usage tab ----
+{
+  const { ctx, page } = await newPage({ viewport: { width: VIEWPORT.width, height: 1000 } });
+  await page.click('#tab-usage');
+  await page.waitForSelector('.acct-grid');
+  await page.screenshot({ path: path.join(DOCS, 'usage.png') });
+  await ctx.close();
+  console.log('wrote docs/usage.png');
 }
 
 // ---- social card ----

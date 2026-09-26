@@ -35,6 +35,12 @@ const api: SwitchboardApi = {
   onState: (fn: (s: State) => void) => {
     ipcRenderer.on('state', (_e, s: State) => fn(s));
   },
+  usageReport: (days) => ipcRenderer.invoke('usage:report', days),
+  onUsageChanged: (fn) => {
+    ipcRenderer.on('usage:changed', () => fn());
+  },
+  resumeSession: (profile, id) => ipcRenderer.invoke('usage:resume', profile, id),
+  openSession: (profile, id, what) => ipcRenderer.invoke('usage:open', profile, id, what),
 };
 
 contextBridge.exposeInMainWorld('sb', api);

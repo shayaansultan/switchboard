@@ -40,6 +40,7 @@ const PARSERS: Record<keyof Settings, Parser> = {
   view: oneOf('cards', 'list'),
   // Only records the choice: the app asks for Accessibility itself.
   noticeClosedWindows: bool('noticeClosedWindows'),
+  usageAlerts: bool('usageAlerts'),
 };
 
 const isKey = (key: string): key is keyof Settings => key in PARSERS;

@@ -58,7 +58,41 @@ model-specific pools for Codex. Each shows how much is used, or how much is
 left if you prefer, with the time until it resets. They turn amber and then red
 as a window runs out.
 
-You can read them in the menu bar without opening the window.
+You can read them in the menu bar without opening the window, where each app's
+heading also names the account with the most room left.
+
+## Where did the usage go?
+
+The **Usage** tab keeps what the bars cannot: a history. It has three views.
+
+![The Usage tab: a warning that one window will run out early, each account's fullest window with its pace, and a month of value per day](docs/usage.png)
+
+- **Overview.** A warning when a window is on course to run out before it
+  resets, with a button to open a terminal in the account that has the most
+  room. Each account's fullest window, with a tick where an even pace across
+  the window would be. The API-equivalent value, agent hours and limit hits of
+  the range; value per day split by account; the top projects or models; and
+  six months of days with agent work.
+- **Tokens.** Tokens by kind and what each kind is worth (cache reads are most
+  of the tokens and much less of the value), cache hit per account, value per
+  account and per day.
+- **Sessions.** Agent sessions grouped by the 5-hour window they counted
+  against, marked where a window ran out and for how long. Pick one to see its
+  share of the window, how the window filled while it ran, the model, tokens and
+  value, the tools it used and the files it edited, and to resume it in a
+  terminal inside the right profile.
+
+The numbers come from two places. Every usage reading is kept, so windows have
+a history from the day you update. Tokens come from the logs Claude Code and
+Codex already write in each profile's home: its CLI sessions and the agent
+inside each desktop app, but not ordinary chats in the desktop apps or on the
+web, which only show up in the windows. Dollar figures are what the same tokens
+would cost at API list prices; a subscription is not billed that way. See
+[Usage history](docs/usage-history.md) for how it is read and kept.
+
+Switchboard can also tell you: **Usage alerts** in Settings (on unless you turn
+it off) sends a notification when a window reaches 90%, naming the account with
+the most room, and when a full one resets.
 
 ## Is the app running?
 
@@ -127,6 +161,12 @@ find-generic-password` for the entry the Claude Code CLI already created.
   helper then counts the Claude and ChatGPT windows each profile has open,
   through the Accessibility API and an undocumented macOS call that says which
   desktop a window is on. It reads counts, not window contents.
+- **Your agents' own logs.** The Usage tab reads the session logs Claude Code
+  (`projects/` in its config home) and Codex (`sessions/` in its home) write in
+  each profile, for token counts, models, folders, tool names and the first
+  line of each prompt. What it keeps is under `~/.switchboard/usage/` on this
+  Mac; nothing is sent anywhere. The window only receives folder names, never
+  full paths.
 - **Usage requests per signed-in profile, on a timer.** Normally one call to the same endpoints
   the two CLIs use for their own usage screens, authorised with that profile's
   existing CLI token. The interval in Settings is the rate while you are using
@@ -223,6 +263,7 @@ common questions have one-line answers:
 switchboard list                      # profiles, running state, signed-in account
 switchboard usage --max-age 15m       # rate-limit windows, refreshed if older than 15 minutes
 switchboard pick claude               # the Claude profile with the most quota left
+switchboard tokens --by project       # what the last 30 days of agent work cost, by folder
 switchboard exec work -- claude -p "…"   # run anything inside a profile's account
 eval "$(switchboard env work)"        # put the current shell into a profile
 switchboard launch work               # open its desktop window

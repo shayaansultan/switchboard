@@ -46,6 +46,9 @@ export interface Settings {
   // Tell an app running with its window closed from one in use. Needs
   // Accessibility permission; see src/native/app-events.swift.
   noticeClosedWindows?: boolean;
+  // Notify when a window reaches 90% and when a full one resets. On unless
+  // switched off.
+  usageAlerts?: boolean;
 }
 
 export interface Store {
@@ -178,6 +181,122 @@ export interface BucketView {
   error?: string;
 }
 
+// ---- usage history (see src/history/) ----
+
+// Tokens in the four kinds the vendors bill. `input` is input that was not
+// served from cache; `output` includes reasoning.
+export interface TokenCounts {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+// Where an agent session ran: the CLI in a terminal, a desktop app's own
+// agent, a script through an SDK or `codex exec`, or anything else.
+export type SessionEntry = 'cli' | 'desktop' | 'sdk' | 'other';
+
+// A period's totals. Value is the API-equivalent estimate in dollars; tokens
+// of models the price table does not know are counted in `unpricedTokens`.
+export interface UsageTotals {
+  value: number;
+  tokens: TokenCounts;
+  agentMs: number;
+  sessions: number;
+  projects: number;
+  limitHits: number;
+  waitedMs: number;
+  unpricedTokens: number;
+}
+
+// A live window with its pace: how many points ahead (+) or behind (−) of
+// an even burn across the window it is, or null while too little of the
+// window has passed to say.
+export interface WindowPace {
+  label: string;
+  pct: number;
+  resetsAt: string;
+  pace: number | null;
+}
+
+// A window on course to run out before it resets, and the same vendor's
+// account with the most room.
+export interface UsageForecast {
+  profile: string;
+  label: string;
+  pct: number;
+  resetsAt: string;
+  fullAt: string;
+  ratePerHour: number;
+  pace: number | null;
+  alternative: { profile: string; label: string; pct: number } | null;
+}
+
+// One agent session, as the Sessions view lists it. The project is the
+// folder's name only; the full path stays in the main process.
+export interface UsageSession {
+  id: string;
+  profile: string;
+  title: string;
+  project: string;
+  entry: SessionEntry;
+  start: string;
+  end: string;
+  prompts: number;
+  agentMs: number;
+  model: string | null;
+  value: number | null;
+  tokens: TokenCounts;
+  cacheHit: number | null;
+  tools: [string, number][];
+  files: string[];
+  fileCount: number;
+  subagents: { calls: number; value: number | null; model: string | null } | null;
+  // Estimated share of its window, in percentage points of that window.
+  share: number | null;
+}
+
+// Sessions grouped by the window they counted against, or by day where no
+// window history covers them. `points` are the window's recorded
+// percentages, [time in ms, pct], for the chart of how it filled.
+export interface UsageBlock {
+  profile: string;
+  kind: 'window' | 'day';
+  label: string;
+  start: string;
+  end: string;
+  peak: number | null;
+  hitAt: string | null;
+  waitedMs: number;
+  current: boolean;
+  value: number | null;
+  points: [number, number][];
+  sessions: UsageSession[];
+}
+
+// Everything the Usage tab draws, for one range of days. Never a token, a
+// credential or a full path.
+export interface UsageReport {
+  days: number;
+  generatedAt: string;
+  // When Switchboard began keeping usage history, if it has.
+  recordedSince: string | null;
+  indexedAt: string | null;
+  pricesAsOf: string;
+  totals: UsageTotals;
+  previous: UsageTotals | null;
+  accounts: { profile: string; tightest: WindowPace | null; value: number; tokens: TokenCounts }[];
+  forecast: UsageForecast | null;
+  daily: { day: string; value: Record<string, number>; tokens: Record<string, number> }[];
+  // One entry per day for 26 weeks; null where nothing was recorded yet.
+  heat: { day: string; agentMs: number | null }[];
+  projects: { name: string; profiles: string[]; value: number; sessions: number; agentMs: number }[];
+  models: { model: string; value: number | null; tokens: number; sessions: number }[];
+  mix: { kind: keyof TokenCounts; tokens: number; value: number }[];
+  cacheHit: { profile: string; pct: number | null }[];
+  blocks: UsageBlock[];
+}
+
 // Whether the `switchboard` command is installed, and where.
 export interface CliStatus {
   file: string;
@@ -238,4 +357,10 @@ export interface SwitchboardApi {
   copyCommand(id: string): Promise<void>;
   installCli(): Promise<CliStatus>;
   onState(fn: (s: State) => void): void;
+  // The Usage tab: a report for the last `days` days, a signal that there
+  // is a newer one, and opening a listed session.
+  usageReport(days: number): Promise<UsageReport>;
+  onUsageChanged(fn: () => void): void;
+  resumeSession(profile: string, id: string): Promise<void>;
+  openSession(profile: string, id: string, what: 'folder' | 'transcript'): Promise<void>;
 }

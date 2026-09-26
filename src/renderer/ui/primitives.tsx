@@ -40,6 +40,8 @@ const PATHS = {
   loader: '<path d="M21 12a9 9 0 1 1-6.22-8.56"/>',
   zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
   window: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 8h20"/><path d="M6 4v4"/><path d="M10 4v4"/>',
+  chart:
+    '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
 };
 export type IconName = keyof typeof PATHS;
 
@@ -137,7 +139,13 @@ export function StatusPill({
   );
 }
 
-export function Badge({ children, tone = 'plan' }: { children: ComponentChildren; tone?: 'plan' | 'mute' | 'ok' }) {
+export function Badge({
+  children,
+  tone = 'plan',
+}: {
+  children: ComponentChildren;
+  tone?: 'plan' | 'mute' | 'ok' | 'warn';
+}) {
   return <span class={`badge ${tone}`}>{children}</span>;
 }
 

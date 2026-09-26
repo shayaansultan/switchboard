@@ -18,6 +18,7 @@
     "test:claude-pty": "bun run build && node --test test/claude-pty.node.cjs",
     "test:awake-ui": "bun run build && bun demo/test-awake.mjs",
     "test:buckets-ui": "bun run build && bun demo/test-buckets.mjs",
+    "test:usage-ui": "bun run build && bun demo/test-usage.mjs",
     "test:model-labels": "bun run build && node demo/test-model-labels.mjs",
     "test:claude-models": "bun run build && node demo/test-claude-models.mjs",
     "demo": "bun run build && bun demo/capture.mjs",

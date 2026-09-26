@@ -14,6 +14,11 @@ export type ProfilesView = import('../types').ProfilesView;
 export type BucketView = import('../types').BucketView;
 export type BucketAccount = BucketView['accounts'][number];
 export type CliStatus = import('../types').CliStatus;
+export type UsageReport = import('../types').UsageReport;
+export type UsageBlock = import('../types').UsageBlock;
+export type UsageSession = import('../types').UsageSession;
+export type TokenCounts = import('../types').TokenCounts;
+export type WindowPace = import('../types').WindowPace;
 
 export function relTime(iso: string | null): string {
   if (!iso) return '';
@@ -73,6 +78,58 @@ export async function act(fn: () => unknown, btn?: EventTarget | null): Promise<
   } finally {
     if (b) b.disabled = false;
   }
+}
+
+// Dollars as the Usage tab shows them: whole from $100, cents below.
+export function money(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '—';
+  if (v >= 100) return `$${Math.round(v).toLocaleString('en-US')}`;
+  return `$${v.toFixed(2)}`;
+}
+
+// 1.94B, 134M, 12K, 800.
+export function count(n: number): string {
+  const units: [number, string][] = [
+    [1e9, 'B'],
+    [1e6, 'M'],
+    [1e3, 'K'],
+  ];
+  for (const [size, unit] of units) {
+    if (n >= size) {
+      const v = n / size;
+      return `${v >= 100 ? Math.round(v) : v.toFixed(v >= 10 ? 1 : 2).replace(/\.?0+$/, '')}${unit}`;
+    }
+  }
+  return String(Math.round(n));
+}
+
+// 2 h 05 m, 38 m, under a minute.
+export function duration(ms: number): string {
+  const m = Math.round(ms / 60000);
+  if (m < 1) return ms > 0 ? '<1 m' : '0 m';
+  if (m < 60) return `${m} m`;
+  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} m`;
+}
+
+// "Today", "Yesterday", "Tue 23 Sep".
+export function dayWord(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((start(today) - start(d)) / 86_400_000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+// The profile a usage row belongs to, named as the Usage tab names it.
+export function profileName(state: State, id: string): string {
+  const p = state.profiles.find((x) => x.id === id);
+  return p ? `${state.vendors[p.vendor].label} · ${p.name}` : id;
+}
+
+export function profileColor(state: State, id: string): string {
+  return state.profiles.find((x) => x.id === id)?.color ?? 'var(--muted)';
 }
 
 export function providerLabel(account: BucketAccount): string {

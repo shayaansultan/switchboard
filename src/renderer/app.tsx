@@ -1,24 +1,28 @@
 // The window. Everything renders from one State snapshot pushed by the main
 // process through `window.sb`; the rest is which tab is open, which view the
-// accounts use, and which dialog is up.
+// accounts use, and which dialog is up. The Usage tab fetches its own report,
+// and is told through `usageVersion` when there is a newer one.
 
 import { useEffect, useState } from 'preact/hooks';
 import { Profiles } from './profiles';
 import { KeepAwake } from './awake';
 import { Buckets } from './buckets';
 import { Cli } from './cli';
+import { Usage } from './usage';
 import { AddDialog, BucketDialog, SettingsDialog, type SetupRequest } from './dialogs';
 import { act, type ProfilesView, type ProfileView, type State, type Vendor } from './lib';
 import { ActionsCtx } from './ui/actions';
 import { OverlayProvider, useOverlays } from './ui/overlays';
 import { Icon, TipBtn, type IconName } from './ui/primitives';
 
-type Tab = 'profiles' | 'buckets' | 'cli';
+type Tab = 'profiles' | 'usage' | 'buckets' | 'cli';
 
 export function App() {
   const [state, setState] = useState<State | null>(null);
+  const [usageVersion, setUsageVersion] = useState(0);
   useEffect(() => {
     window.sb.onState(setState);
+    window.sb.onUsageChanged(() => setUsageVersion((v) => v + 1));
     // A refresh can finish (and push state) before this initial fetch
     // resolves; never let the older snapshot overwrite the newer one.
     window.sb.getState().then((s) => setState((have) => have ?? s));
@@ -28,12 +32,12 @@ export function App() {
   }, []);
   return (
     <OverlayProvider>
-      <Shell state={state} />
+      <Shell state={state} usageVersion={usageVersion} />
     </OverlayProvider>
   );
 }
 
-function Shell({ state }: { state: State | null }) {
+function Shell({ state, usageVersion }: { state: State | null; usageVersion: number }) {
   const { closeMenu, hideTip } = useOverlays();
   const [tab, setTabState] = useState<Tab>('profiles');
   const [setup, setSetup] = useState<SetupRequest>(null);
@@ -89,6 +93,9 @@ function Shell({ state }: { state: State | null }) {
         >
           Profiles
         </TabButton>
+        <TabButton id="tab-usage" icon="chart" on={tab === 'usage'} onClick={() => setTab('usage')}>
+          Usage
+        </TabButton>
         <TabButton
           id="tab-buckets"
           icon="layers"
@@ -105,6 +112,8 @@ function Shell({ state }: { state: State | null }) {
       <main id="root" role="tabpanel">
         {!state ? null : tab === 'profiles' ? (
           <Profiles state={state} view={view} setView={setView} />
+        ) : tab === 'usage' ? (
+          <Usage state={state} version={usageVersion} />
         ) : tab === 'buckets' ? (
           <Buckets state={state} />
         ) : (
