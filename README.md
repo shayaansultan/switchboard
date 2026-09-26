@@ -68,8 +68,8 @@ The **Usage** tab keeps what the bars cannot: a history. It has three views.
 ![The Usage tab: a warning that one window will run out early, each account's fullest window with its pace, and a month of value per day](docs/usage.png)
 
 - **Overview.** A warning when a window is on course to run out before it
-  resets, with a button to open a terminal in the account that has the most
-  room. Each account's fullest window, with a tick where an even pace across
+  resets, with a button that opens the desktop app of the account that has the
+  most room (starting it, or bringing its window back if it is running). Each account's fullest window, with a tick where an even pace across
   the window would be. The API-equivalent value, agent hours and limit hits of
   the range; value per day split by account; the top projects or models; and
   six months of days with agent work.

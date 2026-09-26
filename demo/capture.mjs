@@ -57,7 +57,7 @@ function bridge(state) {
       removeProfile: noop, updateProfile: noop, moveProfile: () => Promise.resolve(true), bringOver: () => Promise.resolve({ done: [], skipped: [] }),
       saveSettings: noop, launch: noop, quit: noop, forceQuit: noop, showWindow: noop, accessibility: () => Promise.resolve(false), quitOthers: () => Promise.resolve(0),
       login: noop, shell: noop, reveal: noop, copyCommand: noop,
-      usageReport: () => Promise.resolve(window.__usage), onUsageChanged: () => {}, resumeSession: noop, openSession: noop,
+      usageReport: () => Promise.resolve(window.__usage), onUsageChanged: () => {}, resumeSession: noop, openSession: noop, openApp: noop,
     };
     const s = document.createElement('style');
     s.textContent = ${JSON.stringify(CHROME_CSS)};

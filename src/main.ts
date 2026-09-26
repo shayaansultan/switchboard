@@ -27,7 +27,7 @@ import { AwakeController, isAwakeValue, macAwakeSystem } from './awake';
 import { barPng, meterPng, stripPng } from './trayart';
 import { composeTrayText, type TrayText } from './tray-status';
 import { PollingPause, type PauseReason } from './polling-pause';
-import { AppStates, START_DEADLINE_MS } from './app-state';
+import { AppStates, openAction, START_DEADLINE_MS } from './app-state';
 import { DesktopWatch } from './desktop-watch';
 import { installShim, launcherScript } from './shim';
 import { INSTALLED_APP } from './buckets/runtime';
@@ -423,6 +423,15 @@ async function showApp(p: Profile): Promise<void> {
   if (!(await launch.showDesktop(p, helper)))
     throw new Error(`Could not bring back the ${profiles.VENDORS[p.vendor].label} window for "${p.name}".`);
   desktopWatch.poke();
+}
+
+// The app in front, whatever it is doing now: see openAction.
+async function openApp(p: Profile): Promise<void> {
+  const action = openAction(appStates.get(p.id), { helper: !!helper, isDefault: p.isDefault });
+  if (action === 'launch') return launchApp(p);
+  if (action === 'show') return showApp(p);
+  if (action === null)
+    throw new Error(`${profiles.VENDORS[p.vendor].label} for "${p.name}" is already open. Switch to it from the Dock.`);
 }
 
 // Resolves once the app is gone or has passed the deadline; a stalled app is
@@ -1064,6 +1073,7 @@ ipcMain.handle('app:launch', (_e, id: string) => launchApp(byId(id)));
 ipcMain.handle('app:quit', (_e, id: string) => quitApp(byId(id)));
 ipcMain.handle('app:forceQuit', (_e, id: string) => quitApp(byId(id), true));
 ipcMain.handle('app:show', (_e, id: string) => showApp(byId(id)));
+ipcMain.handle('app:open', (_e, id: string) => openApp(byId(id)));
 // Accessibility, asked of macOS as Switchboard itself. Its helper inherits
 // the answer, because macOS attributes a child process to the app that
 // started it. 'request' shows macOS's dialog, but only the first time: once

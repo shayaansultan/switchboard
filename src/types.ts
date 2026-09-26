@@ -352,6 +352,8 @@ export interface SwitchboardApi {
   quit(id: string): Promise<void>;
   forceQuit(id: string): Promise<void>;
   showWindow(id: string): Promise<void>;
+  // Start the profile's desktop app, or bring it forward if it is running.
+  openApp(id: string): Promise<void>;
   // Whether Switchboard has Accessibility permission. 'request' also asks
   // macOS to show its dialog; 'open' opens that pane of System Settings.
   accessibility(action: 'check' | 'request' | 'open'): Promise<boolean>;

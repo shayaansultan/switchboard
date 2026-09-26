@@ -27,6 +27,7 @@ const api: SwitchboardApi = {
   quit: (id: string) => ipcRenderer.invoke('app:quit', id),
   forceQuit: (id: string) => ipcRenderer.invoke('app:forceQuit', id),
   showWindow: (id: string) => ipcRenderer.invoke('app:show', id),
+  openApp: (id: string) => ipcRenderer.invoke('app:open', id),
   accessibility: (action) => ipcRenderer.invoke('app:accessibility', action),
   quitOthers: (id: string) => ipcRenderer.invoke('app:quitOthers', id),
   login: (id: string) => ipcRenderer.invoke('cli:login', id),

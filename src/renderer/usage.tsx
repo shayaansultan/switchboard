@@ -287,7 +287,9 @@ function Forecast({ state, report }: { state: State; report: UsageReport }) {
   const early = Date.parse(f.resetsAt) - Date.parse(f.fullAt);
   const gap = early >= 3_600_000 ? 'over an hour' : `${Math.round(early / 60_000)} minutes`;
   const alt = f.alternative && known(state, f.alternative.profile) ? f.alternative : null;
-  const altName = alt ? state.profiles.find((p) => p.id === alt.profile)?.name : null;
+  const altProfile = alt ? state.profiles.find((p) => p.id === alt.profile) : undefined;
+  // Its desktop app where there is one; a terminal in it otherwise.
+  const hasApp = !!altProfile && state.vendors[altProfile.vendor].installed;
   return (
     <div class="forecast" role="status">
       <PctRing pct={f.pct} />
@@ -304,9 +306,17 @@ function Forecast({ state, report }: { state: State; report: UsageReport }) {
         </span>
       </div>
       <div class="forecast-actions">
-        {alt ? (
-          <Btn variant="primary" onClick={(e) => act(() => window.sb.shell(alt.profile), e.currentTarget)}>
-            Open a terminal in {altName}
+        {altProfile && hasApp ? (
+          <Btn variant="primary" onClick={(e) => act(() => window.sb.openApp(altProfile.id), e.currentTarget)}>
+            Open {profileName(state, altProfile.id)}
+          </Btn>
+        ) : altProfile ? (
+          <Btn
+            variant="primary"
+            icon="terminal"
+            onClick={(e) => act(() => window.sb.shell(altProfile.id), e.currentTarget)}
+          >
+            Open a terminal in {altProfile.name}
           </Btn>
         ) : null}
         <Btn onClick={() => setDismissed(key)}>Dismiss</Btn>
