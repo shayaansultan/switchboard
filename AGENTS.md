@@ -67,7 +67,8 @@ bun run cli -- list --human     # the CLI straight from source
 - Every colour in `style.css` is a token with a light value in `:root` and a
   dark value in the `prefers-color-scheme: dark` block. Never write a literal
   colour in a rule; add a token to both sets.
-- The renderer only ever receives percentages, reset times, email and plan.
+- The renderer only ever receives percentages, reset times, email, plan and
+  the proxy's reason an account is unavailable.
   Tokens and credentials are read in the main process, used once, dropped.
 - Renderer buttons call the main process through `act()` in
   `src/renderer/lib.ts`, which handles the pending state and errors. Do not

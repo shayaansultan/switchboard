@@ -39,7 +39,7 @@ const AuthFile = z.object({
   // The proxy's own verdict on the account, such as "token expired", and
   // when its token file was last written, which a new sign-in changes.
   status_message: z.string().optional(),
-  unavailable: z.boolean().optional(),
+  next_retry_after: z.string().nullable().optional(),
   modtime: z.string().optional(),
 });
 type AuthFile = z.infer<typeof AuthFile>;
@@ -63,8 +63,9 @@ const AccountUsage = z.object({
   plan: z.object({ name: z.string(), capacity: z.number().positive() }).nullable().optional(),
   observedAt: z.string().optional(),
   nextProbeAt: z.number().optional(),
-  // Why the proxy will not route to the account, in its words. Usage can
-  // still be fresh: an account out of quota is unavailable but answers.
+  // Why the proxy will not route to the account, in its words, while it
+  // reports an error it will not retry by itself. Usage can still be fresh
+  // alongside it.
   problem: z.string().optional(),
   signedInAt: z.string().optional(),
 });
@@ -257,11 +258,13 @@ export async function observe(
   account: AuthFile,
   previous?: AccountUsage,
 ): Promise<AccountUsage> {
-  // What the proxy says now holds whichever way the usage call goes.
+  // What the proxy says now holds whichever way the usage call goes. Only an
+  // error it will not retry by itself is a problem: quota and upstream errors
+  // carry a retry time and pass, and a paused account is the person's choice.
   const current = {
     problem:
-      account.status === 'error' || account.unavailable
-        ? account.status_message || 'The proxy is not routing to this account'
+      account.status === 'error' && !account.next_retry_after && !account.disabled
+        ? account.status_message || 'The proxy reports an error for this account'
         : undefined,
     signedInAt: account.modtime,
   };
@@ -276,10 +279,11 @@ export async function observe(
     ...current,
   };
   if (account.disabled) return { ...base, status: 'disabled' };
-  // A cooldown belongs to the token that earned it: a new sign-in rewrites
-  // the token file, and is asked about straight away.
-  if (previous?.nextProbeAt && previous.nextProbeAt > Date.now() && previous.signedInAt === account.modtime)
-    return { ...previous, ...current };
+  // A cooldown on an account in error ends when its token file is rewritten,
+  // as a new sign-in does. A healthy account's file can be rewritten on every
+  // request, so its cooldown runs its course.
+  const signedInAgain = Boolean(previous?.problem) && previous?.signedInAt !== account.modtime;
+  if (previous?.nextProbeAt && previous.nextProbeAt > Date.now() && !signedInAgain) return { ...previous, ...current };
   const stale = (status: AccountUsage['status']): AccountUsage =>
     previous ? { ...previous, ...current, status, nextProbeAt: undefined } : { ...base, status };
   try {

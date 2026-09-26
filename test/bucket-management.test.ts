@@ -264,20 +264,42 @@ test('a bucket stored with an OpenCode profile is removed with it', () => {
 test("the proxy's reason is reported, and a new sign-in ends a usage cooldown", async () => {
   await fixture(async (id, actions, port) => {
     vendorStatus = 429;
-    const expired = { ...account, status: 'error', status_message: 'token expired', unavailable: true, modtime: 'a' };
+    const expired = { ...account, status: 'error', status_message: 'token expired', modtime: 'a' };
     const cooling = await observe(id, port, expired);
     expect(cooling).toMatchObject({ status: 'cooldown', problem: 'token expired', signedInAt: 'a' });
-    // Within the cooldown the same token is not asked again, yet the
-    // proxy's current verdict still replaces the old one.
-    const recovered = { ...account, status: 'active', status_message: '', unavailable: false, modtime: 'a' };
-    const waiting = await observe(id, port, recovered, cooling);
-    expect(waiting.status).toBe('cooldown');
-    expect(waiting.problem).toBeUndefined();
+    // Within the cooldown the same token is not asked again, and the
+    // proxy's current verdict is still reported.
+    const waiting = await observe(id, port, expired, cooling);
+    expect(waiting).toMatchObject({ status: 'cooldown', problem: 'token expired' });
     expect(actions.filter((action) => action.endsWith('oauth/usage'))).toHaveLength(1);
+    // Signing in again rewrites the token file and the proxy clears the error.
+    const recovered = { ...account, status: 'active', status_message: '', modtime: 'b' };
     vendorStatus = 200;
-    const signedIn = await observe(id, port, { ...recovered, modtime: 'b' }, waiting);
+    const signedIn = await observe(id, port, recovered, waiting);
     expect(signedIn).toMatchObject({ status: 'fresh', signedInAt: 'b' });
+    expect(signedIn.problem).toBeUndefined();
     expect(signedIn.nextProbeAt).toBeUndefined();
     expect(actions.filter((action) => action.endsWith('oauth/usage'))).toHaveLength(2);
+    // A healthy account's file is rewritten as it is used; that does not
+    // end its cooldown.
+    vendorStatus = 429;
+    const healthy = await observe(id, port, { ...recovered, modtime: 'c' }, signedIn);
+    expect(healthy.status).toBe('cooldown');
+    await observe(id, port, { ...recovered, modtime: 'd' }, healthy);
+    expect(actions.filter((action) => action.endsWith('oauth/usage'))).toHaveLength(3);
+  }).finally(() => {
+    vendorStatus = 200;
+  });
+});
+
+test('only an error the proxy will not retry is a problem, and never for a paused account', async () => {
+  await fixture(async (id, _actions, port) => {
+    const retry = '2026-09-26T12:00:00Z';
+    for (const status_message of ['quota exhausted', 'transient upstream error']) {
+      const passing = await observe(id, port, { ...account, status: 'error', status_message, next_retry_after: retry });
+      expect(passing.problem).toBeUndefined();
+    }
+    const paused = { ...account, disabled: true, status: 'error', status_message: 'token expired' };
+    expect((await observe(id, port, paused)).problem).toBeUndefined();
   });
 });
