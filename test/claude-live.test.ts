@@ -122,7 +122,7 @@ live(
       }
       expect(ready).toBe(true);
       const bundled = JSON.parse(
-        (await execute(codexBinary, ['debug', 'models', '--bundled'], { env, maxBuffer: 16 * 1024 * 1024 })).stdout,
+        (await execute(codexBinary(), ['debug', 'models', '--bundled'], { env, maxBuffer: 16 * 1024 * 1024 })).stdout,
       );
       const catalog = path.join(home, 'catalog.json');
       fs.writeFileSync(
@@ -148,7 +148,7 @@ live(
       const wrapper = path.join(temporary, 'codex-wrapper');
       fs.writeFileSync(
         wrapper,
-        wrapperScript(codexBinary, `http://127.0.0.1:${port}/v1`, {
+        wrapperScript(codexBinary(), `http://127.0.0.1:${port}/v1`, {
           bucket: 'Fixture',
           runtime: process.execPath,
           adapter: path.resolve(import.meta.dir, '../out/buckets/desktop-stdio.js'),

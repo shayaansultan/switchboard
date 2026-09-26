@@ -19,7 +19,7 @@ let server;
 try {
   const env = { ...process.env, CODEX_HOME: home };
   const original = JSON.parse(
-    (await execute(codexBinary, ['debug', 'models', '--bundled'], { env, maxBuffer: 16 * 1024 * 1024 })).stdout,
+    (await execute(codexBinary(), ['debug', 'models', '--bundled'], { env, maxBuffer: 16 * 1024 * 1024 })).stdout,
   );
   const definition = {
     id: 'claude-fixture',
@@ -34,7 +34,7 @@ try {
   const file = path.join(home, 'catalog.json');
   await fs.writeFile(file, JSON.stringify(catalog));
   const result = await execute(
-    codexBinary,
+    codexBinary(),
     [
       '-c',
       `model_catalog_json=${JSON.stringify(file)}`,
@@ -83,7 +83,7 @@ try {
   const generated = await desktopCatalog(
     bucket.id,
     server.address().port,
-    codexBinary,
+    codexBinary(),
     {
       home,
       overrides: [

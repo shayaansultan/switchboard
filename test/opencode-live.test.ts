@@ -326,7 +326,7 @@ live(
       fs.mkdirSync(codexHome);
       fs.writeFileSync(path.join(codexHome, 'config.toml'), 'model = "gpt-5.4"\n');
       const wrapper = path.join(temporary, 'codex-desktop-wrapper');
-      fs.writeFileSync(wrapper, wrapperScript(codexBinary, `http://127.0.0.1:${proxyPort}/v1`), { mode: 0o700 });
+      fs.writeFileSync(wrapper, wrapperScript(codexBinary(), `http://127.0.0.1:${proxyPort}/v1`), { mode: 0o700 });
       const codexEnv = { ...process.env, CODEX_HOME: codexHome, SWITCHBOARD_PROXY_API_KEY: secrets(profile.id).apiKey };
       const firstCodex = execute(
         wrapper,
