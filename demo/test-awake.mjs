@@ -219,7 +219,24 @@ try {
   const popoverBox = await page.locator('#awake-popover').boundingBox();
   assert.ok(popoverBox.x >= 0 && popoverBox.x + popoverBox.width <= 560);
   assert.ok(popoverBox.y + popoverBox.height <= 420);
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  // Only the list scrolls, nothing runs wider than the window, and no panel
+  // is squeezed shorter than its rows (one pixel of slack for rounding).
+  const layout = await page.evaluate(() => {
+    const list = document.getElementById('root');
+    list.scrollTop = list.scrollHeight;
+    return {
+      fitsWidth: [document.documentElement, list].every((el) => el.scrollWidth <= el.clientWidth),
+      pageScrolls: document.documentElement.scrollHeight > innerHeight,
+      listScrolled: list.scrollTop > 0,
+      clipped: [...list.children].some((el) => el.scrollHeight > el.clientHeight + 1),
+    };
+  });
+  assert.deepEqual(layout, {
+    fitsWidth: true,
+    pageScrolls: false,
+    listScrolled: true,
+    clipped: false,
+  });
   await page.screenshot({ path: path.join(output, 'dark-minimum.png') });
   assert.deepEqual(errors, []);
   await context.close();

@@ -80,13 +80,19 @@ try {
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const bucket = create('Catalog fixture');
-  const generated = await desktopCatalog(bucket.id, server.address().port, codexBinary, {
-    home,
-    overrides: [
-      'model_provider="fixture"',
-      'model_providers.fixture={name="fixture",base_url="http://127.0.0.1:9/v1",wire_api="responses"}',
-    ],
-  });
+  const generated = await desktopCatalog(
+    bucket.id,
+    server.address().port,
+    codexBinary,
+    {
+      home,
+      overrides: [
+        'model_provider="fixture"',
+        'model_providers.fixture={name="fixture",base_url="http://127.0.0.1:9/v1",wire_api="responses"}',
+      ],
+    },
+    path.join(home, 'models-fixture.json'),
+  );
   const extended = JSON.parse(await fs.readFile(generated, 'utf8'));
   assert.deepEqual(
     extended.models.filter((model) => model.slug !== definition.id),

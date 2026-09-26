@@ -832,6 +832,71 @@ ipcMain.handle('buckets:action', async (event, id: string, input: unknown, provi
     broadcast();
   }
 });
+// The native warning every removal asks through, with Cancel as the default.
+async function confirmRemove(message: string, detail: string): Promise<boolean> {
+  const options: Electron.MessageBoxOptions = {
+    type: 'warning',
+    buttons: ['Remove', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    message,
+    detail,
+  };
+  const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
+  return r.response === 0;
+}
+// A desktop app routed through a bucket loses its endpoint when the bucket
+// goes, so removal waits until each one has quit.
+function assertRoutedQuit(id: string, name: string): void {
+  const running = data.profiles.filter((p) => p.proxyBucket === id && appStates.get(p.id) !== 'off');
+  if (running.length) throw new Error(`Quit ${running.map((p) => p.name).join(', ')} first: it routes through ${name}`);
+}
+ipcMain.handle('buckets:remove', async (event, id: string) => {
+  validateSender(event);
+  const bucket = buckets.load(id);
+  const users = data.profiles.filter((p) => p.proxyBucket === id);
+  assertRoutedQuit(id, bucket.name);
+  const withOpenCode = buckets.withOpenCode(id);
+  const detail = [
+    `This stops its worker, interrupting every client routed through it, and deletes ${buckets.paths(id).base} with the sign-ins of its accounts.`,
+    withOpenCode
+      ? `It is also the OpenCode profile "${bucket.name}": its sessions, settings and connections go too.`
+      : '',
+    users.length ? `${users.map((p) => p.name).join(', ')} will use its own sign-in again.` : '',
+    'It cannot be undone.',
+  ];
+  const message = `Remove "${bucket.name}"${withOpenCode ? ' and its OpenCode profile' : ''}?`;
+  if (!(await confirmRemove(message, detail.filter(Boolean).join(' ')))) return false;
+  // A profile may have been launched while the dialog was open.
+  assertRoutedQuit(id, bucket.name);
+  try {
+    await buckets.remove(id, () => mutate(() => profiles.clearProxyBucket(data, id)));
+    bucketFailures.delete(id);
+  } catch (error) {
+    bucketFailures.set(id, error instanceof Error ? error.message : String(error));
+    throw error;
+  } finally {
+    await refreshBuckets();
+    broadcast();
+  }
+  return true;
+});
+ipcMain.handle('buckets:removeAccount', async (event, id: string, name: unknown) => {
+  validateSender(event);
+  const account = z.string().parse(name);
+  const bucket = buckets.load(id);
+  const shown = bucketViews?.find((b) => b.id === id)?.accounts.find((a) => a.name === account);
+  const who = shown?.email ?? account;
+  const detail = `This deletes the bucket's sign-in for ${who}. Sign-ins elsewhere, such as the desktop app's, are untouched. Adding it again needs a new login.`;
+  if (!(await confirmRemove(`Remove ${who} from "${bucket.name}"?`, detail))) return false;
+  try {
+    await buckets.removeAccount(id, account);
+  } finally {
+    await refreshBuckets();
+    broadcast();
+  }
+  return true;
+});
 ipcMain.handle('buckets:account', async (event, id: string, name: unknown, enabled: unknown) => {
   validateSender(event);
   try {
@@ -903,16 +968,11 @@ ipcMain.handle('profiles:add', async (_e, p: AddOptions) => {
 });
 ipcMain.handle('profiles:remove', async (_e, id: string) => {
   const p = byId(id);
-  const options: Electron.MessageBoxOptions = {
-    type: 'warning',
-    buttons: ['Remove', 'Cancel'],
-    defaultId: 1,
-    cancelId: 1,
-    message: `Remove "${p.name}" and delete all its data?`,
-    detail: `This removes the profile's CLI login, desktop session, history and settings under ${path.dirname(profiles.dirs(p).home)}. It cannot be undone.`,
-  };
-  const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
-  if (r.response !== 0) return false;
+  // As in the CLI: removal deletes the directory and launch files the
+  // running app is using.
+  if (appStates.get(p.id) !== 'off') throw new Error(`Quit the ${p.name} window first`);
+  const detail = `This removes the profile's CLI login, desktop session, history and settings under ${path.dirname(profiles.dirs(p).home)}. It cannot be undone.`;
+  if (!(await confirmRemove(`Remove "${p.name}" and delete all its data?`, detail))) return false;
   mutate(() => profiles.remove(data, id));
   live.delete(id);
   saveCache();

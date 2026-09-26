@@ -95,10 +95,10 @@ try {
   await page.locator('#tab-buckets').click();
   await page.getByRole('button', { name: 'Start bucket', exact: true }).click();
   await until(() => page.evaluate(async () => (await window.sb.getState()).buckets[0]?.status === 'running'));
-  await page.screenshot({ path: path.join(output, 'light.png'), fullPage: true });
+  await page.screenshot({ path: path.join(output, 'light.png') });
   await page.locator('#tab-profiles').click();
   await page.getByText('Usage from the Team bucket', { exact: true }).waitFor();
-  await page.screenshot({ path: path.join(output, 'light-accounts.png'), fullPage: true });
+  await page.screenshot({ path: path.join(output, 'light-accounts.png') });
   const receipt = JSON.parse(
     await fs.readFile(path.join(home, '.switchboard', 'buckets', 'team', 'runtime', 'worker.json')),
   );
@@ -108,8 +108,13 @@ try {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.waitForFunction(() => matchMedia('(prefers-color-scheme: dark)').matches);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(560, 640));
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.screenshot({ path: path.join(output, 'dark-minimum.png'), fullPage: true });
+  assert.equal(
+    await page.evaluate(() =>
+      [document.documentElement, document.getElementById('root')].every((el) => el.scrollWidth <= el.clientWidth),
+    ),
+    true,
+  );
+  await page.screenshot({ path: path.join(output, 'dark-minimum.png') });
   await app.close();
   app = await electron.launch(options);
   page = await app.firstWindow();
@@ -199,7 +204,104 @@ try {
   state = await page.evaluate(() => window.sb.getState());
   assert.equal(JSON.stringify(state).includes('managementKey'), false);
   assert.equal(JSON.stringify(state).includes('apiKey'), false);
-  console.log('Bucket UI, interrupted-worker recovery, startup resume, visible errors and normal Stop passed.');
+  // Removal: an invented account is signed out through the proxy, then the
+  // bucket goes, and the profile routed through it is moved back to native.
+  const auth = path.join(home, '.switchboard', 'buckets', 'team', 'proxy', 'auth');
+  const token = path.join(auth, 'codex-fixture-remove@example.test-pro.json');
+  await fs.writeFile(
+    token,
+    JSON.stringify({ type: 'codex', email: 'remove@example.test', access_token: 'x', refresh_token: 'y' }),
+  );
+  await page.evaluate(() => window.sb.setProxyBucket('codex-work', 'team'));
+  await page.locator('#tab-buckets').click();
+  await page.evaluate(() => window.sb.bucketAction('team', 'start'));
+  await page.getByRole('button', { name: 'More actions for remove@example.test' }).waitFor();
+  const answer = (response) =>
+    app.evaluate(({ dialog }, response) => {
+      dialog.showMessageBox = async () => ({ response, checkboxChecked: false });
+    }, response);
+  // Cancel is checked through the IPC call itself, which resolves only once
+  // the dialog has answered.
+  await answer(1);
+  assert.equal(
+    await page.evaluate(() => window.sb.removeBucketAccount('team', 'codex-fixture-remove@example.test-pro.json')),
+    false,
+  );
+  assert.equal(await fs.stat(token).then(() => true), true, 'Cancel must keep the account');
+  await answer(0);
+  await page.getByRole('button', { name: 'More actions for remove@example.test' }).click();
+  await page.screenshot({ path: path.join(output, 'remove-account-menu.png') });
+  await page.getByRole('menuitem', { name: 'Remove account…' }).click();
+  await until(() => page.evaluate(async () => (await window.sb.getState()).buckets[0]?.accounts.length === 0));
+  assert.equal(
+    await fs.stat(token).then(
+      () => true,
+      () => false,
+    ),
+    false,
+  );
+  // A Claude login whose token expired and cannot be renewed: the proxy
+  // gives up on it and says why, and the row says so instead of a quiet
+  // status. The invented refresh token is refused by the vendor.
+  await fs.writeFile(
+    path.join(auth, 'claude-expired@example.test.json'),
+    JSON.stringify({
+      type: 'claude',
+      email: 'expired@example.test',
+      access_token: 'x',
+      refresh_token: 'y',
+      expired: '2020-01-01T00:00:00Z',
+    }),
+  );
+  const expiredProblem = async () => {
+    await window.sb.bucketAction('team', 'refresh');
+    return (await window.sb.getState()).buckets[0]?.accounts.find((a) => a.email === 'expired@example.test')?.problem;
+  };
+  let problem;
+  for (let attempt = 0; attempt < 30 && !problem; attempt++) {
+    problem = await page.evaluate(expiredProblem);
+    if (!problem) await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  assert.equal(problem, 'token expired');
+  const expiredRow = page.locator('.acct', { hasText: 'expired@example.test' });
+  await expiredRow.getByText('Claude · token expired').waitFor();
+  assert.equal(await expiredRow.locator('.badge', { hasText: 'unavailable' }).count(), 1);
+  await page.getByRole('button', { name: 'More actions for expired@example.test' }).click();
+  assert.equal(await page.getByRole('menuitem', { name: 'Sign in again' }).count(), 1);
+  await page.screenshot({ path: path.join(output, 'expired-account.png') });
+  await page.keyboard.press('Escape');
+  await page.locator('#tab-profiles').click();
+  await page.getByText('expired@example.test is unavailable: token expired').waitFor();
+  await page.locator('#tab-buckets').click();
+  const live = JSON.parse(await fs.readFile(path.join(runtime, 'worker.json')));
+  await answer(1);
+  assert.equal(await page.evaluate(() => window.sb.removeBucket('team')), false);
+  assert.equal((await page.evaluate(() => window.sb.getState())).buckets.length, 1, 'Cancel must keep the bucket');
+  await answer(0);
+  await page.getByRole('button', { name: 'More actions for Team' }).click();
+  await page.screenshot({ path: path.join(output, 'remove-bucket-menu.png') });
+  await page.getByRole('menuitem', { name: 'Remove bucket…' }).click();
+  await page.getByText('No proxy buckets yet').waitFor();
+  state = await page.evaluate(() => window.sb.getState());
+  assert.equal(state.profiles.find((p) => p.id === 'codex-work').proxyBucket, undefined);
+  assert.equal(
+    await fs.stat(path.join(home, '.switchboard', 'buckets', 'team')).then(
+      () => true,
+      () => false,
+    ),
+    false,
+  );
+  await until(() => {
+    try {
+      process.kill(live.pid, 0);
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  console.log(
+    'Bucket UI, interrupted-worker recovery, startup resume, visible errors, normal Stop and removal passed.',
+  );
 } finally {
   if (app) {
     try {

@@ -3,7 +3,7 @@ import * as store from './store';
 import * as proxy from './proxy';
 import type { BucketView } from '../types';
 
-export { create, load } from './store';
+export { create, load, paths, withOpenCode } from './store';
 
 export async function snapshot(): Promise<BucketView[]> {
   return Promise.all(
@@ -64,4 +64,30 @@ export async function setAccountEnabled(id: string, name: string, enabled: boole
   const status = await proxy.ensureWorker(id);
   await proxy.setAccountEnabled(id, status.receipt.proxyPort, name, enabled);
   await refresh(id);
+}
+// Takes the account out of the pool: the proxy deletes its token file. The
+// vendor's grant is not revoked; other sign-ins of the account are untouched.
+export async function removeAccount(id: string, name: string): Promise<void> {
+  store.load(id);
+  const status = await proxy.ensureWorker(id);
+  await proxy.removeAccount(id, status.receipt.proxyPort, name);
+  await refresh(id);
+}
+// Stops the worker and deletes the bucket's directory, holding the start lock
+// throughout so a launch cannot start a replacement whose files would be
+// deleted under it. beforeDelete runs just before the one irreversible step;
+// if it throws, the bucket stays. An unreachable worker still holds its ports
+// and lease, so that bucket is left alone.
+export async function remove(id: string, beforeDelete: () => void = () => {}): Promise<void> {
+  store.load(id);
+  const release = proxy.holdStartLock(id);
+  try {
+    await stop(id);
+    if (proxy.receipt(id)) throw new Error(`Bucket ${id} still has a worker. Stop it before removing the bucket.`);
+    beforeDelete();
+  } catch (error) {
+    release();
+    throw error;
+  }
+  store.remove(id);
 }

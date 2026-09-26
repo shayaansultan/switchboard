@@ -338,6 +338,8 @@ export interface SwitchboardApi {
     provider?: 'codex' | 'claude',
   ): Promise<void>;
   setBucketAccount(id: string, name: string, enabled: boolean): Promise<void>;
+  removeBucket(id: string): Promise<boolean>;
+  removeBucketAccount(id: string, name: string): Promise<boolean>;
   measureSizes(): Promise<State>;
   refresh(id?: string): Promise<State>;
   addProfile(p: AddOptions): Promise<{ profile: Profile; result: BringResult }>;

@@ -69,6 +69,18 @@ export function create(name: string) {
     throw error;
   }
 }
+// A bucket stored with an OpenCode profile is that profile's directory, so
+// deleting the bucket deletes the profile too.
+export function withOpenCode(id: string): boolean {
+  return path.basename(paths(id).manifest) === 'profile.json';
+}
+// Deletes everything the bucket owns: its accounts' sign-ins, secrets, logs
+// and, for an OpenCode-backed bucket, the OpenCode profile. The caller stops
+// the worker first.
+export function remove(id: string): void {
+  load(id);
+  fs.rmSync(paths(id).base, { recursive: true, force: true });
+}
 export function secrets(id: string) {
   return Secrets.parse(readJson(path.join(paths(id).base, 'secrets.json')));
 }

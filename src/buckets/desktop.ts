@@ -1,7 +1,5 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { createHash } from 'node:crypto';
-import { root, load, secrets, BucketId } from './store';
+import { load, secrets, BucketId } from './store';
+import { desktopRouting, writeFileAtomic } from '../storage';
 import { ensureWorker, accounts } from './proxy';
 import type { Profile } from '../types';
 import { desktopCatalog } from './models';
@@ -44,20 +42,19 @@ export async function desktopEnvironment(profile: Profile, codexHome: string): P
     throw new Error('This bucket has no enabled accounts. Add an account in Proxy buckets.');
   const endpoint = `http://127.0.0.1:${worker.receipt.proxyPort}/v1`;
   const adapter = runtime();
+  const files = desktopRouting(profile.id);
   const content = wrapperScript(codexBinary, endpoint, {
     bucket: bucket.name,
     runtime: adapter.execPath,
     adapter: adapter.script('desktop-stdio'),
-    catalog: await desktopCatalog(id, worker.receipt.proxyPort, codexBinary, {
-      home: codexHome,
-      overrides: providerOverrides(endpoint),
-    }),
+    catalog: await desktopCatalog(
+      id,
+      worker.receipt.proxyPort,
+      codexBinary,
+      { home: codexHome, overrides: providerOverrides(endpoint) },
+      files.catalog,
+    ),
   });
-  const digest = createHash('sha256').update(content).digest('hex').slice(0, 20);
-  const directory = path.join(root(), 'desktop-routing');
-  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const file = path.join(directory, `codex-${digest}`);
-  if (!fs.existsSync(file)) fs.writeFileSync(file, content, { mode: 0o700, flag: 'wx' });
-  else if (fs.readFileSync(file, 'utf8') !== content) throw new Error('Desktop routing wrapper has changed');
-  return { CODEX_CLI_PATH: file, SWITCHBOARD_PROXY_API_KEY: secrets(id).apiKey };
+  writeFileAtomic(files.wrapper, content, 0o700);
+  return { CODEX_CLI_PATH: files.wrapper, SWITCHBOARD_PROXY_API_KEY: secrets(id).apiKey };
 }

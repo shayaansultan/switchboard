@@ -4,14 +4,16 @@ import { z } from 'zod';
 import * as buckets from '../buckets';
 import * as proxy from '../buckets/proxy';
 import * as launch from '../launch';
+import * as profiles from '../profiles';
 import { runInherit } from '../child';
 import { shellQuote } from '../shell';
 import type { BucketView } from '../types';
 import type { Context } from './context';
 import { parse, required } from './context';
 import { notFound, refused, table, usageError } from './output';
+import { assertNotRunning, instances } from './desktop';
 import { loadBucket } from './profiles';
-import { confirm } from './resolve';
+import { confirm, mutateStore } from './resolve';
 
 const SUBCOMMANDS = z.enum([
   'list',
@@ -23,6 +25,8 @@ const SUBCOMMANDS = z.enum([
   'login',
   'enable',
   'disable',
+  'remove',
+  'remove-account',
   'install-proxy',
 ]);
 
@@ -36,7 +40,7 @@ const summarize = (b: BucketView) => ({
   id: b.id,
   name: b.name,
   status: b.status,
-  accounts: b.accounts.map((a) => `${a.email ?? a.name} (${a.status})`).join(', '),
+  accounts: b.accounts.map((a) => `${a.email ?? a.name} (${a.problem ?? a.status})`).join(', '),
 });
 
 export async function bucketCommand(rest: string[], ctx: Context): Promise<number | void> {
@@ -80,6 +84,57 @@ export async function bucketCommand(rest: string[], ctx: Context): Promise<numbe
     case 'disable': {
       const id = loadBucket(required(args[0], 'Bucket')).id;
       await buckets.setAccountEnabled(id, required(args[1], 'Account'), sub === 'enable');
+      ctx.out.result(await view(id));
+      return;
+    }
+    case 'remove': {
+      const id = loadBucket(required(args[0], 'Bucket')).id;
+      if (ctx.data.loadError) throw refused('store-recovered', ctx.data.loadError);
+      const assertRoutedQuit = async () => {
+        const running = await instances();
+        for (const p of ctx.data.profiles.filter((p) => p.proxyBucket === id))
+          assertNotRunning(p, running, `it routes through ${id}`);
+      };
+      await assertRoutedQuit();
+      const deleted = buckets.paths(id).base;
+      const what = buckets.withOpenCode(id) ? `bucket ${id} and its OpenCode profile` : `bucket ${id}`;
+      await confirm(
+        ctx.flags,
+        `Remove ${what}? Its worker stops, interrupting every client routed through it, and everything under ${deleted} is deleted, with its accounts' sign-ins.`,
+      );
+      // A profile may have been launched while the prompt was open.
+      await assertRoutedQuit();
+      let unassigned: string[] = [];
+      await buckets.remove(id, () => {
+        unassigned = mutateStore((data) => profiles.clearProxyBucket(data, id));
+      });
+      ctx.out.result({ removed: id, deleted, unassigned });
+      return;
+    }
+    case 'remove-account': {
+      const id = loadBucket(required(args[0], 'Bucket')).id;
+      const name = required(args[1], 'Account');
+      // Only the worker's proxy can list the accounts. A worker started just
+      // for this is stopped again, whether or not the removal goes ahead.
+      const before = proxy.receipt(id)?.instance;
+      const worker = await proxy.ensureWorker(id);
+      const started = worker.receipt.instance !== before;
+      try {
+        const matches = (await proxy.accounts(id, worker.receipt.proxyPort)).filter(
+          (a) => a.name === name || a.email === name,
+        );
+        if (!matches.length)
+          throw notFound('no-such-account', `No account "${name}" in ${id}`, `switchboard bucket show ${id}`);
+        if (matches.length > 1)
+          throw usageError(
+            `"${name}" matches ${matches.length} accounts; name one: ${matches.map((a) => a.name).join(', ')}`,
+          );
+        const [account] = matches;
+        await confirm(ctx.flags, `Remove ${account.email ?? account.name} from ${id} and delete its sign-in there?`);
+        await buckets.removeAccount(id, account.name);
+      } finally {
+        if (started) await buckets.stop(id);
+      }
       ctx.out.result(await view(id));
       return;
     }

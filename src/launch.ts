@@ -117,6 +117,8 @@ export async function launchDesktop(profile: Profile): Promise<void> {
   if (!fs.existsSync(v.appPath)) throw new Error(`${v.appPath} is not installed`);
   ensureDirs(profile);
   const already = !!instanceFor(profile, await runningInstances());
+  // This refusal also keeps a routed profile's launch wrapper and catalog,
+  // rewritten below, from changing under the app using them.
   if (already && profile.proxyBucket)
     throw new Error('Quit this desktop profile before launching with a proxy bucket.');
   const environment = await desktopEnvironment(profile, dirs(profile).home);

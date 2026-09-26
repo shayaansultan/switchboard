@@ -2,7 +2,8 @@
 
 Switchboard's **Proxy buckets** tab manages account pools shared with OpenCode. Use it to
 create a bucket, start or stop its worker, refresh usage, add an account through the
-proxy's OAuth flow, or enable/disable individual accounts. Each account is one row
+proxy's OAuth flow, enable/disable individual accounts, or remove an account or the
+whole bucket. Each account is one row
 with all of its usage windows. Add one account
 at a time because the OAuth callback uses a fixed port. After login completes, refresh
 the bucket to see the account.
@@ -10,6 +11,14 @@ the bucket to see the account.
 **Add account** offers ChatGPT and Claude logins. The worker lists both providers
 and reads their usage through their respective endpoints. Claude logins belong to
 the proxy; the existing Claude desktop/CLI credentials are not imported.
+
+When the proxy reports an error it will not retry by itself, for example because the
+account's token expired and could not be renewed, the account row says **unavailable** with the proxy's
+reason, profile cards using the bucket show a note, and the account's menu offers
+**Sign in again**. A usage lookup that is rate limited waits 15 minutes before
+asking again, but for an unavailable account a new sign-in rewrites its
+token file and is asked about at the next refresh. Quota and upstream errors carry
+their own retry time in the proxy and are not reported as unavailable.
 
 ## Claude models in Codex desktop
 
@@ -79,6 +88,20 @@ model names. A desktop restart is needed to pick up a changed label or connectio
 - Recovery clears a stale receipt and lease only when their worker is gone and
   neither old port is listening. An active or ambiguous worker is left alone;
   the bucket card shows the reason until the next successful action.
+- **Remove account…** (the account's menu, or `switchboard bucket remove-account`)
+  deletes the account's token file through the proxy. The vendor's grant is not
+  revoked, and the account's other sign-ins, such as the desktop app's, are
+  untouched.
+- **Remove bucket…** (the bucket's menu, or `switchboard bucket remove`) stops the
+  worker, interrupting every client routed through it as Stop does, deletes the
+  bucket's directory with its accounts' token files, and moves every profile
+  routed through it back to its own sign-in. A bucket stored with an OpenCode
+  profile shares that profile's directory, so the OpenCode profile goes with it.
+  Removing a bucket refuses while a profile routed through it is running, and
+  while its worker is unreachable: recover or stop it first. It holds the lock a
+  worker start takes, so a launch cannot start a new worker until it is done.
+  Removing an account starts a stopped bucket's worker to reach its proxy; the
+  CLI stops it again afterwards.
 - A dead controller with an orphan proxy requires explicit recovery as described
   in [OpenCode profiles](opencode-profiles.md#isolation-and-routing).
 
@@ -98,12 +121,17 @@ therefore byte-identical to one minted by the app, and never points at a
 checkout's `out/` directory. Changes to `desktop-stdio.ts` reach desktop
 launches after `bun run install-app`.
 
-Desktop assignments live in `profiles.json` as `proxyBucket`. A private, immutable
-launch wrapper under `~/.switchboard/desktop-routing/` supplies provider overrides
+Desktop assignments live in `profiles.json` as `proxyBucket`. A private launch
+wrapper under `~/.switchboard/desktop-routing/` supplies provider overrides
 to the app's embedded Codex process via `CODEX_CLI_PATH`. The local proxy key is passed
 in the launch environment, never written into the wrapper or sent to the renderer.
-Neither `config.toml` nor `auth.json` is rewritten. Native launches use the normal
-app runtime. This executable override is an app implementation detail and needs
+Each routed profile has one wrapper, `codex-<profile>`, and one model catalog,
+`models-<profile>.json`, rewritten atomically on each launch. A routed profile
+cannot be launched or removed while it runs, so neither changes under the app
+using it. Removing the profile removes both; unassigning it or removing its
+bucket leaves them for a running app, and they hold no key. Neither
+`config.toml` nor `auth.json` is rewritten. Native launches use the normal app
+runtime. This executable override is an app implementation detail and needs
 rechecking after desktop updates.
 
 Routing overrides must follow the desktop's arguments, including its `app-server`

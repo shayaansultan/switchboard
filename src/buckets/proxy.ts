@@ -36,6 +36,11 @@ const AuthFile = z.object({
   disabled: z.boolean().optional(),
   weight: z.number().optional(),
   status: z.string().optional(),
+  // The proxy's own verdict on the account, such as "token expired", and
+  // when its token file was last written, which a new sign-in changes.
+  status_message: z.string().optional(),
+  next_retry_after: z.string().nullable().optional(),
+  modtime: z.string().optional(),
 });
 type AuthFile = z.infer<typeof AuthFile>;
 const AccountUsage = z.object({
@@ -58,6 +63,11 @@ const AccountUsage = z.object({
   plan: z.object({ name: z.string(), capacity: z.number().positive() }).nullable().optional(),
   observedAt: z.string().optional(),
   nextProbeAt: z.number().optional(),
+  // Why the proxy will not route to the account, in its words, while it
+  // reports an error it will not retry by itself. Usage can still be fresh
+  // alongside it.
+  problem: z.string().optional(),
+  signedInAt: z.string().optional(),
 });
 export type AccountUsage = z.infer<typeof AccountUsage>;
 
@@ -160,10 +170,12 @@ async function management(
   id: string,
   port: number,
   endpoint: 'auth-files' | 'api-call' | 'auth-files/fields' | 'auth-files/status',
-  method: 'GET' | 'POST' | 'PATCH' = 'GET',
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = 'GET',
   body?: unknown,
+  query?: Record<string, string>,
 ): Promise<unknown> {
-  const response = await fetch(`http://127.0.0.1:${port}/v0/management/${endpoint}`, {
+  const search = query ? `?${new URLSearchParams(query)}` : '';
+  const response = await fetch(`http://127.0.0.1:${port}/v0/management/${endpoint}${search}`, {
     method,
     headers: { Authorization: `Bearer ${secrets(id).managementKey}`, 'Content-Type': 'application/json' },
     ...(method !== 'GET' && body !== undefined ? { body: JSON.stringify(body) } : {}),
@@ -182,6 +194,11 @@ export async function setAccountEnabled(id: string, port: number, name: string, 
   if (!(await accounts(id, port)).some((account) => account.name === name))
     throw new Error('Account is not in this bucket');
   await management(id, port, 'auth-files/status', 'PATCH', { name, disabled: !enabled });
+}
+export async function removeAccount(id: string, port: number, name: string): Promise<void> {
+  if (!(await accounts(id, port)).some((account) => account.name === name))
+    throw new Error('Account is not in this bucket');
+  await management(id, port, 'auth-files', 'DELETE', undefined, { name });
 }
 
 // Codex reports its plan alongside usage; Claude's usage endpoint does not,
@@ -241,6 +258,16 @@ export async function observe(
   account: AuthFile,
   previous?: AccountUsage,
 ): Promise<AccountUsage> {
+  // What the proxy says now holds whichever way the usage call goes. Only an
+  // error it will not retry by itself is a problem: quota and upstream errors
+  // carry a retry time and pass, and a paused account is the person's choice.
+  const current = {
+    problem:
+      account.status === 'error' && !account.next_retry_after && !account.disabled
+        ? account.status_message || 'The proxy reports an error for this account'
+        : undefined,
+    signedInAt: account.modtime,
+  };
   const base: AccountUsage = {
     name: account.name,
     provider: account.provider === 'claude' || account.type === 'claude' ? 'claude' : 'codex',
@@ -249,16 +276,23 @@ export async function observe(
     windows: [],
     weight: account.weight ?? 50,
     plan: previous?.plan,
+    ...current,
   };
   if (account.disabled) return { ...base, status: 'disabled' };
-  if (previous?.nextProbeAt && previous.nextProbeAt > Date.now()) return previous;
+  // A cooldown on an account in error ends when its token file is rewritten,
+  // as a new sign-in does. A healthy account's file can be rewritten on every
+  // request, so its cooldown runs its course.
+  const signedInAgain = Boolean(previous?.problem) && previous?.signedInAt !== account.modtime;
+  if (previous?.nextProbeAt && previous.nextProbeAt > Date.now() && !signedInAgain) return { ...previous, ...current };
+  const stale = (status: AccountUsage['status']): AccountUsage =>
+    previous ? { ...previous, ...current, status, nextProbeAt: undefined } : { ...base, status };
   try {
     const result = await vendorCall(id, port, account, 'usage');
     switch (result.status_code) {
       case 200: {
         const body = JSON.parse(result.body);
         const windows = (base.provider === 'claude' ? parseClaudeUsage : parseCodexUsage)(body);
-        if (!windows.length) return previous ? { ...previous, status: 'unknown' } : base;
+        if (!windows.length) return stale('unknown');
         // Plans change rarely, so Claude's extra request is made until it
         // answers and then not again for the life of the worker.
         const plan =
@@ -273,12 +307,12 @@ export async function observe(
         return { ...base, status: 'fresh', windows, weight, plan, observedAt: new Date().toISOString() };
       }
       case 429:
-        return { ...(previous ?? base), status: 'cooldown', nextProbeAt: Date.now() + 15 * 60_000 };
+        return { ...stale('cooldown'), nextProbeAt: Date.now() + 15 * 60_000 };
       default:
-        return previous ? { ...previous, status: 'unknown' } : base;
+        return stale('unknown');
     }
   } catch {
-    return previous ? { ...previous, status: 'unknown' } : base;
+    return stale('unknown');
   }
 }
 export function receipt(id: string): Receipt | undefined {
@@ -313,6 +347,25 @@ function processAlive(pid: number): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code !== 'ESRCH';
   }
+}
+
+// Holds the lock a worker start takes, so no start can begin until release
+// runs. A lock left by a dead process is taken over, as ensureWorker does.
+export function holdStartLock(id: string): () => void {
+  const directory = paths(id).runtime;
+  const lock = path.join(directory, 'starting.lock');
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const claim = () => fs.writeFileSync(lock, String(process.pid), { flag: 'wx', mode: 0o600 });
+  try {
+    claim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    if (processAlive(Number(fs.readFileSync(lock, 'utf8'))))
+      throw new Error(`Bucket ${id}'s worker is starting. Try again once it has started.`);
+    fs.unlinkSync(lock);
+    claim();
+  }
+  return () => fs.rmSync(lock, { force: true });
 }
 
 async function portListening(port: number): Promise<boolean> {

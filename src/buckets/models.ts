@@ -1,9 +1,8 @@
-import * as path from 'node:path';
+import * as fs from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { root, secrets, writeJson } from './store';
+import { secrets, writeJson } from './store';
 
 const execute = promisify(execFile);
 const Effort = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
@@ -121,14 +120,20 @@ export function mergedCatalog(bundled: unknown, claude: ClaudeModel[]) {
   };
 }
 
+// Writes the catalog to `file` and returns it, or removes a previous one and
+// returns undefined when the bucket offers no Claude models.
 export async function desktopCatalog(
   id: string,
   port: number,
   binary: string,
   config: { home: string; overrides: string[] },
+  file: string,
 ): Promise<string | undefined> {
   const claude = await claudeModels(id, port);
-  if (!claude.length) return;
+  if (!claude.length) {
+    fs.rmSync(file, { force: true });
+    return;
+  }
   // Export the effective catalog for this same custom-provider launch. This
   // preserves a user-supplied catalog and avoids consulting the default home.
   const result = await execute(binary, ['debug', 'models', ...config.overrides.flatMap((value) => ['-c', value])], {
@@ -137,9 +142,6 @@ export async function desktopCatalog(
     timeout: 20000,
     maxBuffer: 16 * 1024 * 1024,
   });
-  const catalog = mergedCatalog(JSON.parse(result.stdout), claude);
-  const digest = createHash('sha256').update(JSON.stringify(catalog)).digest('hex').slice(0, 20);
-  const file = path.join(root(), 'desktop-routing', `models-${digest}.json`);
-  writeJson(file, catalog);
+  writeJson(file, mergedCatalog(JSON.parse(result.stdout), claude));
   return file;
 }

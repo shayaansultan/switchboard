@@ -620,6 +620,13 @@ export function BucketSummary({ bucket, remaining }: { bucket: BucketView; remai
           />
         );
       })}
+      {bucket.accounts
+        .filter((account) => account.problem && account.status !== 'disabled')
+        .map((account) => (
+          <Note key={account.name}>
+            {account.email ?? account.name} is unavailable: {account.problem}
+          </Note>
+        ))}
       <BucketNotes bucket={bucket} />
     </>
   );

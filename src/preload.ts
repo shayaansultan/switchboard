@@ -6,6 +6,8 @@ const api: SwitchboardApi = {
   createBucket: (name) => ipcRenderer.invoke('buckets:create', name),
   bucketAction: (id, action, provider) => ipcRenderer.invoke('buckets:action', id, action, provider),
   setBucketAccount: (id, name, enabled) => ipcRenderer.invoke('buckets:account', id, name, enabled),
+  removeBucket: (id) => ipcRenderer.invoke('buckets:remove', id),
+  removeBucketAccount: (id, name) => ipcRenderer.invoke('buckets:removeAccount', id, name),
   setAwake: (value) => ipcRenderer.invoke('awake:set', value),
   refreshAwake: (reason = 'observe') => ipcRenderer.invoke('awake:refresh', reason),
   onAwakeState: (fn) => {
