@@ -125,6 +125,22 @@ test('assign routes only Codex profiles, only to buckets that exist', async () =
   expect('proxyBucket' in (cleared.json() as { profile: object }).profile).toBe(false);
 });
 
+test('bucket remove needs --yes, deletes the bucket and routes its profiles natively', async () => {
+  await run('add', 'codex', 'Routed');
+  const bucket = buckets.create('Pool');
+  await run('assign', 'codex-routed', bucket.id);
+  const base = buckets.paths(bucket.id).base;
+  const unconfirmed = await withoutTty(() => run('bucket', 'remove', 'pool'));
+  expect(unconfirmed.failure().error).toBe('confirmation-required');
+  expect(fs.existsSync(base)).toBe(true);
+  const removed = await run('bucket', 'remove', 'pool', '--yes');
+  expect(removed.code).toBe(0);
+  expect(removed.json()).toEqual({ removed: 'pool', deleted: base, unassigned: ['codex-routed'] });
+  expect(fs.existsSync(base)).toBe(false);
+  expect(store.readStore().profiles.find((p) => p.id === 'codex-routed')?.proxyBucket).toBeUndefined();
+  expect((await run('bucket', 'remove', 'pool', '--yes')).failure().error).toBe('no-such-bucket');
+});
+
 test('a store that had to be reset is read with a warning and refuses mutations', async () => {
   fs.mkdirSync(store.ROOT, { recursive: true });
   fs.writeFileSync(store.STORE_FILE, '{');

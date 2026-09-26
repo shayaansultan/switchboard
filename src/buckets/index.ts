@@ -3,7 +3,7 @@ import * as store from './store';
 import * as proxy from './proxy';
 import type { BucketView } from '../types';
 
-export { create, load } from './store';
+export { create, load, paths, withOpenCode } from './store';
 
 export async function snapshot(): Promise<BucketView[]> {
   return Promise.all(
@@ -64,4 +64,17 @@ export async function setAccountEnabled(id: string, name: string, enabled: boole
   const status = await proxy.ensureWorker(id);
   await proxy.setAccountEnabled(id, status.receipt.proxyPort, name, enabled);
   await refresh(id);
+}
+// Signs the account out of the pool: the proxy deletes its token file.
+export async function removeAccount(id: string, name: string): Promise<void> {
+  store.load(id);
+  const status = await proxy.ensureWorker(id);
+  await proxy.removeAccount(id, status.receipt.proxyPort, name);
+  await refresh(id);
+}
+// Stops the worker, then deletes the bucket's directory. An unreachable
+// worker still holds its ports and lease, so that bucket is left alone.
+export async function remove(id: string): Promise<void> {
+  await stop(id);
+  store.remove(id);
 }

@@ -160,10 +160,12 @@ async function management(
   id: string,
   port: number,
   endpoint: 'auth-files' | 'api-call' | 'auth-files/fields' | 'auth-files/status',
-  method: 'GET' | 'POST' | 'PATCH' = 'GET',
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = 'GET',
   body?: unknown,
+  query?: Record<string, string>,
 ): Promise<unknown> {
-  const response = await fetch(`http://127.0.0.1:${port}/v0/management/${endpoint}`, {
+  const search = query ? `?${new URLSearchParams(query)}` : '';
+  const response = await fetch(`http://127.0.0.1:${port}/v0/management/${endpoint}${search}`, {
     method,
     headers: { Authorization: `Bearer ${secrets(id).managementKey}`, 'Content-Type': 'application/json' },
     ...(method !== 'GET' && body !== undefined ? { body: JSON.stringify(body) } : {}),
@@ -182,6 +184,11 @@ export async function setAccountEnabled(id: string, port: number, name: string, 
   if (!(await accounts(id, port)).some((account) => account.name === name))
     throw new Error('Account is not in this bucket');
   await management(id, port, 'auth-files/status', 'PATCH', { name, disabled: !enabled });
+}
+export async function removeAccount(id: string, port: number, name: string): Promise<void> {
+  if (!(await accounts(id, port)).some((account) => account.name === name))
+    throw new Error('Account is not in this bucket');
+  await management(id, port, 'auth-files', 'DELETE', undefined, { name });
 }
 
 // Codex reports its plan alongside usage; Claude's usage endpoint does not,

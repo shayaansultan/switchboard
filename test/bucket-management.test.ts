@@ -28,6 +28,7 @@ async function fixture(run: (id: string, actions: string[], port: number) => Pro
   const receiptFile = path.join(store.paths(bucket.id).runtime, 'worker.json');
   const actions: string[] = [];
   let disabled = false;
+  let removed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const receipt = {
     profileId: bucket.id,
@@ -40,16 +41,18 @@ async function fixture(run: (id: string, actions: string[], port: number) => Pro
   const status = () => ({
     receipt,
     ready: true,
-    accounts: [
-      {
-        name: account.name,
-        email: account.email,
-        provider: 'claude',
-        status: disabled ? 'disabled' : 'fresh',
-        windows: [],
-        weight: 50,
-      },
-    ],
+    accounts: removed
+      ? []
+      : [
+          {
+            name: account.name,
+            email: account.email,
+            provider: 'claude',
+            status: disabled ? 'disabled' : 'fresh',
+            windows: [],
+            weight: 50,
+          },
+        ],
   });
   const server = http.createServer((request, response) => {
     if (request.headers.authorization !== `Bearer ${store.secrets(bucket.id).managementKey}`) {
@@ -74,11 +77,13 @@ async function fixture(run: (id: string, actions: string[], port: number) => Pro
         `${request.method} ${request.url}${resource ? ` ${resource}` : input.weight ? ` weight=${input.weight}` : ''}`,
       );
       if (request.url === '/v0/management/auth-files/status') disabled = input.disabled;
+      if (request.method === 'DELETE' && request.url === `/v0/management/auth-files?name=${account.name}`)
+        removed = true;
       response.setHeader('Content-Type', 'application/json');
       response.end(
         JSON.stringify(
           request.url === '/v0/management/auth-files'
-            ? { files: [{ ...account, disabled }] }
+            ? { files: removed ? [] : [{ ...account, disabled }] }
             : resource
               ? {
                   status_code: resource === 'oauth/profile' ? profileStatus : 200,
@@ -169,4 +174,54 @@ test('a Claude profile that fails is asked again only while the failure may pass
     expect(actions.filter((action) => action.endsWith('oauth/profile'))).toHaveLength(2);
     profileStatus = 200;
   });
+});
+
+test('removing an account deletes only a member of the pool, through the proxy', async () => {
+  await fixture(async (id, actions) => {
+    await expect(buckets.removeAccount(id, 'unknown.json')).rejects.toThrow('not in this bucket');
+    expect(actions.some((action) => action.startsWith('DELETE'))).toBe(false);
+    await buckets.removeAccount(id, 'fixture.json');
+    expect(actions).toContain('DELETE /v0/management/auth-files?name=fixture.json');
+    expect((await buckets.snapshot())[0].accounts).toEqual([]);
+  });
+});
+
+test('removing a bucket stops its worker before deleting its directory', async () => {
+  await fixture(async (id, actions) => {
+    const base = store.paths(id).base;
+    await buckets.remove(id);
+    expect(actions).toContain('POST /stop');
+    expect(fs.existsSync(base)).toBe(false);
+    expect(await buckets.snapshot()).toEqual([]);
+  });
+});
+
+test('an unreachable worker keeps its bucket', async () => {
+  await fixture(async (id, _actions, port) => {
+    const receipt = path.join(store.paths(id).runtime, 'worker.json');
+    store.writeJson(receipt, { ...(store.readJson(receipt) as object), controlPort: port + 1 });
+    await expect(buckets.remove(id)).rejects.toThrow('unreachable');
+    expect(fs.existsSync(store.paths(id).base)).toBe(true);
+  });
+});
+
+test('a bucket stored with an OpenCode profile is removed with it', () => {
+  const previous = process.env.SWITCHBOARD_ROOT;
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-bucket-remove-'));
+  process.env.SWITCHBOARD_ROOT = temporary;
+  try {
+    const base = path.join(temporary, 'opencode', 'legacy');
+    fs.mkdirSync(path.join(base, 'data'), { recursive: true });
+    store.writeJson(path.join(base, 'profile.json'), { id: 'legacy', name: 'Legacy' });
+    const plain = store.create('Plain');
+    expect(store.withOpenCode('legacy')).toBe(true);
+    expect(store.withOpenCode(plain.id)).toBe(false);
+    store.remove('legacy');
+    expect(fs.existsSync(base)).toBe(false);
+    expect(store.list().map((b) => b.id)).toEqual(['plain']);
+  } finally {
+    if (previous === undefined) delete process.env.SWITCHBOARD_ROOT;
+    else process.env.SWITCHBOARD_ROOT = previous;
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
 });

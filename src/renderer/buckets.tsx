@@ -88,6 +88,17 @@ function BucketPanel({ bucket, state }: { bucket: BucketView; state: State }) {
           Stop
         </Btn>
       )}
+      <TipBtn
+        variant="icon"
+        icon="more"
+        aria-label={`More actions for ${bucket.name}`}
+        tip={['More']}
+        onClick={(e) =>
+          openMenu(e.currentTarget as HTMLElement, [
+            { label: 'Delete bucket…', danger: true, run: () => act(() => window.sb.removeBucket(bucket.id)) },
+          ])
+        }
+      />
     </>
   );
   return (
@@ -112,7 +123,8 @@ function BucketPanel({ bucket, state }: { bucket: BucketView; state: State }) {
 }
 
 // An account in the pool: who, then whether it takes traffic, which is a
-// state rather than an action, so a switch and not a button.
+// state rather than an action, so a switch and not a button. Signing it out
+// of the pool is rare and destructive, so it sits behind the menu.
 function AccountRow({
   bucket,
   account,
@@ -122,6 +134,7 @@ function AccountRow({
   account: BucketAccount;
   remaining: boolean;
 }) {
+  const { openMenu } = useOverlays();
   const off = account.status === 'disabled';
   const name = account.email ?? account.name;
   return (
@@ -151,6 +164,22 @@ function AccountRow({
           />
           <span>{off ? 'Paused' : 'Takes traffic'}</span>
         </label>
+        <TipBtn
+          variant="icon"
+          icon="more"
+          class="acct-more"
+          aria-label={`More actions for ${name}`}
+          tip={['More']}
+          onClick={(e) =>
+            openMenu(e.currentTarget as HTMLElement, [
+              {
+                label: 'Remove account…',
+                danger: true,
+                run: () => act(() => window.sb.removeBucketAccount(bucket.id, account.name)),
+              },
+            ])
+          }
+        />
       </div>
     </div>
   );

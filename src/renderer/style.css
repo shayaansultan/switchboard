@@ -280,6 +280,7 @@ main { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; p
    however tall its bars are. */
 .card .foot { grid-area: foot; align-self: end; display: flex; align-items: center; justify-content: flex-start; gap: 2px; margin-left: -2px; }
 .acct .foot { margin-left: 0; }
+.acct .foot .acct-more { margin-left: auto; }
 .card .foot .icon-btn { width: 28px; height: 28px; }
 /* The primary leads the stack, filled to launch and outlined to quit, with a
    breath before the tools so a slip on Copy never quits the app. */

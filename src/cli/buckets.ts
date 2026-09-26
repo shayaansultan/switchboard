@@ -4,14 +4,16 @@ import { z } from 'zod';
 import * as buckets from '../buckets';
 import * as proxy from '../buckets/proxy';
 import * as launch from '../launch';
+import * as profiles from '../profiles';
 import { runInherit } from '../child';
 import { shellQuote } from '../shell';
 import type { BucketView } from '../types';
 import type { Context } from './context';
 import { parse, required } from './context';
 import { notFound, refused, table, usageError } from './output';
+import { assertNotRunning, instances } from './desktop';
 import { loadBucket } from './profiles';
-import { confirm } from './resolve';
+import { confirm, mutateStore } from './resolve';
 
 const SUBCOMMANDS = z.enum([
   'list',
@@ -23,6 +25,8 @@ const SUBCOMMANDS = z.enum([
   'login',
   'enable',
   'disable',
+  'remove',
+  'remove-account',
   'install-proxy',
 ]);
 
@@ -80,6 +84,37 @@ export async function bucketCommand(rest: string[], ctx: Context): Promise<numbe
     case 'disable': {
       const id = loadBucket(required(args[0], 'Bucket')).id;
       await buckets.setAccountEnabled(id, required(args[1], 'Account'), sub === 'enable');
+      ctx.out.result(await view(id));
+      return;
+    }
+    case 'remove': {
+      const id = loadBucket(required(args[0], 'Bucket')).id;
+      const users = ctx.data.profiles.filter((p) => p.proxyBucket === id);
+      const running = await instances();
+      for (const p of users) assertNotRunning(p, running, `it routes through ${id}`);
+      const deleted = buckets.paths(id).base;
+      const what = buckets.withOpenCode(id) ? `bucket ${id} and its OpenCode profile` : `bucket ${id}`;
+      await confirm(ctx.flags, `Remove ${what}, signing out its accounts and deleting everything under ${deleted}?`);
+      await buckets.remove(id);
+      const unassigned = mutateStore((data) => profiles.clearProxyBucket(data, id));
+      ctx.out.result({ removed: id, deleted, unassigned });
+      return;
+    }
+    case 'remove-account': {
+      const id = loadBucket(required(args[0], 'Bucket')).id;
+      const name = required(args[1], 'Account');
+      // Accounts are read from the worker, which enable and disable also start.
+      if ((await view(id)).status !== 'running') await buckets.start(id);
+      const bucket = await view(id);
+      const account = bucket.accounts.find((a) => a.name === name || a.email === name);
+      if (!account) throw notFound('no-such-account', `No account "${name}" in ${id}`, `switchboard bucket show ${id}`);
+      const matches = bucket.accounts.filter((a) => a.email === name);
+      if (matches.length > 1)
+        throw usageError(
+          `"${name}" matches ${matches.length} accounts; name one: ${matches.map((a) => a.name).join(', ')}`,
+        );
+      await confirm(ctx.flags, `Sign ${account.email ?? account.name} out of ${id} and delete its token file?`);
+      await buckets.removeAccount(id, account.name);
       ctx.out.result(await view(id));
       return;
     }

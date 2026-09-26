@@ -757,6 +757,65 @@ ipcMain.handle('buckets:action', async (event, id: string, input: unknown, provi
     broadcast();
   }
 });
+async function confirmDelete(message: string, detail: string, action: string): Promise<boolean> {
+  const options: Electron.MessageBoxOptions = {
+    type: 'warning',
+    buttons: [action, 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    message,
+    detail,
+  };
+  const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
+  return r.response === 0;
+}
+ipcMain.handle('buckets:remove', async (event, id: string) => {
+  validateSender(event);
+  const bucket = buckets.load(id);
+  const users = data.profiles.filter((p) => p.proxyBucket === id);
+  const running = users.filter((p) => appStates.get(p.id) !== 'off');
+  if (running.length)
+    throw new Error(`Quit ${running.map((p) => p.name).join(', ')} first: it routes through ${bucket.name}`);
+  const withOpenCode = buckets.withOpenCode(id);
+  const detail = [
+    `This signs out every account in the bucket and deletes ${buckets.paths(id).base}.`,
+    withOpenCode
+      ? `It is also the OpenCode profile "${bucket.name}": its sessions, settings and connections go too.`
+      : '',
+    users.length ? `${users.map((p) => p.name).join(', ')} will use its own sign-in again.` : '',
+    'It cannot be undone.',
+  ];
+  const message = `Delete "${bucket.name}"${withOpenCode ? ' and its OpenCode profile' : ''}?`;
+  if (!(await confirmDelete(message, detail.filter(Boolean).join(' '), 'Delete'))) return false;
+  try {
+    await buckets.remove(id);
+    bucketFailures.delete(id);
+    mutate(() => profiles.clearProxyBucket(data, id));
+  } catch (error) {
+    bucketFailures.set(id, error instanceof Error ? error.message : String(error));
+    throw error;
+  } finally {
+    await refreshBuckets();
+    broadcast();
+  }
+  return true;
+});
+ipcMain.handle('buckets:removeAccount', async (event, id: string, name: unknown) => {
+  validateSender(event);
+  const account = z.string().parse(name);
+  const bucket = buckets.load(id);
+  const shown = bucketViews?.find((b) => b.id === id)?.accounts.find((a) => a.name === account);
+  const who = shown?.email ?? account;
+  const detail = `This deletes the bucket's sign-in for ${who}. Sign-ins elsewhere, such as the desktop app's, are untouched. Adding it again needs a new login.`;
+  if (!(await confirmDelete(`Remove ${who} from "${bucket.name}"?`, detail, 'Remove'))) return false;
+  try {
+    await buckets.removeAccount(id, account);
+  } finally {
+    await refreshBuckets();
+    broadcast();
+  }
+  return true;
+});
 ipcMain.handle('buckets:account', async (event, id: string, name: unknown, enabled: unknown) => {
   validateSender(event);
   try {
