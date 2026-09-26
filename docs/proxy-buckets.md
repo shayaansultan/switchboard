@@ -81,11 +81,13 @@ model names. A desktop restart is needed to pick up a changed label or connectio
   neither old port is listening. An active or ambiguous worker is left alone;
   the bucket card shows the reason until the next successful action.
 - **Remove account…** (the account's menu, or `switchboard bucket remove-account`)
-  deletes the account's token file through the proxy. Its other sign-ins, such as
-  the desktop app's, are untouched.
-- **Delete bucket…** (the bucket's menu, or `switchboard bucket remove`) stops the
-  worker, deletes the bucket's directory and moves every profile routed through it
-  back to its own sign-in. A bucket stored with an OpenCode profile shares that
+  deletes the account's token file through the proxy. The vendor's grant is not
+  revoked, and the account's other sign-ins, such as the desktop app's, are
+  untouched.
+- **Remove bucket…** (the bucket's menu, or `switchboard bucket remove`) stops the
+  worker, interrupting every client routed through it as Stop does, deletes the
+  bucket's directory with its accounts' token files, and moves every profile
+  routed through it back to its own sign-in. A bucket stored with an OpenCode profile shares that
   profile's directory, so the OpenCode profile goes with it. Both refuse while a
   profile routed through the bucket is running, and while the bucket's worker is
   unreachable: recover or stop it first.

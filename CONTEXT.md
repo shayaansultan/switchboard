@@ -44,9 +44,10 @@ proxy bucket. Set from the profile's menu.
 A pool of accounts behind a local proxy. A Codex desktop profile, or
 OpenCode, can route its model requests through a bucket, which picks the
 account with the most headroom for each request. An account in a bucket can
-be disabled: it stays signed in but takes no traffic, or removed: it is
-signed out of the bucket. Removing a bucket signs out all its accounts and
-moves the profiles routed through it back to their own sign-in. A bucket
+be disabled: it stays signed in but takes no traffic, or removed: the
+bucket's sign-in for it is deleted. Removing a bucket stops its worker,
+deletes its accounts' sign-ins and moves the profiles routed through it back
+to their own sign-in. A bucket
 stored with an OpenCode profile is that profile, so removing one removes
 both.
 

@@ -757,10 +757,11 @@ ipcMain.handle('buckets:action', async (event, id: string, input: unknown, provi
     broadcast();
   }
 });
-async function confirmDelete(message: string, detail: string, action: string): Promise<boolean> {
+// The native warning every removal asks through, with Cancel as the default.
+async function confirmRemove(message: string, detail: string): Promise<boolean> {
   const options: Electron.MessageBoxOptions = {
     type: 'warning',
-    buttons: [action, 'Cancel'],
+    buttons: ['Remove', 'Cancel'],
     defaultId: 1,
     cancelId: 1,
     message,
@@ -778,15 +779,15 @@ ipcMain.handle('buckets:remove', async (event, id: string) => {
     throw new Error(`Quit ${running.map((p) => p.name).join(', ')} first: it routes through ${bucket.name}`);
   const withOpenCode = buckets.withOpenCode(id);
   const detail = [
-    `This signs out every account in the bucket and deletes ${buckets.paths(id).base}.`,
+    `This stops its worker, interrupting every client routed through it, and deletes ${buckets.paths(id).base} with the sign-ins of its accounts.`,
     withOpenCode
       ? `It is also the OpenCode profile "${bucket.name}": its sessions, settings and connections go too.`
       : '',
     users.length ? `${users.map((p) => p.name).join(', ')} will use its own sign-in again.` : '',
     'It cannot be undone.',
   ];
-  const message = `Delete "${bucket.name}"${withOpenCode ? ' and its OpenCode profile' : ''}?`;
-  if (!(await confirmDelete(message, detail.filter(Boolean).join(' '), 'Delete'))) return false;
+  const message = `Remove "${bucket.name}"${withOpenCode ? ' and its OpenCode profile' : ''}?`;
+  if (!(await confirmRemove(message, detail.filter(Boolean).join(' ')))) return false;
   try {
     await buckets.remove(id);
     bucketFailures.delete(id);
@@ -807,7 +808,7 @@ ipcMain.handle('buckets:removeAccount', async (event, id: string, name: unknown)
   const shown = bucketViews?.find((b) => b.id === id)?.accounts.find((a) => a.name === account);
   const who = shown?.email ?? account;
   const detail = `This deletes the bucket's sign-in for ${who}. Sign-ins elsewhere, such as the desktop app's, are untouched. Adding it again needs a new login.`;
-  if (!(await confirmDelete(`Remove ${who} from "${bucket.name}"?`, detail, 'Remove'))) return false;
+  if (!(await confirmRemove(`Remove ${who} from "${bucket.name}"?`, detail))) return false;
   try {
     await buckets.removeAccount(id, account);
   } finally {
@@ -853,16 +854,8 @@ ipcMain.handle('profiles:add', async (_e, p: AddOptions) => {
 });
 ipcMain.handle('profiles:remove', async (_e, id: string) => {
   const p = byId(id);
-  const options: Electron.MessageBoxOptions = {
-    type: 'warning',
-    buttons: ['Remove', 'Cancel'],
-    defaultId: 1,
-    cancelId: 1,
-    message: `Remove "${p.name}" and delete all its data?`,
-    detail: `This removes the profile's CLI login, desktop session, history and settings under ${path.dirname(profiles.dirs(p).home)}. It cannot be undone.`,
-  };
-  const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
-  if (r.response !== 0) return false;
+  const detail = `This removes the profile's CLI login, desktop session, history and settings under ${path.dirname(profiles.dirs(p).home)}. It cannot be undone.`;
+  if (!(await confirmRemove(`Remove "${p.name}" and delete all its data?`, detail))) return false;
   mutate(() => profiles.remove(data, id));
   live.delete(id);
   saveCache();

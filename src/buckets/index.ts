@@ -65,7 +65,8 @@ export async function setAccountEnabled(id: string, name: string, enabled: boole
   await proxy.setAccountEnabled(id, status.receipt.proxyPort, name, enabled);
   await refresh(id);
 }
-// Signs the account out of the pool: the proxy deletes its token file.
+// Takes the account out of the pool: the proxy deletes its token file. The
+// vendor's grant is not revoked; other sign-ins of the account are untouched.
 export async function removeAccount(id: string, name: string): Promise<void> {
   store.load(id);
   const status = await proxy.ensureWorker(id);

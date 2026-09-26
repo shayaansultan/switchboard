@@ -95,7 +95,7 @@ function BucketPanel({ bucket, state }: { bucket: BucketView; state: State }) {
         tip={['More']}
         onClick={(e) =>
           openMenu(e.currentTarget as HTMLElement, [
-            { label: 'Delete bucket…', danger: true, run: () => act(() => window.sb.removeBucket(bucket.id)) },
+            { label: 'Remove bucket…', danger: true, run: () => act(() => window.sb.removeBucket(bucket.id)) },
           ])
         }
       />

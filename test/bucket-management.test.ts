@@ -6,6 +6,7 @@ import * as http from 'node:http';
 import * as store from '../src/buckets/store';
 import * as buckets from '../src/buckets';
 import { observe } from '../src/buckets/proxy';
+import { run, withoutTty } from './cli-helpers';
 
 const account = { name: 'fixture.json', auth_index: 'fixture', provider: 'claude', email: 'fixture@example.test' };
 // What the vendors answer when the fake proxy calls them for an account,
@@ -183,6 +184,21 @@ test('removing an account deletes only a member of the pool, through the proxy',
     await buckets.removeAccount(id, 'fixture.json');
     expect(actions).toContain('DELETE /v0/management/auth-files?name=fixture.json');
     expect((await buckets.snapshot())[0].accounts).toEqual([]);
+  });
+});
+
+test('bucket remove-account resolves the account by email and needs --yes', async () => {
+  await fixture(async (id, actions) => {
+    expect((await run('bucket', 'remove-account', id, 'nobody@example.test', '--yes')).failure().error).toBe(
+      'no-such-account',
+    );
+    const unconfirmed = await withoutTty(() => run('bucket', 'remove-account', id, account.email));
+    expect(unconfirmed.failure().error).toBe('confirmation-required');
+    expect(actions.some((action) => action.startsWith('DELETE'))).toBe(false);
+    const removed = await run('bucket', 'remove-account', id, account.email, '--yes');
+    expect(removed.code).toBe(0);
+    expect(removed.json()).toMatchObject({ id, status: 'running', accounts: [] });
+    expect(actions).toContain('DELETE /v0/management/auth-files?name=fixture.json');
   });
 });
 

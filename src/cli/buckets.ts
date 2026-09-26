@@ -94,7 +94,10 @@ export async function bucketCommand(rest: string[], ctx: Context): Promise<numbe
       for (const p of users) assertNotRunning(p, running, `it routes through ${id}`);
       const deleted = buckets.paths(id).base;
       const what = buckets.withOpenCode(id) ? `bucket ${id} and its OpenCode profile` : `bucket ${id}`;
-      await confirm(ctx.flags, `Remove ${what}, signing out its accounts and deleting everything under ${deleted}?`);
+      await confirm(
+        ctx.flags,
+        `Remove ${what}? Its worker stops, interrupting every client routed through it, and everything under ${deleted} is deleted, with its accounts' sign-ins.`,
+      );
       await buckets.remove(id);
       const unassigned = mutateStore((data) => profiles.clearProxyBucket(data, id));
       ctx.out.result({ removed: id, deleted, unassigned });
@@ -104,16 +107,20 @@ export async function bucketCommand(rest: string[], ctx: Context): Promise<numbe
       const id = loadBucket(required(args[0], 'Bucket')).id;
       const name = required(args[1], 'Account');
       // Accounts are read from the worker, which enable and disable also start.
-      if ((await view(id)).status !== 'running') await buckets.start(id);
-      const bucket = await view(id);
-      const account = bucket.accounts.find((a) => a.name === name || a.email === name);
-      if (!account) throw notFound('no-such-account', `No account "${name}" in ${id}`, `switchboard bucket show ${id}`);
-      const matches = bucket.accounts.filter((a) => a.email === name);
+      let bucket = await view(id);
+      if (bucket.status !== 'running') {
+        await buckets.start(id);
+        bucket = await view(id);
+      }
+      const matches = bucket.accounts.filter((a) => a.name === name || a.email === name);
+      if (!matches.length)
+        throw notFound('no-such-account', `No account "${name}" in ${id}`, `switchboard bucket show ${id}`);
       if (matches.length > 1)
         throw usageError(
           `"${name}" matches ${matches.length} accounts; name one: ${matches.map((a) => a.name).join(', ')}`,
         );
-      await confirm(ctx.flags, `Sign ${account.email ?? account.name} out of ${id} and delete its token file?`);
+      const [account] = matches;
+      await confirm(ctx.flags, `Remove ${account.email ?? account.name} from ${id} and delete its sign-in there?`);
       await buckets.removeAccount(id, account.name);
       ctx.out.result(await view(id));
       return;

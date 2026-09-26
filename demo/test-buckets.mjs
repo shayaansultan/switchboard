@@ -239,12 +239,12 @@ try {
   const live = JSON.parse(await fs.readFile(path.join(runtime, 'worker.json')));
   await answer(1);
   await page.getByRole('button', { name: 'More actions for Team' }).click();
-  await page.getByRole('menuitem', { name: 'Delete bucket…' }).click();
+  await page.getByRole('menuitem', { name: 'Remove bucket…' }).click();
   assert.equal((await page.evaluate(() => window.sb.getState())).buckets.length, 1, 'Cancel must keep the bucket');
   await answer(0);
   await page.getByRole('button', { name: 'More actions for Team' }).click();
-  await page.screenshot({ path: path.join(output, 'delete-bucket-menu.png') });
-  await page.getByRole('menuitem', { name: 'Delete bucket…' }).click();
+  await page.screenshot({ path: path.join(output, 'remove-bucket-menu.png') });
+  await page.getByRole('menuitem', { name: 'Remove bucket…' }).click();
   await page.getByText('No proxy buckets yet').waitFor();
   state = await page.evaluate(() => window.sb.getState());
   assert.equal(state.profiles.find((p) => p.id === 'codex-work').proxyBucket, undefined);
