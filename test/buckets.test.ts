@@ -9,7 +9,7 @@ import * as buckets from '../src/buckets/store';
 import * as profiles from '../src/opencode/profiles';
 import { desktopEnvironment, wrapperScript } from '../src/buckets/desktop';
 import { desktopCatalog } from '../src/buckets/models';
-import { desktopRouting } from '../src/storage';
+import { desktopRouting, writeFileAtomic } from '../src/storage';
 
 test('shared buckets reuse existing pool storage and credentials without adopting collisions', () => {
   const original = process.env.SWITCHBOARD_ROOT;
@@ -118,6 +118,20 @@ test('a bucket without Claude models leaves no catalog from an earlier launch', 
     server.close();
     if (original === undefined) delete process.env.SWITCHBOARD_ROOT;
     else process.env.SWITCHBOARD_ROOT = original;
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test('an atomic rewrite replaces the content and sets the mode it is given', () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-atomic-'));
+  try {
+    const file = path.join(temporary, 'codex-work');
+    fs.writeFileSync(file, 'earlier launch', { mode: 0o644 });
+    writeFileAtomic(file, '#!/bin/sh\n', 0o700);
+    expect(fs.readFileSync(file, 'utf8')).toBe('#!/bin/sh\n');
+    expect(fs.statSync(file).mode & 0o777).toBe(0o700);
+    expect(fs.readdirSync(temporary)).toEqual(['codex-work']);
+  } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
 });

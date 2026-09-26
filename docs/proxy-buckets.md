@@ -127,9 +127,11 @@ to the app's embedded Codex process via `CODEX_CLI_PATH`. The local proxy key is
 in the launch environment, never written into the wrapper or sent to the renderer.
 Each routed profile has one wrapper, `codex-<profile>`, and one model catalog,
 `models-<profile>.json`, rewritten atomically on each launch. A routed profile
-cannot be launched while it runs, so neither changes under the app using it, and
-removing the profile removes both. Neither `config.toml` nor `auth.json` is rewritten. Native launches use the normal
-app runtime. This executable override is an app implementation detail and needs
+cannot be launched or removed while it runs, so neither changes under the app
+using it. Removing the profile removes both; unassigning it or removing its
+bucket leaves them for a running app, and they hold no key. Neither
+`config.toml` nor `auth.json` is rewritten. Native launches use the normal app
+runtime. This executable override is an app implementation detail and needs
 rechecking after desktop updates.
 
 Routing overrides must follow the desktop's arguments, including its `app-server`

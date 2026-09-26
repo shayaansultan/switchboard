@@ -859,6 +859,9 @@ ipcMain.handle('profiles:add', async (_e, p: AddOptions) => {
 });
 ipcMain.handle('profiles:remove', async (_e, id: string) => {
   const p = byId(id);
+  // As in the CLI: removal deletes the directory and launch files the
+  // running app is using.
+  if (appStates.get(p.id) !== 'off') throw new Error(`Quit the ${p.name} window first`);
   const detail = `This removes the profile's CLI login, desktop session, history and settings under ${path.dirname(profiles.dirs(p).home)}. It cannot be undone.`;
   if (!(await confirmRemove(`Remove "${p.name}" and delete all its data?`, detail))) return false;
   mutate(() => profiles.remove(data, id));
