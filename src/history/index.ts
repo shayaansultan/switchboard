@@ -11,13 +11,16 @@ import { buildReport, sessionPaths } from './report';
 import { WindowHistory, type LiveProfile } from './windows';
 
 export const USAGE_DIR = path.join(ROOT, 'usage');
-export const LEDGER_FILE = path.join(USAGE_DIR, 'ledger.json');
+// A pass that found nothing new still records when it looked, but writes
+// the ledger no more often than this.
+const IDLE_SAVE_MS = 10 * 60_000;
 
 export class UsageHistory {
   readonly windows: WindowHistory;
   private ledger: Ledger | null = null;
   private pass: Promise<boolean> | null = null;
   private lastPass = 0;
+  private lastSave = 0;
 
   constructor(private readonly dir = USAGE_DIR) {
     this.windows = new WindowHistory(dir);
@@ -40,7 +43,10 @@ export class UsageHistory {
     const ledger = this.current();
     this.pass = indexLogs(ledger, profiles)
       .then((changed) => {
-        saveLedger(this.file, ledger);
+        if (changed || Date.now() - this.lastSave >= IDLE_SAVE_MS) {
+          saveLedger(this.file, ledger);
+          this.lastSave = Date.now();
+        }
         return changed;
       })
       .finally(() => {
@@ -54,7 +60,14 @@ export class UsageHistory {
     // Enough window history for the previous period's limit hits and for the
     // live windows' own history.
     const since = Math.min(now - 2 * days * DAY_MS, now - 8 * DAY_MS);
-    return buildReport({ ledger: this.current(), records: this.windows.read(since, now), live, days, now });
+    return buildReport({
+      ledger: this.current(),
+      records: this.windows.read(since, now),
+      windowsSince: this.windows.firstRecordAt(),
+      live,
+      days,
+      now,
+    });
   }
 
   session(profile: string, id: string) {

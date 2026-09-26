@@ -3,9 +3,9 @@
 // the rules are testable; main.ts shows what this returns.
 
 import type { UsageWindow, Vendor } from '../types';
-import { roomiest, type LiveProfile } from './windows';
+import { roomiest, sameReset, type LiveProfile } from './windows';
 
-export const ALERT_AT = 90;
+const ALERT_AT = 90;
 
 export interface AlertProfile {
   id: string;
@@ -24,23 +24,28 @@ function resetTime(iso: string | null): string {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+// `after` holds every profile's current windows, so any of them can be the
+// one with the most room; only the profiles in `fresh`, read just now, are
+// checked for alerts.
 export function alertsFor(
   before: Map<string, UsageWindow[]>,
   after: Map<string, UsageWindow[]>,
   profiles: AlertProfile[],
+  fresh: Set<string>,
   now = Date.now(),
 ): Alert[] {
   const out: Alert[] = [];
   const live: LiveProfile[] = profiles.map((p) => ({ id: p.id, vendor: p.vendor, windows: after.get(p.id) }));
   const name = (id: string) => profiles.find((p) => p.id === id)?.label ?? id;
   for (const p of profiles) {
+    if (!fresh.has(p.id)) continue;
     const prev = before.get(p.id);
     // Nothing to compare with on the first reading after launch.
     if (!prev) continue;
     for (const w of after.get(p.id) ?? []) {
       const old = prev.find((x) => x.label === w.label);
       if (!old || w.pct === null || old.pct === null) continue;
-      const reset = old.resetsAt !== w.resetsAt && w.pct < old.pct;
+      const reset = !sameReset(old.resetsAt, w.resetsAt) && w.pct < old.pct;
       if (old.pct < ALERT_AT && w.pct >= ALERT_AT && !reset) {
         const alt = roomiest(live, p, now);
         const when = resetTime(w.resetsAt);

@@ -59,7 +59,7 @@ async function scenario() {
     { id: 'personal', vendor: 'claude' as const, windows: [w(68, winEnd)] },
     { id: 'work', vendor: 'claude' as const, windows: [w(12, NOW + 4 * H)] },
   ];
-  return buildReport({ ledger, records, live, days: 7, now: NOW });
+  return buildReport({ ledger, records, windowsSince: records[0].at, live, days: 7, now: NOW });
 }
 
 test('totals, the previous period and the daily split', async () => {
@@ -69,6 +69,8 @@ test('totals, the previous period and the daily split', async () => {
   expect(r.totals.sessions).toBe(2);
   expect(r.totals.projects).toBe(2);
   expect(r.previous?.value).toBeCloseTo(5, 6);
+  // Window history began this week, so last week's limit hits are unknown.
+  expect(r.previousHasLimits).toBe(false);
   expect(r.daily).toHaveLength(7);
   expect(r.daily.at(-1)?.day).toBe(dayOf(NOW));
   expect(r.daily.at(-1)?.value.personal).toBeCloseTo(40.00038, 5);

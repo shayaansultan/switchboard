@@ -285,6 +285,9 @@ export interface UsageReport {
   pricesAsOf: string;
   totals: UsageTotals;
   previous: UsageTotals | null;
+  // Whether the previous period's limit hits were recorded, and so worth
+  // comparing with.
+  previousHasLimits: boolean;
   accounts: { profile: string; tightest: WindowPace | null; value: number; tokens: TokenCounts }[];
   forecast: UsageForecast | null;
   daily: { day: string; value: Record<string, number>; tokens: Record<string, number> }[];

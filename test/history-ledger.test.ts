@@ -60,6 +60,22 @@ test('indexes a transcript once, then only what is appended', async () => {
   expect(totalValue(ledger, 'claude-work')).toBeCloseTo(13, 6);
 });
 
+test('agent time is the conversation, not the pauses in it', async () => {
+  const H = 3_600_000;
+  write(transcript, [
+    claudeUser({ session: 's1', at: T, text: 'Start' }),
+    claudeAssistant({ session: 's1', at: T + 60_000, id: 'a', output: 1 }),
+    claudeAssistant({ session: 's1', at: T + 120_000, id: 'b', output: 1 }),
+    // Picked up again five hours later: the pause is not work, the wait for
+    // the answer to the new prompt is.
+    claudeUser({ session: 's1', at: T + 5 * H, text: 'Carry on' }),
+    claudeAssistant({ session: 's1', at: T + 5 * H + 90_000, id: 'c', output: 1 }),
+  ]);
+  const ledger = emptyLedger(T);
+  await indexLogs(ledger, [claude], T + 6 * H);
+  expect(ledger.profiles['claude-work'].sessions.s1.ms).toBe(60_000 + 60_000 + 90_000);
+});
+
 test('a half-written last line waits for the next pass', async () => {
   const whole = claudeAssistant({ session: 's1', at: T, id: 'm1', output: 10 });
   fs.mkdirSync(path.dirname(transcript), { recursive: true });

@@ -201,6 +201,10 @@ async function indexUsage(minGapMs = 0): Promise<void> {
   }
 }
 
+// A poll or a refresh of one profile is a reason to read the logs, but not
+// more than once a minute; opening the Usage tab asks the same.
+const INDEX_GAP_MS = 60_000;
+
 function recordUsage(list: Profile[]): void {
   const fresh = new Map<string, UsageWindow[]>();
   let wrote = false;
@@ -215,15 +219,14 @@ function recordUsage(list: Profile[]): void {
     }
   }
   if (data.settings.usageAlerts !== false && Notification.isSupported()) {
-    const now = new Map(liveProfiles().map((p) => [p.id, p.windows ?? []]));
-    const alertable = data.profiles
-      .filter((p) => fresh.has(p.id))
-      .map((p) => ({ id: p.id, vendor: p.vendor, label: profileLabel(p) }));
-    for (const a of alertsFor(alertBaseline, now, alertable)) new Notification({ title: a.title, body: a.body }).show();
+    const current = new Map(liveProfiles().map((p) => [p.id, p.windows ?? []]));
+    const all = data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, label: profileLabel(p) }));
+    for (const a of alertsFor(alertBaseline, current, all, new Set(fresh.keys())))
+      new Notification({ title: a.title, body: a.body }).show();
   }
   for (const [id, windows] of fresh) alertBaseline.set(id, windows);
   if (wrote) usageChanged();
-  void indexUsage();
+  void indexUsage(INDEX_GAP_MS);
 }
 
 // ---- store shared with the CLI ----
@@ -841,8 +844,7 @@ ipcMain.handle('buckets:account', async (event, id: string, name: unknown, enabl
 
 ipcMain.handle('usage:report', (event, days: unknown) => {
   validateSender(event);
-  // Opening the tab is a reason to read the logs, but not more than once a minute.
-  void indexUsage(60_000);
+  void indexUsage(INDEX_GAP_MS);
   return history.report(liveProfiles(), z.number().int().min(1).max(366).parse(days));
 });
 function sessionFor(profileId: unknown, sessionId: unknown) {
@@ -865,7 +867,10 @@ ipcMain.handle('usage:open', async (event, profileId: unknown, sessionId: unknow
       throw new Error('The transcript has been deleted since, as Claude Code does after 30 days.');
     shell.showItemInFolder(s.file);
   } else {
-    if (!s.cwd || !fs.existsSync(s.cwd)) throw new Error('That folder no longer exists.');
+    if (!s.cwd || !fs.statSync(s.cwd, { throwIfNoEntry: false })?.isDirectory())
+      throw new Error('That folder no longer exists.');
+    // The path comes from a log file; opening an app bundle would launch it.
+    if (/\.app\/?$/i.test(s.cwd)) throw new Error('That folder is an app.');
     const failed = await shell.openPath(s.cwd);
     if (failed) throw new Error(failed);
   }

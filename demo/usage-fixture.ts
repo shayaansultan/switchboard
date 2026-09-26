@@ -305,7 +305,7 @@ export async function usageFixture(days = 30, now = Date.now()): Promise<UsageRe
       }
       live.push({ id: a.id, vendor: a.vendor, windows: latest });
     }
-    return buildReport({ ledger, records, live, days, now });
+    return buildReport({ ledger, records, windowsSince: records[0]?.at ?? null, live, days, now });
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

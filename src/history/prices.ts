@@ -60,37 +60,39 @@ const TABLE: Record<string, Price> = {
   'gpt-5.1-codex-max': openai(1.25, 10, 0.125),
   'gpt-5.1-codex': openai(1.25, 10, 0.125),
   'gpt-5-codex': openai(1.25, 10, 0.125),
+  'gpt-5-mini': openai(0.25, 2, 0.025),
+  'gpt-5-nano': openai(0.05, 0.4, 0.005),
   'gpt-5': openai(1.25, 10, 0.125),
 };
 
+// What may follow a known id and still be that model: a release date, in
+// Anthropic's or OpenAI's form, or a reasoning effort. Anything else (a
+// "-mini", a newer version) is a different model.
+const SAME_MODEL = /^-(\d{8}|\d{4}-\d{2}-\d{2}|minimal|low|medium|high|xhigh|latest)$/;
+
 // The table's entry for a model id as the logs write it. A dated or
-// qualified id ("claude-haiku-4-5-20251001", "gpt-5.3-codex-high") takes its
-// base model's price; a newer version ("claude-opus-5-7", "gpt-5.7") does
-// not inherit an older one's.
+// effort-qualified id ("claude-haiku-4-5-20251001", "gpt-5.3-codex-high")
+// takes its base model's price; a different model ("gpt-5-mini" beside
+// "gpt-5", a newer "claude-opus-5-7") does not inherit one.
 export function priceOf(model: string): Price | null {
   const id = model.toLowerCase().replace(/^(anthropic|openai)[/.]/, '');
   if (TABLE[id]) return TABLE[id];
-  let best: string | null = null;
-  for (const key of Object.keys(TABLE)) {
-    if (!id.startsWith(key)) continue;
-    if (!/^(-\d{8}|-[a-z].*)$/.test(id.slice(key.length))) continue;
-    if (!best || key.length > best.length) best = key;
-  }
-  return best ? TABLE[best] : null;
+  const base = Object.keys(TABLE).find((key) => id.startsWith(key) && SAME_MODEL.test(id.slice(key.length)));
+  return base ? TABLE[base] : null;
 }
 
-// Dollars for one model's tokens, or null when the model has no price.
-// `cacheWriteLong` is the part of the cache writes kept for an hour, which
-// Anthropic charges at twice the input price.
-export function valueOf(model: string, t: TokenCounts, cacheWriteLong = 0): number | null {
+// Dollars for one model's tokens by kind (input, output, cache read, cache
+// write), or null when the model has no price. `cacheWriteLong` is the part
+// of the cache writes kept for an hour, which Anthropic charges at twice the
+// input price.
+export function valueParts(model: string, t: TokenCounts, cacheWriteLong = 0): [number, number, number, number] | null {
   const p = priceOf(model);
   if (!p) return null;
   const short = Math.max(0, t.cacheWrite - cacheWriteLong);
-  const dollars =
-    t.input * p.input +
-    t.output * p.output +
-    t.cacheRead * p.cacheRead +
-    short * p.cacheWrite +
-    cacheWriteLong * p.input * 2;
-  return dollars / 1e6;
+  return [
+    (t.input * p.input) / 1e6,
+    (t.output * p.output) / 1e6,
+    (t.cacheRead * p.cacheRead) / 1e6,
+    (short * p.cacheWrite + cacheWriteLong * p.input * 2) / 1e6,
+  ];
 }

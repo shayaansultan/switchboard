@@ -38,22 +38,33 @@ export function windowLength(label: string): number | null {
   return Number(m[1]) * (m[2] === 'd' ? 24 : 1) * HOUR;
 }
 
+// Whether two reset times are the same reset, allowing for the drift.
+export function sameReset(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) return a === b;
+  return Math.abs(Date.parse(a) - Date.parse(b)) <= SAME_RESET_MS;
+}
+
 function monthOf(ms: number): string {
   const d = new Date(ms);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 export class WindowHistory {
-  private last = new Map<string, string>();
+  private last = new Map<string, WindowRecord['windows']>();
   constructor(private readonly dir: string) {}
 
   // Appends the profile's windows if they differ from what was last
   // recorded for it. Returns whether it wrote.
   record(profile: string, windows: UsageWindow[], at = Date.now()): boolean {
     const shape = windows.map((w) => ({ label: w.label, pct: w.pct, resetsAt: w.resetsAt }));
-    const text = JSON.stringify(shape);
-    if (this.last.get(profile) === text) return false;
-    this.last.set(profile, text);
+    const prev = this.last.get(profile);
+    const same =
+      prev?.length === shape.length &&
+      shape.every(
+        (w, i) => w.label === prev[i].label && w.pct === prev[i].pct && sameReset(w.resetsAt, prev[i].resetsAt),
+      );
+    if (same) return false;
+    this.last.set(profile, shape);
     const line: WindowRecord = { at, profile, windows: shape };
     fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     fs.appendFileSync(path.join(this.dir, `windows-${monthOf(at)}.jsonl`), JSON.stringify(line) + '\n', {
@@ -167,10 +178,10 @@ export interface LiveProfile {
 
 // How fast a window is filling, in points an hour: over the last hour of
 // its history where there is one, else since the window began.
-function rate(records: WindowRecord[], profile: string, w: UsageWindow, now: number): number | null {
+function rate(list: WindowInstance[], w: UsageWindow, now: number): number | null {
   const end = Date.parse(w.resetsAt as string);
   const len = windowLength(w.label) as number;
-  const mine = instances(records, profile).find((i) => i.label === w.label && Math.abs(i.end - end) <= SAME_RESET_MS);
+  const mine = list.find((i) => i.label === w.label && Math.abs(i.end - end) <= SAME_RESET_MS);
   const pct = w.pct ?? 0;
   const before = mine?.points.filter(([at]) => at <= now - HOUR).at(-1);
   const first = mine?.points[0];
@@ -182,12 +193,17 @@ function rate(records: WindowRecord[], profile: string, w: UsageWindow, now: num
 
 // The window closest to running out before it resets, and where to go
 // instead: the same vendor's account whose fullest window is emptiest.
-export function forecast(records: WindowRecord[], live: LiveProfile[], now: number): UsageForecast | null {
+// `history` is each profile's window instances.
+export function forecast(
+  history: Map<string, WindowInstance[]>,
+  live: LiveProfile[],
+  now: number,
+): UsageForecast | null {
   let best: UsageForecast | null = null;
   for (const p of live) {
     for (const w of p.windows ?? []) {
       if (w.pct === null || w.pct < 50 || w.pct >= 100 || !w.resetsAt || !windowLength(w.label)) continue;
-      const r = rate(records, p.id, w, now);
+      const r = rate(history.get(p.id) ?? [], w, now);
       if (!r || r <= 0) continue;
       const fullAt = now + ((100 - w.pct) / r) * HOUR;
       const resetsAt = Date.parse(w.resetsAt);

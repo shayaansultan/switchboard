@@ -591,11 +591,9 @@ code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; 
 }
 .ranked { display: grid; padding: 4px 0 8px; }
 .ranked-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(40px, 1fr) auto; align-items: center; gap: 12px; padding: 7px 0; font-size: 13px; }
-.ranked-row:has(.extra) { grid-template-columns: minmax(0, 1.4fr) minmax(40px, 1fr) auto auto; }
 .ranked-row + .ranked-row { border-top: 1px solid var(--line); }
 .ranked-row .name { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; }
 .ranked-row .name code { overflow: hidden; text-overflow: ellipsis; }
-.ranked-row .extra { color: var(--muted); font-size: 12px; }
 
 /* Six months of days; a column is a week, Monday at the top. */
 .heat-wrap { padding: 14px 0 12px; display: grid; gap: 10px; }
@@ -661,7 +659,7 @@ svg.spark .line { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-li
 .via { font-size: 11px; line-height: 16px; padding: 0 5px; border: 1px solid var(--line-2); border-radius: 5px; color: var(--text-2); white-space: nowrap; }
 @container (max-width: 640px) {
   .session-row { grid-template-columns: minmax(0, 1fr) 60px 14px; }
-  .session-row .model, .session-row .num:nth-of-type(1), .session-row .num:nth-of-type(2) { display: none; }
+  .session-row .model, .session-row .time, .session-row .tokens { display: none; }
 }
 .inspector-inline { padding: 0 10px 12px; border-top: 1px solid var(--line); background: var(--panel-2); }
 .inspector-inline .inspector { margin-top: 12px; box-shadow: none; }

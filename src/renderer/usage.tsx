@@ -158,11 +158,7 @@ function change(cur: number, prev: number | undefined, tone: 'neutral' | 'lower-
 }
 
 // A row of the ranked lists: a name, a bar sized against the largest, the value.
-function Ranked({
-  rows,
-}: {
-  rows: { key: string; name: ComponentChildren; share: number; value: string; extra?: string }[];
-}) {
+function Ranked({ rows }: { rows: { key: string; name: ComponentChildren; share: number; value: string }[] }) {
   if (!rows.length) return <Note class="pad">Nothing in this range.</Note>;
   const max = Math.max(...rows.map((r) => r.share), 0) || 1;
   return (
@@ -173,7 +169,6 @@ function Ranked({
           <span class="meter">
             <span style={{ width: `${(r.share / max) * 100}%` }} />
           </span>
-          {r.extra !== undefined ? <span class="extra">{r.extra}</span> : null}
           <span class="num">{r.value}</span>
         </div>
       ))}
@@ -235,7 +230,9 @@ function Overview({ state, report }: { state: State; report: UsageReport }) {
           k="Limit hits"
           v={String(t.limitHits)}
           sub={t.limitHits ? `waited ${duration(t.waitedMs)} in total` : 'no window ran out'}
-          delta={p && (t.limitHits || p.limitHits) ? limitChange(t.limitHits, p.limitHits) : null}
+          delta={
+            p && report.previousHasLimits && (t.limitHits || p.limitHits) ? limitChange(t.limitHits, p.limitHits) : null
+          }
         />
       </div>
       <Panel title="Value per day, by account" actions={<Legend state={state} ids={activeIds(report)} />}>
@@ -857,8 +854,8 @@ function Block({
                 </span>
               </span>
               <code class="model">{s.model ?? '—'}</code>
-              <span class="num">{duration(s.agentMs)}</span>
-              <span class="num">{count(allTokens(s.tokens))}</span>
+              <span class="num time">{duration(s.agentMs)}</span>
+              <span class="num tokens">{count(allTokens(s.tokens))}</span>
               <span class="num">{money(s.value)}</span>
               <Icon name="right" size={14} />
             </button>

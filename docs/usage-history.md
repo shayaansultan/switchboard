@@ -49,6 +49,9 @@ something new.
   they rose. A subagent's rollout starts by replaying its parent's history,
   which is skipped.
 - A line still being written is left for the next pass.
+- Agent time is the time from each prompt or response to the next response
+  in a session. A gap longer than five minutes is a pause, not work, and is
+  not counted.
 
 What is kept, in `~/.switchboard/usage/ledger.json`: totals per day, model and
 folder for 400 days, and per session (title from its first prompt, folder,

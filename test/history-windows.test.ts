@@ -85,13 +85,14 @@ test('forecast finds the window that fills before it resets, and where to go ins
     { id: 'work', vendor: 'claude' as const, windows: [w('5h', 12, NOW + 4 * H)] },
     { id: 'codex', vendor: 'codex' as const, windows: [w('7d', 5, NOW + 90 * H)] },
   ];
-  const f = forecast(records, live, NOW);
+  const history = (rs: WindowRecord[]) => new Map(live.map((p) => [p.id, instances(rs, p.id)]));
+  const f = forecast(history(records), live, NOW);
   // 20 points in the last hour: full in 1.6 hours, before the reset.
   expect(f).toMatchObject({ profile: 'personal', label: '5h', ratePerHour: 20 });
   expect(Date.parse(f!.fullAt)).toBe(NOW + 1.6 * H);
   expect(f!.alternative).toEqual({ profile: 'work', label: '5h', pct: 12 });
   // At a slower pace it lasts until the reset, and there is nothing to say.
-  expect(forecast([{ at: NOW - H, profile: 'personal', windows: [w('5h', 60, end)] }], live, NOW)).toBeNull();
+  expect(forecast(history([{ at: NOW - H, profile: 'personal', windows: [w('5h', 60, end)] }]), live, NOW)).toBeNull();
 });
 
 test('alerts at 90% and when a full window resets, never on the first reading', () => {
@@ -104,12 +105,27 @@ test('alerts at 90% and when a full window resets, never on the first reading', 
     ['personal', [w('5h', 91, NOW + H)]],
     ['work', [w('5h', 12, NOW + 3 * H)]],
   ]);
-  const [high] = alertsFor(before, after, profiles, NOW);
+  // Only Personal was read just now; Work's last reading still names it as
+  // the account with room.
+  const fresh = new Set(['personal']);
+  const [high] = alertsFor(before, after, profiles, fresh, NOW);
   expect(high.title).toBe('Claude · Personal is at 91%');
   expect(high.body).toContain('Claude · Work has 88% left.');
-  expect(alertsFor(new Map(), after, profiles, NOW)).toEqual([]);
+  expect(alertsFor(new Map(), after, profiles, fresh, NOW)).toEqual([]);
+  expect(alertsFor(before, after, profiles, new Set(), NOW)).toEqual([]);
   const later = new Map([['personal', [w('5h', 3, NOW + 6 * H)]]]);
-  expect(alertsFor(after, later, profiles, NOW).map((a) => a.title)).toEqual(['Claude · Personal is free again']);
-  // Staying above 90% is not news.
-  expect(alertsFor(after, after, profiles, NOW)).toEqual([]);
+  expect(alertsFor(after, later, profiles, fresh, NOW).map((a) => a.title)).toEqual([
+    'Claude · Personal is free again',
+  ]);
+  // Staying above 90% is not news, nor is a reset time that drifted by seconds.
+  expect(alertsFor(after, after, profiles, fresh, NOW)).toEqual([]);
+  const drifted = new Map([['personal', [w('5h', 89, NOW + H + 20_000)]]]);
+  expect(alertsFor(new Map([['personal', [w('5h', 92, NOW + H)]]]), drifted, profiles, fresh, NOW)).toEqual([]);
+});
+
+test('a reset time that drifts by seconds is not a new reading', () => {
+  const h = new WindowHistory(dir);
+  expect(h.record('codex', [w('7d', 40, NOW + 50 * H)], NOW)).toBe(true);
+  expect(h.record('codex', [w('7d', 40, NOW + 50 * H + 3000)], NOW + 60_000)).toBe(false);
+  expect(h.record('codex', [w('7d', 41, NOW + 50 * H + 3000)], NOW + 120_000)).toBe(true);
 });

@@ -35,6 +35,8 @@ import {
 export interface ReportInput {
   ledger: Ledger;
   records: WindowRecord[];
+  // When window history began, if it has.
+  windowsSince: number | null;
   live: LiveProfile[];
   days: number;
   now: number;
@@ -146,12 +148,15 @@ function groupingLabel(list: WindowInstance[]): string | null {
   return best;
 }
 
-export function buildReport({ ledger, records, live, days, now }: ReportInput): UsageReport {
+export function buildReport({ ledger, records, windowsSince, live, days, now }: ReportInput): UsageReport {
+  // Calendar days, not 24-hour steps, so a daylight-saving change does not
+  // shift a period by a day.
   const since = startOfDay(now, days - 1);
   const until = now;
-  const prevSince = since - days * DAY_MS;
+  const prevSince = startOfDay(now, 2 * days - 1);
   const fromDay = dayOf(since);
   const prevDay = dayOf(prevSince);
+  const prevLastDay = dayOf(startOfDay(now, days));
 
   let firstDay: string | null = null;
   const cwds: string[] = [];
@@ -206,7 +211,7 @@ export function buildReport({ ledger, records, live, days, now }: ReportInput): 
   const current = totals(since, fromDay, today, until);
   // Only a period recorded from its first day is worth comparing with.
   const hasPrevious = !!firstDay && firstDay <= prevDay;
-  const previous = hasPrevious ? totals(prevSince, prevDay, dayOf(since - DAY_MS), since) : null;
+  const previous = hasPrevious ? totals(prevSince, prevDay, prevLastDay, since) : null;
 
   // Per day, per profile, and the breakdowns of the range.
   const dayList: string[] = [];
@@ -287,11 +292,13 @@ export function buildReport({ ledger, records, live, days, now }: ReportInput): 
     pricesAsOf: PRICES_AS_OF,
     totals: current,
     previous,
+    // Limit hits come from window history, which may begin later than the logs.
+    previousHasLimits: !!previous && windowsSince !== null && windowsSince <= prevSince,
     accounts: live.map((p) => {
       const a = accounts.get(p.id) ?? emptyAgg();
       return { profile: p.id, tightest: tightest(p.windows, now), value: aggValue(a), tokens: aggCounts(a) };
     }),
-    forecast: forecast(records, live, now),
+    forecast: forecast(insts, live, now),
     daily,
     heat,
     projects,
@@ -386,11 +393,7 @@ function blocks(
 
 // A session's transcript and folder, for the main process to open. Never
 // sent to the renderer.
-export function sessionPaths(
-  ledger: Ledger,
-  profile: string,
-  id: string,
-): { file: string; cwd: string | null; vendor: SessionRecord['vendor'] } | null {
+export function sessionPaths(ledger: Ledger, profile: string, id: string): { file: string; cwd: string | null } | null {
   const s = ledger.profiles[profile]?.sessions[id];
-  return s ? { file: s.file, cwd: s.cwd, vendor: s.vendor } : null;
+  return s ? { file: s.file, cwd: s.cwd } : null;
 }

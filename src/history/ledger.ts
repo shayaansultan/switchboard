@@ -16,7 +16,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { SessionEntry, TokenCounts, Vendor } from '../types';
 import { parseClaude, parseCodex, type Call, type CodexContext, type Note, type Parsed } from './logs';
-import { priceOf } from './prices';
+import { valueParts } from './prices';
 
 export const DAY_MS = 86_400_000;
 export const SLOT_MS = 5 * 60_000;
@@ -39,7 +39,6 @@ export interface Agg {
 }
 
 export interface SessionRecord {
-  vendor: Vendor;
   file: string;
   cwd: string | null;
   title: string | null;
@@ -140,29 +139,29 @@ export function saveLedger(file: string, ledger: Ledger): void {
 // The log files of a profile's home: Claude Code's transcripts (with
 // subagents one level down) or Codex's rollouts. Codex moves old rollouts to
 // archived_sessions, so its files are known by name, not path.
-function logFiles(p: LedgerProfile): Map<string, string> {
+async function logFiles(p: LedgerProfile): Promise<Map<string, string>> {
   const found = new Map<string, string>();
-  const walk = (dir: string, depth: number, match: (name: string) => boolean, byName: boolean) => {
+  const walk = async (dir: string, depth: number, match: (name: string) => boolean, byName: boolean) => {
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
     } catch {
       return;
     }
     for (const e of entries) {
       const full = path.join(dir, e.name);
-      if (e.isDirectory() && depth > 0) walk(full, depth - 1, match, byName);
+      if (e.isDirectory() && depth > 0) await walk(full, depth - 1, match, byName);
       else if (e.isFile() && match(e.name)) {
         const key = byName ? e.name : full;
         if (!found.has(key)) found.set(key, full);
       }
     }
   };
-  if (p.vendor === 'claude') walk(path.join(p.home, 'projects'), 3, (n) => n.endsWith('.jsonl'), false);
+  if (p.vendor === 'claude') await walk(path.join(p.home, 'projects'), 3, (n) => n.endsWith('.jsonl'), false);
   else {
     const rollout = (n: string) => n.startsWith('rollout-') && n.endsWith('.jsonl');
-    walk(path.join(p.home, 'sessions'), 4, rollout, true);
-    walk(path.join(p.home, 'archived_sessions'), 1, rollout, true);
+    await walk(path.join(p.home, 'sessions'), 4, rollout, true);
+    await walk(path.join(p.home, 'archived_sessions'), 1, rollout, true);
   }
   return found;
 }
@@ -191,7 +190,6 @@ function session(pl: ProfileLedger, id: string, file: string, at: number): Sessi
   let s = pl.sessions[id];
   if (!s) {
     s = pl.sessions[id] = {
-      vendor: pl.vendor,
       file,
       cwd: null,
       title: null,
@@ -221,7 +219,11 @@ function applyNote(pl: ProfileLedger, n: Note, file: string): void {
   if (n.title && !s.title) s.title = n.title;
   // Where the session ran is where it started.
   if (n.entry && n.at <= s.start) s.entry = n.entry;
-  s.prompts += n.prompts ?? 0;
+  if (n.prompts) {
+    s.prompts += n.prompts;
+    // A prompt is where work resumes: the wait for the answer counts.
+    s.last = Math.max(s.last ?? 0, n.at);
+  }
   for (const t of n.tools ?? []) s.tools[t] = (s.tools[t] ?? 0) + 1;
   for (const f of n.files ?? []) {
     const rel = s.cwd && f.startsWith(s.cwd + path.sep) ? f.slice(s.cwd.length + 1) : f;
@@ -235,22 +237,14 @@ function applyCall(pl: ProfileLedger, c: Call, file: string): void {
   const agg = emptyAgg();
   agg.t = [c.tokens.input, c.tokens.output, c.tokens.cacheRead, c.tokens.cacheWrite];
   agg.n = 1;
-  const p = priceOf(c.model);
-  if (p) {
-    const short = Math.max(0, c.tokens.cacheWrite - c.cacheWriteLong);
-    agg.v = [
-      (c.tokens.input * p.input) / 1e6,
-      (c.tokens.output * p.output) / 1e6,
-      (c.tokens.cacheRead * p.cacheRead) / 1e6,
-      (short * p.cacheWrite + c.cacheWriteLong * p.input * 2) / 1e6,
-    ];
-  } else agg.u = aggTokens(agg);
+  const value = valueParts(c.model, c.tokens, c.cacheWriteLong);
+  if (value) agg.v = value;
+  else agg.u = aggTokens(agg);
   if (!c.subagent) {
-    // Time between one response and the next, unless the session sat idle;
-    // the first response counts from the prompt that started the session.
-    const since = s.last ?? s.start;
-    const gap = c.at - since;
-    agg.ms = gap > 0 ? Math.min(gap, IDLE_MS) : 0;
+    // Time since the last response or prompt, unless the session sat idle
+    // in between, which is not work.
+    const gap = c.at - (s.last ?? s.start);
+    agg.ms = gap > 0 && gap <= IDLE_MS ? gap : 0;
     s.last = Math.max(s.last ?? 0, c.at);
     s.ms += agg.ms;
   }
@@ -262,9 +256,19 @@ function applyCall(pl: ProfileLedger, c: Call, file: string): void {
 }
 
 function apply(pl: ProfileLedger, parsed: Parsed, file: string, now: number): void {
-  // Notes first, so a session knows its folder before its calls are filed.
-  for (const n of parsed.notes) applyNote(pl, n, file);
-  for (const c of parsed.calls) {
+  // In the order they happened, a note before a call at the same moment, so
+  // a session knows its folder before its calls are filed and agent time
+  // follows the conversation.
+  const events = [
+    ...parsed.notes.map((n) => ({ at: n.at, note: n })),
+    ...parsed.calls.map((c) => ({ at: c.at, call: c })),
+  ].sort((a, b) => a.at - b.at);
+  for (const e of events) {
+    if ('note' in e) {
+      applyNote(pl, e.note, file);
+      continue;
+    }
+    const c = e.call;
     if (c.key) {
       const k = shortKey(c.key);
       if (pl.seen[k]) continue;
@@ -301,11 +305,11 @@ export async function indexLogs(ledger: Ledger, profiles: LedgerProfile[], now =
       pl = ledger.profiles[p.id] = { vendor: p.vendor, home: p.home, files: {}, seen: {}, facts: {}, sessions: {} };
       changed = true;
     }
-    const files = logFiles(p);
+    const files = await logFiles(p);
     for (const [key, file] of files) {
       let size: number;
       try {
-        size = fs.statSync(file).size;
+        size = (await fs.promises.stat(file)).size;
       } catch {
         continue;
       }
