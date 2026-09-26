@@ -137,7 +137,13 @@ export function StatusPill({
   );
 }
 
-export function Badge({ children, tone = 'plan' }: { children: ComponentChildren; tone?: 'plan' | 'mute' | 'ok' }) {
+export function Badge({
+  children,
+  tone = 'plan',
+}: {
+  children: ComponentChildren;
+  tone?: 'plan' | 'mute' | 'ok' | 'warn';
+}) {
   return <span class={`badge ${tone}`}>{children}</span>;
 }
 

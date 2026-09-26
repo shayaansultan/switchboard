@@ -240,6 +240,39 @@ try {
     ),
     false,
   );
+  // A Claude login whose token expired and cannot be renewed: the proxy
+  // gives up on it and says why, and the row says so instead of a quiet
+  // status. The invented refresh token is refused by the vendor.
+  await fs.writeFile(
+    path.join(auth, 'claude-expired@example.test.json'),
+    JSON.stringify({
+      type: 'claude',
+      email: 'expired@example.test',
+      access_token: 'x',
+      refresh_token: 'y',
+      expired: '2020-01-01T00:00:00Z',
+    }),
+  );
+  const expiredProblem = async () => {
+    await window.sb.bucketAction('team', 'refresh');
+    return (await window.sb.getState()).buckets[0]?.accounts.find((a) => a.email === 'expired@example.test')?.problem;
+  };
+  let problem;
+  for (let attempt = 0; attempt < 30 && !problem; attempt++) {
+    problem = await page.evaluate(expiredProblem);
+    if (!problem) await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  assert.equal(problem, 'token expired');
+  const expiredRow = page.locator('.acct', { hasText: 'expired@example.test' });
+  await expiredRow.getByText('Claude · token expired').waitFor();
+  assert.equal(await expiredRow.locator('.badge', { hasText: 'unavailable' }).count(), 1);
+  await page.getByRole('button', { name: 'More actions for expired@example.test' }).click();
+  assert.equal(await page.getByRole('menuitem', { name: 'Sign in again' }).count(), 1);
+  await page.screenshot({ path: path.join(output, 'expired-account.png') });
+  await page.keyboard.press('Escape');
+  await page.locator('#tab-profiles').click();
+  await page.getByText('expired@example.test is unavailable: token expired').waitFor();
+  await page.locator('#tab-buckets').click();
   const live = JSON.parse(await fs.readFile(path.join(runtime, 'worker.json')));
   await answer(1);
   assert.equal(await page.evaluate(() => window.sb.removeBucket('team')), false);

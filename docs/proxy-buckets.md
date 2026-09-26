@@ -12,6 +12,14 @@ the bucket to see the account.
 and reads their usage through their respective endpoints. Claude logins belong to
 the proxy; the existing Claude desktop/CLI credentials are not imported.
 
+When the proxy reports an error it will not retry by itself, for example because the
+account's token expired and could not be renewed, the account row says **unavailable** with the proxy's
+reason, profile cards using the bucket show a note, and the account's menu offers
+**Sign in again**. A usage lookup that is rate limited waits 15 minutes before
+asking again, but for an unavailable account a new sign-in rewrites its
+token file and is asked about at the next refresh. Quota and upstream errors carry
+their own retry time in the proxy and are not reported as unavailable.
+
 ## Claude models in Codex desktop
 
 After adding a Claude account, relaunch the assigned Codex desktop profile. Available
