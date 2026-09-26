@@ -36,6 +36,11 @@ const AuthFile = z.object({
   disabled: z.boolean().optional(),
   weight: z.number().optional(),
   status: z.string().optional(),
+  // The proxy's own verdict on the account, such as "token expired", and
+  // when its token file was last written, which a new sign-in changes.
+  status_message: z.string().optional(),
+  unavailable: z.boolean().optional(),
+  modtime: z.string().optional(),
 });
 type AuthFile = z.infer<typeof AuthFile>;
 const AccountUsage = z.object({
@@ -58,6 +63,10 @@ const AccountUsage = z.object({
   plan: z.object({ name: z.string(), capacity: z.number().positive() }).nullable().optional(),
   observedAt: z.string().optional(),
   nextProbeAt: z.number().optional(),
+  // Why the proxy will not route to the account, in its words. Usage can
+  // still be fresh: an account out of quota is unavailable but answers.
+  problem: z.string().optional(),
+  signedInAt: z.string().optional(),
 });
 export type AccountUsage = z.infer<typeof AccountUsage>;
 
@@ -248,6 +257,14 @@ export async function observe(
   account: AuthFile,
   previous?: AccountUsage,
 ): Promise<AccountUsage> {
+  // What the proxy says now holds whichever way the usage call goes.
+  const current = {
+    problem:
+      account.status === 'error' || account.unavailable
+        ? account.status_message || 'The proxy is not routing to this account'
+        : undefined,
+    signedInAt: account.modtime,
+  };
   const base: AccountUsage = {
     name: account.name,
     provider: account.provider === 'claude' || account.type === 'claude' ? 'claude' : 'codex',
@@ -256,16 +273,22 @@ export async function observe(
     windows: [],
     weight: account.weight ?? 50,
     plan: previous?.plan,
+    ...current,
   };
   if (account.disabled) return { ...base, status: 'disabled' };
-  if (previous?.nextProbeAt && previous.nextProbeAt > Date.now()) return previous;
+  // A cooldown belongs to the token that earned it: a new sign-in rewrites
+  // the token file, and is asked about straight away.
+  if (previous?.nextProbeAt && previous.nextProbeAt > Date.now() && previous.signedInAt === account.modtime)
+    return { ...previous, ...current };
+  const stale = (status: AccountUsage['status']): AccountUsage =>
+    previous ? { ...previous, ...current, status, nextProbeAt: undefined } : { ...base, status };
   try {
     const result = await vendorCall(id, port, account, 'usage');
     switch (result.status_code) {
       case 200: {
         const body = JSON.parse(result.body);
         const windows = (base.provider === 'claude' ? parseClaudeUsage : parseCodexUsage)(body);
-        if (!windows.length) return previous ? { ...previous, status: 'unknown' } : base;
+        if (!windows.length) return stale('unknown');
         // Plans change rarely, so Claude's extra request is made until it
         // answers and then not again for the life of the worker.
         const plan =
@@ -280,12 +303,12 @@ export async function observe(
         return { ...base, status: 'fresh', windows, weight, plan, observedAt: new Date().toISOString() };
       }
       case 429:
-        return { ...(previous ?? base), status: 'cooldown', nextProbeAt: Date.now() + 15 * 60_000 };
+        return { ...stale('cooldown'), nextProbeAt: Date.now() + 15 * 60_000 };
       default:
-        return previous ? { ...previous, status: 'unknown' } : base;
+        return stale('unknown');
     }
   } catch {
-    return previous ? { ...previous, status: 'unknown' } : base;
+    return stale('unknown');
   }
 }
 export function receipt(id: string): Receipt | undefined {

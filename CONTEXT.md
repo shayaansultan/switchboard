@@ -48,7 +48,9 @@ be disabled: it stays signed in but takes no traffic, or removed: the
 bucket's sign-in for it is deleted. Removing a bucket stops its worker,
 deletes its accounts' sign-ins and moves the profiles routed through it back
 to their own sign-in. A bucket stored with an OpenCode profile is that
-profile, so removing one removes both.
+profile, so removing one removes both. An account is unavailable when the proxy will
+not route to it, such as when its token expired and could not be renewed;
+the proxy's reason is shown with it.
 
 ## Window
 

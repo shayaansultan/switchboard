@@ -12,6 +12,13 @@ the bucket to see the account.
 and reads their usage through their respective endpoints. Claude logins belong to
 the proxy; the existing Claude desktop/CLI credentials are not imported.
 
+When the proxy stops routing to an account, for example because its token expired
+and could not be renewed, the account row says **unavailable** with the proxy's
+reason, profile cards using the bucket show a note, and the account's menu offers
+**Sign in again**. A Claude usage lookup that is rate limited waits 15 minutes
+before asking again, but a new sign-in rewrites the account's token file and is
+asked about at the next refresh.
+
 ## Claude models in Codex desktop
 
 After adding a Claude account, relaunch the assigned Codex desktop profile. Available

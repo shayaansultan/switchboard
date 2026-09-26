@@ -12,6 +12,7 @@ const account = { name: 'fixture.json', auth_index: 'fixture', provider: 'claude
 // What the vendors answer when the fake proxy calls them for an account,
 // by the tail of the endpoint's path. Claude's profile can be made to fail.
 let profileStatus = 200;
+let vendorStatus = 200;
 const vendor: Record<string, unknown> = {
   'oauth/usage': { limits: [{ kind: 'weekly_all', percent: 40, resets_at: null }] },
   'oauth/profile': { organization: { rate_limit_tier: 'default_claude_max_20x' } },
@@ -87,7 +88,7 @@ async function fixture(run: (id: string, actions: string[], port: number) => Pro
             ? { files: removed ? [] : [{ ...account, disabled }] }
             : resource
               ? {
-                  status_code: resource === 'oauth/profile' ? profileStatus : 200,
+                  status_code: resource === 'oauth/profile' ? profileStatus : vendorStatus,
                   body: JSON.stringify(vendor[resource]),
                 }
               : status(),
@@ -258,4 +259,25 @@ test('a bucket stored with an OpenCode profile is removed with it', () => {
     else process.env.SWITCHBOARD_ROOT = previous;
     fs.rmSync(temporary, { recursive: true, force: true });
   }
+});
+
+test("the proxy's reason is reported, and a new sign-in ends a usage cooldown", async () => {
+  await fixture(async (id, actions, port) => {
+    vendorStatus = 429;
+    const expired = { ...account, status: 'error', status_message: 'token expired', unavailable: true, modtime: 'a' };
+    const cooling = await observe(id, port, expired);
+    expect(cooling).toMatchObject({ status: 'cooldown', problem: 'token expired', signedInAt: 'a' });
+    // Within the cooldown the same token is not asked again, yet the
+    // proxy's current verdict still replaces the old one.
+    const recovered = { ...account, status: 'active', status_message: '', unavailable: false, modtime: 'a' };
+    const waiting = await observe(id, port, recovered, cooling);
+    expect(waiting.status).toBe('cooldown');
+    expect(waiting.problem).toBeUndefined();
+    expect(actions.filter((action) => action.endsWith('oauth/usage'))).toHaveLength(1);
+    vendorStatus = 200;
+    const signedIn = await observe(id, port, { ...recovered, modtime: 'b' }, waiting);
+    expect(signedIn).toMatchObject({ status: 'fresh', signedInAt: 'b' });
+    expect(signedIn.nextProbeAt).toBeUndefined();
+    expect(actions.filter((action) => action.endsWith('oauth/usage'))).toHaveLength(2);
+  });
 });

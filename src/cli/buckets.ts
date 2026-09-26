@@ -40,7 +40,7 @@ const summarize = (b: BucketView) => ({
   id: b.id,
   name: b.name,
   status: b.status,
-  accounts: b.accounts.map((a) => `${a.email ?? a.name} (${a.status})`).join(', '),
+  accounts: b.accounts.map((a) => `${a.email ?? a.name} (${a.problem ?? a.status})`).join(', '),
 });
 
 export async function bucketCommand(rest: string[], ctx: Context): Promise<number | void> {
