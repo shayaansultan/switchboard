@@ -7,8 +7,16 @@ import * as path from 'node:path';
 
 export const iso = (ms: number) => new Date(ms).toISOString();
 
-export function claudeUser(o: { session: string; at: number; text: string; cwd?: string; entry?: string }) {
+export function claudeUser(o: {
+  session: string;
+  at: number;
+  text: string;
+  cwd?: string;
+  entry?: string;
+  uuid?: string;
+}) {
   return JSON.stringify({
+    uuid: o.uuid,
     type: 'user',
     sessionId: o.session,
     timestamp: iso(o.at),
@@ -45,9 +53,11 @@ export function claudeAssistant(o: {
   block?: object;
   sidechain?: boolean;
   cwd?: string;
+  uuid?: string;
 }) {
   const write = o.cacheWrite ?? 0;
   return JSON.stringify({
+    uuid: o.uuid,
     type: 'assistant',
     sessionId: o.session,
     timestamp: iso(o.at),

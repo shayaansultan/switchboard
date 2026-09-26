@@ -13,7 +13,8 @@ in the README), the windows it gets back are appended to
 last reading. A window instance is one window between resets: readings that
 share a label and a reset time. From these the tab works out when a window ran
 out and how long the account waited (from the reading that first said 100% to
-the reset), and how fast the current window is filling (over its last hour, or
+the reset, counting once the time two of its windows were full together), and
+how fast the current window is filling (over its last hour, or
 since it opened). A forecast appears when a window at 50% or more is on course
 to reach 100% more than ten minutes before it resets.
 
@@ -41,13 +42,18 @@ Usage tab opens (at most once a minute), and the tab is told when there is
 something new.
 
 - Claude Code writes a response once per content block, each copy carrying the
-  same usage, and copies responses into a new file when a session is resumed.
-  Responses are counted once per message and request id, across all of a
-  profile's files.
+  same usage, and copies the earlier conversation into a new file when a
+  session is resumed. Responses are counted once per message and request id,
+  and prompts, tools and edited files once per line id, across all of a
+  profile's files. Files are read oldest first, so a line counts in the
+  session that first wrote it.
 - Codex moves old rollouts into `archived_sessions/`; files are known by name,
-  so a moved file is not read twice. Running totals are counted by how much
-  they rose. A subagent's rollout starts by replaying its parent's history,
-  which is skipped.
+  so a moved file is not read twice, and its sessions' transcript follows it.
+  Running totals are counted by how much they rose. A prompt is a user
+  message, less the context Codex adds (AGENTS.md, the environment). A
+  subagent's rollout names itself, then replays its parent's history
+  (parent's header included), which is skipped; its usage counts toward the
+  root session as subagent work.
 - A line still being written is left for the next pass.
 - Agent time is the time from each prompt or response to the next response
   in a session: the agent thinking, running tools, waiting on a subagent. The

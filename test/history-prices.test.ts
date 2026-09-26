@@ -22,3 +22,10 @@ test('value by kind, with one-hour cache writes at twice the input price', () =>
   expect(v).toEqual([2, 10, 0.2, 2.5 + 4]);
   expect(valueParts('unknown-model', { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 })).toBeNull();
 });
+
+test("each tier of a model family has its own price, not the family's", () => {
+  expect(priceOf('gpt-5.6-luna')?.input).toBe(0.2);
+  expect(priceOf('gpt-5.6-terra')?.input).toBe(2);
+  expect(priceOf('gpt-6-astra')?.output).toBe(50);
+  expect(priceOf('gpt-6-nova')).toBeNull();
+});

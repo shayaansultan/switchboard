@@ -21,6 +21,7 @@ const codexHome = path.join(base, 'codex');
 const claude: LedgerProfile = { id: 'claude-work', vendor: 'claude', home: claudeHome };
 const codex: LedgerProfile = { id: 'codex-default', vendor: 'codex', home: codexHome };
 const T = Date.parse('2026-09-20T10:00:00Z');
+const DAY = 86_400_000;
 const transcript = path.join(claudeHome, 'projects', '-work-app', 's1.jsonl');
 
 beforeEach(() => fs.rmSync(base, { recursive: true, force: true }));
@@ -155,4 +156,69 @@ test('a profile no longer listed is dropped, and the ledger round-trips', async 
   expect(loadLedger(file)).toEqual(ledger);
   await indexLogs(ledger, [], T);
   expect(ledger.profiles).toEqual({});
+});
+
+test("a resumed session's copy of the earlier conversation is not counted again", async () => {
+  const tool = { type: 'tool_use', id: 't1', name: 'Edit', input: { file_path: '/work/app/a.ts' } };
+  const earlier = [
+    claudeUser({ session: 's1', at: T, text: 'Add a usage tab', uuid: 'u1' }),
+    claudeAssistant({ session: 's1', at: T + 60_000, id: 'm1', output: 100, block: tool, uuid: 'a1' }),
+  ];
+  write(transcript, earlier);
+  // Resumed a day later: the new file opens with the earlier lines, uuids and
+  // times kept, under the new session's id.
+  const copy = (line: string) => line.replace('"sessionId":"s1"', '"sessionId":"s2"');
+  write(path.join(claudeHome, 'projects', '-work-app', 's2.jsonl'), [
+    ...earlier.map(copy),
+    claudeUser({ session: 's2', at: T + DAY, text: 'Carry on', uuid: 'u2' }),
+    claudeAssistant({ session: 's2', at: T + DAY + 60_000, id: 'm2', output: 50, uuid: 'a2' }),
+  ]);
+  const ledger = emptyLedger(T);
+  await indexLogs(ledger, [claude], T + DAY + 120_000);
+  const { s1, s2 } = ledger.profiles['claude-work'].sessions;
+  expect(s1).toMatchObject({ prompts: 1, tools: { Edit: 1 }, files: ['a.ts'] });
+  expect(s2).toMatchObject({ prompts: 1, tools: {}, files: [], title: 'Carry on', start: T + DAY });
+  expect(totalTokens(ledger, 'claude-work')).toBe(150);
+});
+
+test("a Codex subagent's rollout is filed under its root, not as the root's transcript", async () => {
+  const day = path.join(codexHome, 'sessions', '2026', '09', '20');
+  const parent = path.join(day, 'rollout-2026-09-20T10-00-00-root.jsonl');
+  const child = path.join(day, 'rollout-2026-09-20T10-05-00-child.jsonl');
+  const usage = (id: string, at: number) =>
+    codexLine(at, 'token_usage_record', { response_id: id, usage: codexUsage(1000, 0, 100) });
+  write(parent, [
+    codexLine(T, 'session_meta', { id: 'root', cwd: '/work/app', originator: 'codex_cli_rs' }),
+    codexLine(T, 'turn_context', { model: 'gpt-5.3-codex' }),
+    usage('r1', T + 1000),
+  ]);
+  // Real subagent rollouts name themselves, then replay the parent's header.
+  write(child, [
+    codexLine(T + 300_000, 'session_meta', {
+      id: 'child',
+      session_id: 'root',
+      cwd: '/work/app',
+      source: { subagent: { thread_spawn: { parent_thread_id: 'root', depth: 1 } } },
+    }),
+    codexLine(T + 300_000, 'session_meta', { id: 'root', session_id: 'root', cwd: '/work/app', source: 'vscode' }),
+    codexLine(T + 300_000, 'turn_context', { model: 'gpt-5.3-codex' }),
+    usage('r1', T + 300_000),
+    codexLine(T + 300_001, 'inter_agent_communication_metadata', { trigger_turn: true }),
+    usage('c1', T + 301_000),
+  ]);
+  const ledger = emptyLedger(T);
+  await indexLogs(ledger, [codex], T + 400_000);
+  const root = ledger.profiles['codex-default'].sessions.root;
+  expect(Object.keys(root.sub)).toEqual(['gpt-5.3-codex']);
+  expect(root.sub['gpt-5.3-codex'].n).toBe(1);
+  expect(root.models['gpt-5.3-codex'].n).toBe(1);
+  expect(root.entry).toBe('cli');
+  expect(root.file).toBe(parent);
+
+  // Archived, the transcript is found where it went.
+  const archived = path.join(codexHome, 'archived_sessions', path.basename(parent));
+  fs.mkdirSync(path.dirname(archived), { recursive: true });
+  fs.renameSync(parent, archived);
+  await indexLogs(ledger, [codex], T + 400_000);
+  expect(ledger.profiles['codex-default'].sessions.root.file).toBe(archived);
 });

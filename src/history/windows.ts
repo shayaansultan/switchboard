@@ -193,6 +193,9 @@ export interface LiveProfile {
   id: string;
   vendor: Vendor;
   windows: UsageWindow[] | undefined;
+  // The windows came from the cache or a failed reading, so the room they
+  // show may be gone.
+  stale?: boolean;
 }
 
 // How fast a window is filling, in points an hour: over the last hour of
@@ -250,8 +253,10 @@ export function roomiest(
 ): { profile: string; label: string; pct: number } | null {
   let best: { profile: string; label: string; pct: number } | null = null;
   for (const p of live) {
-    if (p.id === not.id || p.vendor !== not.vendor) continue;
-    const t = tightest(p.windows, now);
+    if (p.id === not.id || p.vendor !== not.vendor || p.stale) continue;
+    // A window whose reset has passed since the reading is empty now.
+    const windows = p.windows?.map((w) => (w.resetsAt && Date.parse(w.resetsAt) <= now ? { ...w, pct: 0 } : w));
+    const t = tightest(windows, now);
     if (t && t.pct < 90 && (!best || t.pct < best.pct)) best = { profile: p.id, label: t.label, pct: t.pct };
   }
   return best;

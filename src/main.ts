@@ -182,7 +182,10 @@ function profileLabel(p: Profile): string {
 }
 
 function liveProfiles(): LiveProfile[] {
-  return data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, windows: live.get(p.id)?.usage?.windows }));
+  return data.profiles.map((p) => {
+    const u = live.get(p.id)?.usage;
+    return { id: p.id, vendor: p.vendor, windows: u?.windows, stale: !!(u?.stale || u?.error) };
+  });
 }
 
 function ledgerProfiles(): LedgerProfile[] {

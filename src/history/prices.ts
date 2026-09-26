@@ -5,12 +5,12 @@
 //
 // Prices are US dollars per million tokens, for direct API use without a
 // regional surcharge, taken from models.dev (as bundled by ccusage) on
-// 24 Sep 2026. Long-context tiers are ignored, so very long requests read low.
+// 26 Sep 2026. Long-context tiers are ignored, so very long requests read low.
 // A model the table does not know is left unpriced rather than guessed.
 
 import type { TokenCounts } from '../types';
 
-export const PRICES_AS_OF = '2026-09-24';
+export const PRICES_AS_OF = '2026-09-26';
 
 interface Price {
   input: number;
@@ -48,6 +48,12 @@ const TABLE: Record<string, Price> = {
   'claude-sonnet-4-5': claude(3, 15, 0.3),
   'claude-sonnet-4': claude(3, 15, 0.3),
   'claude-haiku-4-5': claude(1, 5, 0.1),
+  'gpt-6-astra': openai(10, 50, 1),
+  'gpt-6-sol': openai(2, 10, 0.2),
+  'gpt-6-luna': openai(0.1, 0.5, 0.01),
+  'gpt-5.6-sol': openai(4, 20, 0.4),
+  'gpt-5.6-terra': openai(2, 12, 0.2),
+  'gpt-5.6-luna': openai(0.2, 1.2, 0.02),
   'gpt-5.6': openai(4, 20, 0.4),
   'gpt-5.5': openai(5, 30, 0.5),
   'gpt-5.4': openai(2.5, 15, 0.25),
@@ -59,6 +65,7 @@ const TABLE: Record<string, Price> = {
   'gpt-5.1-codex-mini': openai(0.25, 2, 0.025),
   'gpt-5.1-codex-max': openai(1.25, 10, 0.125),
   'gpt-5.1-codex': openai(1.25, 10, 0.125),
+  'gpt-5.1': openai(1.25, 10, 0.125),
   'gpt-5-codex': openai(1.25, 10, 0.125),
   'gpt-5-mini': openai(0.25, 2, 0.025),
   'gpt-5-nano': openai(0.05, 0.4, 0.005),

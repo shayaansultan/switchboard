@@ -6,10 +6,16 @@
 // <CLAUDE_CONFIG_DIR>/projects/<project>/<session>.jsonl, and subagents under
 // <session>/subagents/. A response is written once per content block, each
 // copy carrying the same usage, so calls are keyed by message and request id
-// for the ledger to count once. Every line names its session and folder.
+// for the ledger to count once. A resumed session's file opens with a copy of
+// the earlier conversation under the new session id; every line keeps its
+// uuid, so notes are keyed by it and a copy is not counted again. Every line
+// names its session and folder.
 //
 // Codex writes <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-*.jsonl, a header
-// line naming the session and then events. Newer builds record each
+// line naming the session and then events. A prompt is a user message
+// (some builds also emit it as an event). A subagent's rollout names
+// itself first and then carries its parent's header in the history it
+// replays; only the first header is the file's own. Newer builds record each
 // response's usage (`token_usage_record`, keyed by response id); older ones
 // only emit running totals (`token_count`), which are counted as the rise
 // since the last total. A subagent's rollout opens by replaying its parent's
@@ -33,6 +39,9 @@ export interface Call {
 // Something learned about a session at a moment: where it ran, what it was
 // asked, what tools it used and which files it edited.
 export interface Note {
+  // The line's own id, so a copy of it is applied once; null when the log
+  // offers nothing stable.
+  key?: string;
   session: string;
   at: number;
   cwd?: string;
@@ -61,6 +70,9 @@ export interface CodexContext {
   records?: boolean;
   total?: number;
   last?: TokenCounts;
+  // The last prompt counted, so a build that records a prompt both as an
+  // event and as a message counts it once.
+  prompt?: { text: string; at: number };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -121,6 +133,7 @@ export function parseClaude(lines: string[]): Parsed {
     const at = time(d.timestamp);
     if (at === null) continue;
     const note: Note = { session: d.sessionId, at, entry: claudeEntry(d.entrypoint) };
+    if (typeof d.uuid === 'string') note.key = `line:${d.uuid}`;
     if (typeof d.cwd === 'string') note.cwd = d.cwd;
     const m = d.message ?? {};
     if (d.type === 'assistant') {
@@ -154,12 +167,13 @@ export function parseClaude(lines: string[]): Parsed {
           subagent: !!d.isSidechain,
         });
       }
-    } else if (d.type === 'user' && !d.isMeta && !d.isSidechain) {
-      const text = promptText(m.content);
-      if (text !== null) {
-        note.prompts = 1;
-        note.title = titleFrom(text);
-      }
+    } else if (d.type === 'user') {
+      const text = d.isMeta || d.isSidechain ? null : promptText(m.content);
+      // A tool result or reminder says nothing the response around it does
+      // not, and skipping it keeps the ledger's record of lines seen small.
+      if (text === null) continue;
+      note.prompts = 1;
+      note.title = titleFrom(text);
     }
     out.notes.push(note);
   }
@@ -196,6 +210,24 @@ function minus(a: TokenCounts, b: TokenCounts): TokenCounts | null {
 
 const PATCH_FILE = /^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm;
 
+// What the person typed in a Codex user message: its text parts, less the
+// context Codex adds as user messages (AGENTS.md, the environment, plugin
+// lists), which comes wrapped in tags. An IDE puts its context (open tabs,
+// mentioned files) first and the request after a heading.
+const IDE_REQUEST = '## My request for Codex:';
+function codexPrompt(content: Json): string | null {
+  if (!Array.isArray(content)) return null;
+  const text = content
+    .filter((b) => b?.type === 'input_text' && typeof b.text === 'string')
+    .map((b) => {
+      const t = b.text as string;
+      const at = t.indexOf(IDE_REQUEST);
+      return (at >= 0 ? t.slice(at + IDE_REQUEST.length) : t).trim();
+    })
+    .filter((t) => t && !t.startsWith('<') && !t.startsWith('# AGENTS.md instructions'));
+  return text.length ? text.join('\n') : null;
+}
+
 export function parseCodex(lines: string[], ctx: CodexContext): Parsed {
   const out: Parsed = { calls: [], notes: [] };
   for (const line of lines) {
@@ -204,6 +236,8 @@ export function parseCodex(lines: string[], ctx: CodexContext): Parsed {
     const at = time(d.timestamp);
     const p = d.payload ?? {};
     if (d.type === 'session_meta') {
+      // The parent's header in a subagent's replayed history is not this file's.
+      if (ctx.session) continue;
       const meta = p.meta ?? p;
       const root = meta.session_id ?? meta.id;
       if (typeof root !== 'string') continue;
@@ -219,6 +253,12 @@ export function parseCodex(lines: string[], ctx: CodexContext): Parsed {
     }
     if (!ctx.session || at === null) continue;
     const session = ctx.session;
+    // A subagent's prompts come from the agent that started it, not a person.
+    const prompt = (text: string) => {
+      if (ctx.subagent || (ctx.prompt?.text === text && Math.abs(at - ctx.prompt.at) < 5000)) return;
+      ctx.prompt = { text, at };
+      out.notes.push({ session, at, prompts: 1, title: titleFrom(text), cwd: ctx.cwd, entry: ctx.entry });
+    };
     if (d.type === 'turn_context') {
       if (typeof p.model === 'string') ctx.model = p.model;
       if (typeof p.cwd === 'string') ctx.cwd = p.cwd;
@@ -239,7 +279,7 @@ export function parseCodex(lines: string[], ctx: CodexContext): Parsed {
     } else if (d.type === 'event_msg') {
       if (p.type === 'task_started') ctx.replaying = false;
       else if (p.type === 'user_message' && typeof p.message === 'string' && !ctx.replaying) {
-        out.notes.push({ session, at, prompts: 1, title: titleFrom(p.message), cwd: ctx.cwd, entry: ctx.entry });
+        prompt(p.message.trim());
       } else if (p.type === 'token_count' && p.info && !ctx.records && !ctx.replaying && ctx.model) {
         const total = num(p.info.total_token_usage?.total_tokens);
         if (total && ctx.total !== undefined && total <= ctx.total) continue;
@@ -259,6 +299,10 @@ export function parseCodex(lines: string[], ctx: CodexContext): Parsed {
       }
     } else if (d.type === 'response_item' && !ctx.replaying) {
       const kind = p.type;
+      if (kind === 'message' && p.role === 'user') {
+        const text = codexPrompt(p.content);
+        if (text !== null) prompt(text);
+      }
       if (kind === 'function_call' || kind === 'custom_tool_call' || kind === 'local_shell_call') {
         const name = typeof p.name === 'string' ? p.name : 'shell';
         const files = typeof p.input === 'string' ? [...p.input.matchAll(PATCH_FILE)].map((m) => m[1].trim()) : [];

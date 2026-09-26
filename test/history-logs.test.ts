@@ -131,3 +131,26 @@ test("a Codex subagent skips its parent's replayed history", () => {
   expect(calls).toHaveLength(1);
   expect(calls[0]).toMatchObject({ session: 'root', subagent: true });
 });
+
+test('a Codex prompt is a user message, less the context Codex adds, counted once', () => {
+  const ctx: CodexContext = {};
+  const message = (at: number, ...texts: string[]) =>
+    codexLine(at, 'response_item', {
+      type: 'message',
+      role: 'user',
+      content: texts.map((text) => ({ type: 'input_text', text })),
+    });
+  const { notes } = parseCodex(
+    [
+      codexLine(T, 'session_meta', { id: 'thread-1', cwd: '/work/app' }),
+      message(T + 1, '# AGENTS.md instructions\n\n<INSTRUCTIONS>…</INSTRUCTIONS>', '<environment_context>…'),
+      message(T + 2, 'Port the worker'),
+      // A build that also emits the prompt as an event.
+      codexLine(T + 2, 'event_msg', { type: 'user_message', message: 'Port the worker' }),
+      message(T + 60_000, 'Port the worker'),
+      message(T + 120_000, '# Files mentioned by the user:\n\n## a.pdf: /a.pdf\n\n## My request for Codex:\nRead it'),
+    ],
+    ctx,
+  );
+  expect(notes.filter((n) => n.prompts).map((n) => n.title)).toEqual(['Port the worker', 'Port the worker', 'Read it']);
+});

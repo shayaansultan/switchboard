@@ -108,3 +108,21 @@ test('sessions are grouped by their window, each with its share of it', async ()
   expect(r.forecast?.alternative?.profile).toBe('work');
   expect(r.accounts.find((a) => a.profile === 'personal')?.tightest?.pace).toBe(18);
 });
+
+test('time at a limit counts once when two windows are full together', () => {
+  const ledger = emptyLedger(NOW - D);
+  const rec = (at: number, five: number, week: number): WindowRecord => ({
+    at,
+    profile: 'personal',
+    windows: [
+      { label: '5h', pct: five, resetsAt: new Date(NOW + H).toISOString() },
+      { label: '7d', pct: week, resetsAt: new Date(NOW + 3 * H).toISOString() },
+    ],
+  });
+  // The 7d window fills two hours ago; the 5h window an hour later.
+  const records = [rec(NOW - 2 * H, 80, 100), rec(NOW - H, 100, 100)];
+  const live = [{ id: 'personal', vendor: 'claude' as const, windows: undefined }];
+  const r = buildReport({ ledger, records, windowsSince: records[0].at, live, days: 7, now: NOW });
+  expect(r.totals.limitHits).toBe(2);
+  expect(r.totals.waitedMs).toBe(2 * H);
+});

@@ -60,6 +60,9 @@ export interface SessionRecord {
 
 interface FileState {
   offset: number;
+  // Where the file was last found. Codex moves a finished rollout to
+  // archived_sessions, and its sessions' transcript moves with it.
+  path?: string;
   codex?: CodexContext;
 }
 
@@ -75,7 +78,7 @@ export interface ProfileLedger {
 
 // Bumped when what is stored changes meaning, so an older ledger is read
 // again from the logs rather than mixed with the new.
-const VERSION = 2;
+const VERSION = 3;
 
 export interface Ledger {
   v: typeof VERSION;
@@ -192,7 +195,9 @@ async function readFrom(file: string, start: number, end: number): Promise<{ lin
 
 const shortKey = (key: string): string => crypto.createHash('sha1').update(key).digest('base64').slice(0, 12);
 
-function session(pl: ProfileLedger, id: string, file: string, at: number): SessionRecord {
+// `own` says the file is the session's own transcript rather than one of
+// its subagents'.
+function session(pl: ProfileLedger, id: string, file: string, own: boolean, at: number): SessionRecord {
   let s = pl.sessions[id];
   if (!s) {
     s = pl.sessions[id] = {
@@ -213,14 +218,14 @@ function session(pl: ProfileLedger, id: string, file: string, at: number): Sessi
     };
   }
   // A subagent's file is not the transcript to show.
-  if (!file.includes(`${path.sep}subagents${path.sep}`)) s.file = file;
+  if (own) s.file = file;
   s.start = Math.min(s.start, at);
   s.end = Math.max(s.end, at);
   return s;
 }
 
-function applyNote(pl: ProfileLedger, n: Note, file: string): void {
-  const s = session(pl, n.session, file, n.at);
+function applyNote(pl: ProfileLedger, n: Note, file: string, own: boolean): void {
+  const s = session(pl, n.session, file, own, n.at);
   if (n.cwd && !s.cwd) s.cwd = n.cwd;
   if (n.title && !s.title) s.title = n.title;
   // Where the session ran is where it started.
@@ -238,8 +243,8 @@ function applyNote(pl: ProfileLedger, n: Note, file: string): void {
 }
 
 // One call into the session, its day's facts and its window slot.
-function applyCall(pl: ProfileLedger, c: Call, file: string): void {
-  const s = session(pl, c.session, file, c.at);
+function applyCall(pl: ProfileLedger, c: Call, file: string, own: boolean): void {
+  const s = session(pl, c.session, file, own, c.at);
   const agg = emptyAgg();
   agg.t = [c.tokens.input, c.tokens.output, c.tokens.cacheRead, c.tokens.cacheWrite];
   agg.n = 1;
@@ -261,7 +266,15 @@ function applyCall(pl: ProfileLedger, c: Call, file: string): void {
   addAgg((pl.facts[fact] ??= emptyAgg()), agg);
 }
 
-function apply(pl: ProfileLedger, parsed: Parsed, file: string, now: number): void {
+// Whether a key was met before, marking it met if not.
+function seenBefore(pl: ProfileLedger, key: string, now: number): boolean {
+  const k = shortKey(key);
+  if (pl.seen[k]) return true;
+  pl.seen[k] = Math.floor(now / DAY_MS);
+  return false;
+}
+
+function apply(pl: ProfileLedger, parsed: Parsed, file: string, own: boolean, now: number): void {
   // In the order they happened, a note before a call at the same moment, so
   // a session knows its folder before its calls are filed and agent time
   // follows the conversation.
@@ -271,16 +284,11 @@ function apply(pl: ProfileLedger, parsed: Parsed, file: string, now: number): vo
   ].sort((a, b) => a.at - b.at);
   for (const e of events) {
     if ('note' in e) {
-      applyNote(pl, e.note, file);
+      if (!e.note.key || !seenBefore(pl, e.note.key, now)) applyNote(pl, e.note, file, own);
       continue;
     }
     const c = e.call;
-    if (c.key) {
-      const k = shortKey(c.key);
-      if (pl.seen[k]) continue;
-      pl.seen[k] = Math.floor(now / DAY_MS);
-    }
-    applyCall(pl, c, file);
+    if (!c.key || !seenBefore(pl, c.key, now)) applyCall(pl, c, file, own);
   }
 }
 
@@ -312,21 +320,35 @@ export async function indexLogs(ledger: Ledger, profiles: LedgerProfile[], now =
       changed = true;
     }
     const files = await logFiles(p);
+    // Oldest file first: a resumed Claude session and a Codex subagent copy
+    // earlier lines into a newer file, and the first file to hold a line or
+    // a response is the one it is counted in.
+    const found: { key: string; file: string; size: number; born: number }[] = [];
     for (const [key, file] of files) {
-      let size: number;
       try {
-        size = (await fs.promises.stat(file)).size;
+        const stat = await fs.promises.stat(file);
+        found.push({ key, file, size: stat.size, born: stat.birthtimeMs || stat.mtimeMs });
       } catch {
         continue;
       }
+    }
+    found.sort((a, b) => a.born - b.born || a.file.localeCompare(b.file));
+    for (const { key, file, size } of found) {
       let st = pl.files[key];
       // A file that shrank was rewritten: read it again from the start.
       if (!st || size < st.offset) st = pl.files[key] = { offset: 0, codex: p.vendor === 'codex' ? {} : undefined };
+      if (st.path && st.path !== file) {
+        for (const s of Object.values(pl.sessions)) if (s.file === st.path) s.file = file;
+        changed = true;
+      }
+      st.path = file;
       while (st.offset < size) {
         const { lines, consumed } = await readFrom(file, st.offset, size);
         if (!consumed) break;
         st.offset += consumed;
-        apply(pl, p.vendor === 'claude' ? parseClaude(lines) : parseCodex(lines, (st.codex ??= {})), file, now);
+        const parsed = p.vendor === 'claude' ? parseClaude(lines) : parseCodex(lines, (st.codex ??= {}));
+        const own = p.vendor === 'claude' ? !file.includes(`${path.sep}subagents${path.sep}`) : !st.codex?.subagent;
+        apply(pl, parsed, file, own, now);
         changed = true;
         await pause();
       }

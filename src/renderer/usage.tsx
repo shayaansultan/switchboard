@@ -278,12 +278,23 @@ function Legend({ state, ids }: { state: State; ids: string[] }) {
   );
 }
 
+// The warning dismissed last, kept outside the component so switching views
+// or tabs does not bring it back. It stays dismissed until that window
+// resets; Codex's reset times drift by seconds between readings.
+type Dismissed = { profile: string; label: string; resetsAt: string };
+let dismissedForecast: Dismissed | null = null;
+const sameWarning = (a: Dismissed | null, b: Dismissed) =>
+  !!a &&
+  a.profile === b.profile &&
+  a.label === b.label &&
+  Math.abs(Date.parse(a.resetsAt) - Date.parse(b.resetsAt)) <= 10 * 60_000;
+
 // The warning when a window will run out before it resets.
 function Forecast({ state, report }: { state: State; report: UsageReport }) {
   const f = report.forecast;
-  const key = f ? `${f.profile}|${f.label}|${f.resetsAt}` : '';
-  const [dismissed, setDismissed] = useState<string | null>(null);
-  if (!f || dismissed === key || !known(state, f.profile)) return null;
+  const [dismissed, setDismissedState] = useState<Dismissed | null>(dismissedForecast);
+  const setDismissed = (d: Dismissed) => setDismissedState((dismissedForecast = d));
+  if (!f || sameWarning(dismissed, f) || !known(state, f.profile)) return null;
   const early = Date.parse(f.resetsAt) - Date.parse(f.fullAt);
   const gap = early >= 3_600_000 ? 'over an hour' : `${Math.round(early / 60_000)} minutes`;
   const alt = f.alternative;
@@ -315,7 +326,7 @@ function Forecast({ state, report }: { state: State; report: UsageReport }) {
             Open a terminal in {otherName}
           </Btn>
         ) : null}
-        <Btn onClick={() => setDismissed(key)}>Dismiss</Btn>
+        <Btn onClick={() => setDismissed({ profile: f.profile, label: f.label, resetsAt: f.resetsAt })}>Dismiss</Btn>
       </div>
     </div>
   );

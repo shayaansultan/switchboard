@@ -7,6 +7,7 @@ import {
   forecast,
   instances,
   pace,
+  roomiest,
   tightest,
   waited,
   WindowHistory,
@@ -137,4 +138,17 @@ test('a reset time that drifts by seconds is not a new reading', () => {
   expect(h.record('codex', [w('7d', 40, NOW + 50 * H)], NOW)).toBe(true);
   expect(h.record('codex', [w('7d', 40, NOW + 50 * H + 3000)], NOW + 60_000)).toBe(false);
   expect(h.record('codex', [w('7d', 41, NOW + 50 * H + 3000)], NOW + 120_000)).toBe(true);
+});
+
+test('the account with the most room is read fresh, and a window past its reset is empty', () => {
+  const live = [
+    { id: 'personal', vendor: 'claude' as const, windows: [w('5h', 95, NOW + H)] },
+    // Its last reading failed: the 10% it showed may be long gone.
+    { id: 'stale', vendor: 'claude' as const, windows: [w('5h', 10, NOW + 3 * H)], stale: true },
+    { id: 'work', vendor: 'claude' as const, windows: [w('5h', 40, NOW + 2 * H)] },
+    // Full when read, but its window has reset since.
+    { id: 'reset', vendor: 'claude' as const, windows: [w('5h', 96, NOW - 60_000)] },
+  ];
+  expect(roomiest(live, live[0], NOW)).toEqual({ profile: 'reset', label: '5h', pct: 0 });
+  expect(roomiest(live.slice(0, 3), live[0], NOW)).toEqual({ profile: 'work', label: '5h', pct: 40 });
 });

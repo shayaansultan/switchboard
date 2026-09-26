@@ -71,6 +71,22 @@ function folderNames(paths: Iterable<string>): Map<string, string> {
   );
 }
 
+// One account's time at a limit: its windows' waits overlap (a 5h and a 7d
+// window can both be full), so each moment is counted once.
+function waitedTogether(hits: WindowInstance[], now: number): number {
+  const spans = hits
+    .filter((i) => waited(i, now) > 0)
+    .map((i) => [i.hitAt as number, Math.min(i.end, now)])
+    .sort((a, b) => a[0] - b[0]);
+  let total = 0;
+  let upTo = -Infinity;
+  for (const [start, end] of spans) {
+    total += Math.max(0, end - Math.max(start, upTo));
+    upTo = Math.max(upTo, end);
+  }
+  return total;
+}
+
 const overlaps = (s: SessionRecord, from: number, to: number) => s.end >= from && s.start < to;
 
 function sessionTotals(s: SessionRecord): Agg {
@@ -189,11 +205,9 @@ export function buildReport({ ledger, records, windowsSince, live, days, now }: 
     let limitHits = 0;
     let waitedMs = 0;
     for (const list of insts.values()) {
-      for (const i of list) {
-        if (i.hitAt === null || i.hitAt < from || i.hitAt >= to) continue;
-        limitHits++;
-        waitedMs += waited(i, now);
-      }
+      const hits = list.filter((i) => i.hitAt !== null && i.hitAt >= from && i.hitAt < to);
+      limitHits += hits.length;
+      waitedMs += waitedTogether(hits, now);
     }
     return {
       value: aggValue(sum),
