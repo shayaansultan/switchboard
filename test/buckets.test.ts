@@ -4,9 +4,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
+import * as http from 'node:http';
 import * as buckets from '../src/buckets/store';
 import * as profiles from '../src/opencode/profiles';
 import { desktopEnvironment, wrapperScript } from '../src/buckets/desktop';
+import { desktopCatalog } from '../src/buckets/models';
+import { desktopRouting, writeFileAtomic } from '../src/storage';
 
 test('shared buckets reuse existing pool storage and credentials without adopting collisions', () => {
   const original = process.env.SWITCHBOARD_ROOT;
@@ -65,6 +68,69 @@ test('desktop wrapper passes literal config and arguments, preserving native hom
         temporary,
       ),
     ).toEqual({});
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test('each routed profile has one wrapper and one catalog, named for it', () => {
+  const original = process.env.SWITCHBOARD_ROOT;
+  process.env.SWITCHBOARD_ROOT = '/fixture-root';
+  try {
+    expect(desktopRouting('codex-answerthis')).toEqual({
+      wrapper: '/fixture-root/desktop-routing/codex-codex-answerthis',
+      catalog: '/fixture-root/desktop-routing/models-codex-answerthis.json',
+    });
+    // Desktop profile ids are slugs of any length, unlike bucket ids.
+    expect(() => desktopRouting(`codex-${'a'.repeat(80)}`)).not.toThrow();
+    for (const bad of ['../escape', 'Codex', '', 'a/b']) expect(() => desktopRouting(bad)).toThrow();
+  } finally {
+    if (original === undefined) delete process.env.SWITCHBOARD_ROOT;
+    else process.env.SWITCHBOARD_ROOT = original;
+  }
+});
+
+test('a bucket without Claude models leaves no catalog from an earlier launch', async () => {
+  const original = process.env.SWITCHBOARD_ROOT;
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-catalog-'));
+  process.env.SWITCHBOARD_ROOT = temporary;
+  const server = http.createServer((_request, response) => {
+    response.setHeader('Content-Type', 'application/json');
+    response.end(JSON.stringify({ data: [{ id: 'gpt-5.5' }] }));
+  });
+  try {
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const bucket = buckets.create('Codex only');
+    const file = desktopRouting('codex-work').catalog;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{"models":[]}');
+    const port = (server.address() as { port: number }).port;
+    const catalog = await desktopCatalog(
+      bucket.id,
+      port,
+      '/nonexistent/codex',
+      { home: temporary, overrides: [] },
+      file,
+    );
+    expect(catalog).toBeUndefined();
+    expect(fs.existsSync(file)).toBe(false);
+  } finally {
+    server.close();
+    if (original === undefined) delete process.env.SWITCHBOARD_ROOT;
+    else process.env.SWITCHBOARD_ROOT = original;
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test('an atomic rewrite replaces the content and sets the mode it is given', () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-atomic-'));
+  try {
+    const file = path.join(temporary, 'codex-work');
+    fs.writeFileSync(file, 'earlier launch', { mode: 0o644 });
+    writeFileAtomic(file, '#!/bin/sh\n', 0o700);
+    expect(fs.readFileSync(file, 'utf8')).toBe('#!/bin/sh\n');
+    expect(fs.statSync(file).mode & 0o777).toBe(0o700);
+    expect(fs.readdirSync(temporary)).toEqual(['codex-work']);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
