@@ -12,6 +12,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Dirs, Profile, Store, Vendor, VendorInfo } from './types';
+import { desktopRouting } from './storage';
 
 // Node's os.homedir() honours $HOME on POSIX; Bun reads the passwd entry
 // instead. Prefer $HOME so tests can point the whole store at a scratch
@@ -304,7 +305,7 @@ export function create(data: Store, { vendor, name }: { vendor: Vendor; name: st
 }
 
 // Removing a profile removes everything it owns: its CLI login, desktop
-// session, history and settings. There is no keep-the-data variant; the
+// session, history, settings and its bucket launch files. There is no keep-the-data variant; the
 // directory means nothing without its entry in the store.
 export function remove(data: Store, id: string): void {
   const p = data.profiles.find((x) => x.id === id);
@@ -314,6 +315,7 @@ export function remove(data: Store, id: string): void {
   save(data);
   const base = path.join(ROOT, p.vendor, p.id);
   if (base.startsWith(ROOT + path.sep)) fs.rmSync(base, { recursive: true, force: true });
+  for (const file of Object.values(desktopRouting(p.id))) fs.rmSync(file, { force: true });
 }
 
 // Move a profile one step left or right among its vendor's added profiles.

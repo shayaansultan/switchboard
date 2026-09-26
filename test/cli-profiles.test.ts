@@ -7,6 +7,7 @@ import { run, resetStore, withoutTty } from './cli-helpers';
 import { assertNotRunning } from '../src/cli/desktop';
 import * as store from '../src/store';
 import * as buckets from '../src/buckets/store';
+import { desktopRouting } from '../src/storage';
 
 beforeEach(resetStore);
 afterEach(resetStore);
@@ -89,6 +90,11 @@ test('remove needs --yes, refuses the Default profile, and deletes the directory
   expect(unconfirmed.failure().error).toBe('confirmation-required');
   expect(fs.existsSync(dir)).toBe(true);
   expect((await run('remove', 'codex', '--yes')).failure().error).toBe('default-profile');
+  const routing = desktopRouting('codex-temp');
+  for (const file of Object.values(routing)) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, 'from an earlier launch');
+  }
   const removed = await run('remove', 'codex-temp', '--yes');
   expect(removed.code).toBe(0);
   expect(removed.json()).toEqual({
@@ -96,6 +102,7 @@ test('remove needs --yes, refuses the Default profile, and deletes the directory
     deleted: dir,
   });
   expect(fs.existsSync(dir)).toBe(false);
+  for (const file of Object.values(routing)) expect(fs.existsSync(file)).toBe(false);
   expect(store.readStore().profiles.map((p) => p.id)).toEqual(['claude-default', 'codex-default']);
   expect((await run('remove', 'codex-temp', '--yes')).failure().error).toBe('no-such-profile');
 });

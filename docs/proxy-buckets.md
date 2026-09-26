@@ -121,11 +121,14 @@ therefore byte-identical to one minted by the app, and never points at a
 checkout's `out/` directory. Changes to `desktop-stdio.ts` reach desktop
 launches after `bun run install-app`.
 
-Desktop assignments live in `profiles.json` as `proxyBucket`. A private, immutable
-launch wrapper under `~/.switchboard/desktop-routing/` supplies provider overrides
+Desktop assignments live in `profiles.json` as `proxyBucket`. A private launch
+wrapper under `~/.switchboard/desktop-routing/` supplies provider overrides
 to the app's embedded Codex process via `CODEX_CLI_PATH`. The local proxy key is passed
 in the launch environment, never written into the wrapper or sent to the renderer.
-Neither `config.toml` nor `auth.json` is rewritten. Native launches use the normal
+Each routed profile has one wrapper, `codex-<profile>`, and one model catalog,
+`models-<profile>.json`, rewritten atomically on each launch. A routed profile
+cannot be launched while it runs, so neither changes under the app using it, and
+removing the profile removes both. Neither `config.toml` nor `auth.json` is rewritten. Native launches use the normal
 app runtime. This executable override is an app implementation detail and needs
 rechecking after desktop updates.
 
