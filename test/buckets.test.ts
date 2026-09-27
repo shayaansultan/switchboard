@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import * as http from 'node:http';
 import * as buckets from '../src/buckets/store';
 import * as profiles from '../src/opencode/profiles';
-import { desktopEnvironment, wrapperScript } from '../src/buckets/desktop';
+import { codexBinary, desktopEnvironment, wrapperScript } from '../src/buckets/desktop';
 import { desktopCatalog } from '../src/buckets/models';
 import { desktopRouting, writeFileAtomic } from '../src/storage';
 
@@ -133,5 +133,27 @@ test('an atomic rewrite replaces the content and sets the mode it is given', () 
     expect(fs.readdirSync(temporary)).toEqual(['codex-work']);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test('the Codex engine is the package entrypoint when the app ships one, else the single binary', () => {
+  const resources = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-resources-'));
+  try {
+    expect(codexBinary(resources)).toBe(path.join(resources, 'codex'));
+    const manifest = path.join(resources, 'codex-cli', 'codex-package.json');
+    fs.mkdirSync(path.dirname(manifest));
+    fs.writeFileSync(manifest, JSON.stringify({ layoutVersion: 1, entrypoint: 'bin/codex' }));
+    expect(codexBinary(resources)).toBe(path.join(resources, 'codex-cli', 'bin', 'codex'));
+    for (const entrypoint of ['../../elsewhere', '/usr/bin/true']) {
+      fs.writeFileSync(manifest, JSON.stringify({ layoutVersion: 1, entrypoint }));
+      expect(() => codexBinary(resources)).toThrow('outside its folder');
+    }
+    // A manifest caught mid-update, or a layout this was not written for.
+    for (const text of ['{"layoutVer', JSON.stringify({ layoutVersion: 2, entrypoint: 'bin/codex' })]) {
+      fs.writeFileSync(manifest, text);
+      expect(() => codexBinary(resources)).toThrow(`Cannot read the ChatGPT app's Codex package at ${manifest}`);
+    }
+  } finally {
+    fs.rmSync(resources, { recursive: true, force: true });
   }
 });

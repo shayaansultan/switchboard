@@ -132,7 +132,10 @@ using it. Removing the profile removes both; unassigning it or removing its
 bucket leaves them for a running app, and they hold no key. Neither
 `config.toml` nor `auth.json` is rewritten. Native launches use the normal app
 runtime. This executable override is an app implementation detail and needs
-rechecking after desktop updates.
+rechecking after desktop updates. The wrapper runs the app's own Codex engine:
+the entrypoint named by `Resources/codex-cli/codex-package.json` in recent
+releases, or `Resources/codex` in earlier ones, looked up at each launch. A
+launch fails with the path it tried when neither is there.
 
 Routing overrides must follow the desktop's arguments, including its `app-server`
 subcommand flags. Codex can replace top-level `-c` overrides when the app supplies

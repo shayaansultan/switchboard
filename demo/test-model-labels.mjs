@@ -21,7 +21,7 @@ async function models(labeled) {
   await fs.writeFile(
     wrapper,
     wrapperScript(
-      codexBinary,
+      codexBinary(),
       'http://127.0.0.1:9/v1',
       labeled ? { bucket: 'AnswerThis', runtime, adapter } : undefined,
     ),
