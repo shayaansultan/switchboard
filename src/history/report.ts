@@ -2,8 +2,9 @@
 // `switchboard tokens` command show, for one range of days. Pure: the caller
 // supplies the ledger, the window records, the live windows and the time.
 //
-// Folders become their names here, and session files are left behind; the
-// report is what crosses to the renderer, so it carries no paths.
+// Folders become their names here, edited files outside a session's folder
+// their names, and session files are left behind; the report is what
+// crosses to the renderer, so it carries no paths.
 
 import * as path from 'node:path';
 import type { TokenCounts, UsageBlock, UsageReport, UsageSession, UsageTotals } from '../types';
@@ -12,9 +13,9 @@ import {
   aggCounts,
   aggTokens,
   aggValue,
-  DAY_MS,
   dayOf,
   emptyAgg,
+  own,
   SLOT_MS,
   type Agg,
   type Ledger,
@@ -89,12 +90,7 @@ function waitedTogether(hits: WindowInstance[], now: number): number {
 
 const overlaps = (s: SessionRecord, from: number, to: number) => s.end >= from && s.start < to;
 
-function sessionTotals(s: SessionRecord): Agg {
-  const a = emptyAgg();
-  for (const m of Object.values(s.models)) addAgg(a, m);
-  for (const m of Object.values(s.sub)) addAgg(a, m);
-  return a;
-}
+const sumAggs = (list: Agg[]): Agg => list.reduce(addAgg, emptyAgg());
 
 function mainModel(models: Record<string, Agg>): string | null {
   let best: [string, Agg] | null = null;
@@ -124,10 +120,9 @@ function slotValue(s: SessionRecord, from: number, to: number): number {
 }
 
 function sessionView(id: string, profile: string, s: SessionRecord, names: Map<string, string>): UsageSession {
-  const all = sessionTotals(s);
+  const sub = sumAggs(Object.values(s.sub));
+  const all = addAgg(sumAggs(Object.values(s.models)), sub);
   const tokens = aggCounts(all);
-  const sub = emptyAgg();
-  for (const m of Object.values(s.sub)) addAgg(sub, m);
   return {
     id,
     profile,
@@ -145,7 +140,7 @@ function sessionView(id: string, profile: string, s: SessionRecord, names: Map<s
     tools: Object.entries(s.tools)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6),
-    files: s.files.slice(0, 5),
+    files: s.files.slice(0, 5).map((f) => (path.isAbsolute(f) ? path.basename(f) : f)),
     fileCount: s.files.length,
     subagents: sub.n ? { calls: sub.n, value: valueOrNull(sub), model: mainModel(s.sub) } : null,
     share: null,
@@ -341,6 +336,11 @@ function blocks(
     const windows = list.filter((i) => i.label === label && i.end > since);
     const members = new Map<WindowInstance, [string, SessionRecord][]>();
     const byDay = new Map<string, [string, SessionRecord][]>();
+    const add = <K>(map: Map<K, [string, SessionRecord][]>, key: K, entry: [string, SessionRecord]) => {
+      const list = map.get(key);
+      if (list) list.push(entry);
+      else map.set(key, [entry]);
+    };
     for (const entry of Object.entries(pl.sessions)) {
       const s = entry[1];
       if (!overlaps(s, since, until)) continue;
@@ -355,11 +355,8 @@ function blocks(
           most = overlap;
         }
       }
-      if (w) members.set(w, [...(members.get(w) ?? []), entry]);
-      else {
-        const day = dayOf(s.start);
-        byDay.set(day, [...(byDay.get(day) ?? []), entry]);
-      }
+      if (w) add(members, w, entry);
+      else add(byDay, dayOf(s.start), entry);
     }
     for (const [w, entries] of members) {
       const inWindow = entries.map(([, s]) => slotValue(s, w.start, w.end));
@@ -385,13 +382,14 @@ function blocks(
     }
     for (const [day, entries] of byDay) {
       const sessions = entries.map(([id, s]) => sessionView(id, profile, s, names));
-      const start = new Date(`${day}T00:00:00`).getTime();
+      // Local midnight to the next: 23 or 25 hours when the clocks change.
+      const [y, m, d] = day.split('-').map(Number);
       out.push({
         profile,
         kind: 'day',
         label: day,
-        start: new Date(start).toISOString(),
-        end: new Date(start + DAY_MS).toISOString(),
+        start: new Date(y, m - 1, d).toISOString(),
+        end: new Date(y, m - 1, d + 1).toISOString(),
         peak: null,
         hitAt: null,
         waitedMs: 0,
@@ -408,6 +406,7 @@ function blocks(
 // A session's transcript and folder, for the main process to open. Never
 // sent to the renderer.
 export function sessionPaths(ledger: Ledger, profile: string, id: string): { file: string; cwd: string | null } | null {
-  const s = ledger.profiles[profile]?.sessions[id];
+  const pl = own(ledger.profiles, profile);
+  const s = pl && own(pl.sessions, id);
   return s ? { file: s.file, cwd: s.cwd } : null;
 }

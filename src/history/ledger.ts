@@ -8,14 +8,21 @@
 // time with a pause between, so a first pass over years of transcripts does
 // not stall the app. Totals are kept per day, model and folder ("facts"), and
 // per session for the Sessions view; sessions are kept 90 days, facts 400.
+// A profile that goes (or moves its home) keeps its facts: the logs they
+// came from may be gone, so they could not be read again.
 //
-// The app writes the ledger; the CLI only reads it.
+// The keys of lines and responses already counted are kept as long as a log
+// that could hold them is, so a copy made months later is still known.
+//
+// The app writes the ledger; the CLI only reads it. Keys that come from the
+// logs are looked up as own properties only (see `own`), so a session id
+// such as "constructor" is just a name.
 
-import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { writeFileAtomic } from '../storage';
 import type { SessionEntry, TokenCounts, Vendor } from '../types';
-import { parseClaude, parseCodex, type Call, type CodexContext, type Note, type Parsed } from './logs';
+import { parseClaude, parseCodex, shortKey, type Call, type CodexContext, type Note, type Parsed } from './logs';
 import { valueParts } from './prices';
 
 export const DAY_MS = 86_400_000;
@@ -26,7 +33,6 @@ export const SLOT_MS = 5 * 60_000;
 const STEP_MS = 30 * 60_000;
 const SESSION_DAYS = 90;
 const FACT_DAYS = 400;
-const SEEN_DAYS = 45;
 const CHUNK = 4 * 1024 * 1024;
 const MAX_FILES = 200;
 
@@ -60,6 +66,10 @@ export interface SessionRecord {
 
 interface FileState {
   offset: number;
+  // The time of the earliest line read from it, how far back a copy of its
+  // lines could reach; null before any. Absent in a file read before this
+  // was kept, which is then taken to reach back indefinitely.
+  first?: number | null;
   // Where the file was last found. Codex moves a finished rollout to
   // archived_sessions, and its sessions' transcript moves with it.
   path?: string;
@@ -70,6 +80,8 @@ export interface ProfileLedger {
   vendor: Vendor;
   home: string;
   files: Record<string, FileState>;
+  // Key of a line or response counted → the day (since the epoch) it
+  // happened.
   seen: Record<string, number>;
   // `${day}\t${model}\t${folder}` → totals.
   facts: Record<string, Agg>;
@@ -106,14 +118,28 @@ export function addAgg(into: Agg, a: Agg): Agg {
   return into;
 }
 
+export const sumTokens = (t: TokenCounts): number => t.input + t.output + t.cacheRead + t.cacheWrite;
 export const aggValue = (a: Agg): number => a.v[0] + a.v[1] + a.v[2] + a.v[3];
-export const aggTokens = (a: Agg): number => a.t[0] + a.t[1] + a.t[2] + a.t[3];
 export const aggCounts = (a: Agg): TokenCounts => ({
   input: a.t[0],
   output: a.t[1],
   cacheRead: a.t[2],
   cacheWrite: a.t[3],
 });
+export const aggTokens = (a: Agg): number => sumTokens(aggCounts(a));
+
+// A record's own entry for a key, never one inherited from Object.prototype.
+export function own<T>(record: Record<string, T>, key: string): T | undefined {
+  return Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
+// A record's own entry for a key, made if missing. Defined rather than
+// assigned, so even "__proto__" is an ordinary key.
+function ownOrNew<T>(record: Record<string, T>, key: string, make: () => T): T {
+  if (!Object.hasOwn(record, key))
+    Object.defineProperty(record, key, { value: make(), enumerable: true, writable: true, configurable: true });
+  return record[key];
+}
 
 // The local calendar day of a moment, as YYYY-MM-DD.
 export function dayOf(ms: number): string {
@@ -125,6 +151,8 @@ export function emptyLedger(now = Date.now()): Ledger {
   return { v: VERSION, since: new Date(now).toISOString(), indexedAt: null, profiles: {} };
 }
 
+// The ledger in a file, or null when there is none, it cannot be read, or it
+// is from another version.
 export function loadLedger(file: string): Ledger | null {
   try {
     const l = JSON.parse(fs.readFileSync(file, 'utf8')) as Ledger;
@@ -134,15 +162,24 @@ export function loadLedger(file: string): Ledger | null {
   }
 }
 
-export function saveLedger(file: string, ledger: Ledger): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const temporary = `${file}.${crypto.randomUUID()}.tmp`;
-  try {
-    fs.writeFileSync(temporary, JSON.stringify(ledger), { mode: 0o600, flag: 'wx' });
-    fs.renameSync(temporary, file);
-  } finally {
-    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+// The ledger to carry on with: the file's, or an empty one. A file that is
+// there but cannot be used is copied aside first, since what it holds may be
+// older than any log left to rebuild it from.
+export function openLedger(file: string, now = Date.now()): Ledger {
+  const ledger = loadLedger(file);
+  if (ledger) return ledger;
+  if (fs.existsSync(file)) {
+    try {
+      fs.copyFileSync(file, `${file}.unreadable-${now}`);
+    } catch {
+      /* best effort, as the store does */
+    }
   }
+  return emptyLedger(now);
+}
+
+export function saveLedger(file: string, ledger: Ledger): void {
+  writeFileAtomic(file, JSON.stringify(ledger));
 }
 
 // The log files of a profile's home: Claude Code's transcripts (with
@@ -193,49 +230,49 @@ async function readFrom(file: string, start: number, end: number): Promise<{ lin
   }
 }
 
-const shortKey = (key: string): string => crypto.createHash('sha1').update(key).digest('base64').slice(0, 12);
-
-// `own` says the file is the session's own transcript rather than one of
+// `mine` says the file is the session's own transcript rather than one of
 // its subagents'.
-function session(pl: ProfileLedger, id: string, file: string, own: boolean, at: number): SessionRecord {
-  let s = pl.sessions[id];
-  if (!s) {
-    s = pl.sessions[id] = {
-      file,
-      cwd: null,
-      title: null,
-      entry: 'cli',
-      start: at,
-      end: at,
-      last: null,
-      prompts: 0,
-      ms: 0,
-      models: {},
-      sub: {},
-      tools: {},
-      files: [],
-      slots: {},
-    };
-  }
+function session(pl: ProfileLedger, id: string, file: string, mine: boolean, at: number): SessionRecord {
+  const s = ownOrNew(pl.sessions, id, (): SessionRecord => ({
+    file,
+    cwd: null,
+    title: null,
+    entry: 'cli',
+    start: at,
+    end: at,
+    last: null,
+    prompts: 0,
+    ms: 0,
+    models: {},
+    sub: {},
+    tools: {},
+    files: [],
+    slots: {},
+  }));
   // A subagent's file is not the transcript to show.
-  if (own) s.file = file;
+  if (mine) s.file = file;
   s.start = Math.min(s.start, at);
   s.end = Math.max(s.end, at);
   return s;
 }
 
-function applyNote(pl: ProfileLedger, n: Note, file: string, own: boolean): void {
-  const s = session(pl, n.session, file, own, n.at);
-  if (n.cwd && !s.cwd) s.cwd = n.cwd;
+// Where the session ran, the first time a line says; how it ran, from its
+// earliest line.
+function place(s: SessionRecord, at: number, cwd?: string, entry?: SessionEntry): void {
+  if (cwd && !s.cwd) s.cwd = cwd;
+  if (entry && at <= s.start) s.entry = entry;
+}
+
+function applyNote(pl: ProfileLedger, n: Note, file: string, mine: boolean): void {
+  const s = session(pl, n.session, file, mine, n.at);
+  place(s, n.at, n.cwd, n.entry);
   if (n.title && !s.title) s.title = n.title;
-  // Where the session ran is where it started.
-  if (n.entry && n.at <= s.start) s.entry = n.entry;
   if (n.prompts) {
     s.prompts += n.prompts;
     // A prompt is where work resumes: the wait for the answer counts.
     s.last = Math.max(s.last ?? 0, n.at);
   }
-  for (const t of n.tools ?? []) s.tools[t] = (s.tools[t] ?? 0) + 1;
+  for (const t of n.tools ?? []) s.tools[t] = ownOrNew(s.tools, t, () => 0) + 1;
   for (const f of n.files ?? []) {
     const rel = s.cwd && f.startsWith(s.cwd + path.sep) ? f.slice(s.cwd.length + 1) : f;
     if (!s.files.includes(rel) && s.files.length < MAX_FILES) s.files.push(rel);
@@ -243,8 +280,9 @@ function applyNote(pl: ProfileLedger, n: Note, file: string, own: boolean): void
 }
 
 // One call into the session, its day's facts and its window slot.
-function applyCall(pl: ProfileLedger, c: Call, file: string, own: boolean): void {
-  const s = session(pl, c.session, file, own, c.at);
+function applyCall(pl: ProfileLedger, c: Call, file: string, mine: boolean): void {
+  const s = session(pl, c.session, file, mine, c.at);
+  place(s, c.at, c.cwd, c.entry);
   const agg = emptyAgg();
   agg.t = [c.tokens.input, c.tokens.output, c.tokens.cacheRead, c.tokens.cacheWrite];
   agg.n = 1;
@@ -259,22 +297,24 @@ function applyCall(pl: ProfileLedger, c: Call, file: string, own: boolean): void
     s.last = Math.max(s.last ?? 0, c.at);
     s.ms += agg.ms;
   }
-  addAgg(((c.subagent ? s.sub : s.models)[c.model] ??= emptyAgg()), agg);
+  addAgg(ownOrNew(c.subagent ? s.sub : s.models, c.model, emptyAgg), agg);
   const slot = String(Math.floor(c.at / SLOT_MS));
   s.slots[slot] = (s.slots[slot] ?? 0) + aggValue(agg);
   const fact = `${dayOf(c.at)}\t${c.model}\t${s.cwd ?? ''}`;
-  addAgg((pl.facts[fact] ??= emptyAgg()), agg);
+  addAgg(ownOrNew(pl.facts, fact, emptyAgg), agg);
 }
 
-// Whether a key was met before, marking it met if not.
-function seenBefore(pl: ProfileLedger, key: string, now: number): boolean {
+// Whether a key was met before, marking it met if not, with the day of the
+// line or response it belongs to.
+function seenBefore(pl: ProfileLedger, key: string, at: number): boolean {
   const k = shortKey(key);
-  if (pl.seen[k]) return true;
-  pl.seen[k] = Math.floor(now / DAY_MS);
+  if (own(pl.seen, k) !== undefined) return true;
+  pl.seen[k] = Math.floor(at / DAY_MS);
   return false;
 }
 
-function apply(pl: ProfileLedger, parsed: Parsed, file: string, own: boolean, now: number): void {
+// Returns the time of the earliest event, if any.
+function apply(pl: ProfileLedger, parsed: Parsed, file: string, mine: boolean): number | undefined {
   // In the order they happened, a note before a call at the same moment, so
   // a session knows its folder before its calls are filed and agent time
   // follows the conversation.
@@ -284,18 +324,34 @@ function apply(pl: ProfileLedger, parsed: Parsed, file: string, own: boolean, no
   ].sort((a, b) => a.at - b.at);
   for (const e of events) {
     if ('note' in e) {
-      if (!e.note.key || !seenBefore(pl, e.note.key, now)) applyNote(pl, e.note, file, own);
+      if (!e.note.key || !seenBefore(pl, e.note.key, e.note.at)) applyNote(pl, e.note, file, mine);
       continue;
     }
     const c = e.call;
-    if (!c.key || !seenBefore(pl, c.key, now)) applyCall(pl, c, file, own);
+    if (!c.key || !seenBefore(pl, c.key, c.at)) applyCall(pl, c, file, mine);
   }
+  return events[0]?.at;
 }
 
+// A copy is made from a log that is still there, so a key older than the
+// earliest line of every log present (by a day's slack) cannot be met again.
+// Keys are kept no longer than sessions, though: Codex never deletes its
+// rollouts, and a key for every response of a year would make the ledger
+// tens of megabytes. A session resumed after that is rare, and could not be
+// opened from the Usage tab anyway.
 function prune(pl: ProfileLedger, now: number, present: Set<string>): void {
   for (const [id, s] of Object.entries(pl.sessions)) if (s.end < now - SESSION_DAYS * DAY_MS) delete pl.sessions[id];
-  const today = Math.floor(now / DAY_MS);
-  for (const [k, day] of Object.entries(pl.seen)) if (day < today - SEEN_DAYS) delete pl.seen[k];
+  let first = Infinity;
+  for (const k of present) {
+    const st = own(pl.files, k);
+    if (st?.first === undefined && st?.offset) first = -Infinity;
+    else if (typeof st?.first === 'number') first = Math.min(first, st.first);
+  }
+  const horizon = Math.max(
+    Number.isFinite(first) ? Math.floor(first / DAY_MS) - 1 : -Infinity,
+    Math.floor(now / DAY_MS) - SESSION_DAYS,
+  );
+  for (const [k, day] of Object.entries(pl.seen)) if (day < horizon) delete pl.seen[k];
   const oldest = dayOf(now - FACT_DAYS * DAY_MS);
   for (const k of Object.keys(pl.facts)) if (k.slice(0, 10) < oldest) delete pl.facts[k];
   for (const k of Object.keys(pl.files)) if (!present.has(k)) delete pl.files[k];
@@ -304,19 +360,34 @@ function prune(pl: ProfileLedger, now: number, present: Set<string>): void {
 const pause = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 // Read what the profiles' logs gained since the last pass. Returns whether
-// anything changed. Profiles no longer listed are dropped.
+// anything changed. A profile no longer listed keeps its facts, how far its
+// logs were read and what they held, so its usage stays in the totals and,
+// should it come back, nothing is counted twice; its sessions go, as nothing
+// could open them. A profile whose home moved starts reading afresh but
+// keeps its facts and the keys it has seen, so logs that moved with it are
+// not counted again.
 export async function indexLogs(ledger: Ledger, profiles: LedgerProfile[], now = Date.now()): Promise<boolean> {
   let changed = false;
-  for (const id of Object.keys(ledger.profiles)) {
-    if (!profiles.some((p) => p.id === id)) {
-      delete ledger.profiles[id];
+  for (const [id, pl] of Object.entries(ledger.profiles)) {
+    if (!profiles.some((p) => p.id === id) && Object.keys(pl.sessions).length) {
+      pl.sessions = {};
       changed = true;
     }
   }
   for (const p of profiles) {
-    let pl = ledger.profiles[p.id];
-    if (!pl || pl.home !== p.home || pl.vendor !== p.vendor) {
-      pl = ledger.profiles[p.id] = { vendor: p.vendor, home: p.home, files: {}, seen: {}, facts: {}, sessions: {} };
+    let pl = own(ledger.profiles, p.id);
+    if (!pl || pl.vendor !== p.vendor) {
+      pl = ledger.profiles[p.id] = {
+        vendor: p.vendor,
+        home: p.home,
+        files: {},
+        seen: {},
+        facts: pl?.facts ?? {},
+        sessions: {},
+      };
+      changed = true;
+    } else if (pl.home !== p.home) {
+      Object.assign(pl, { home: p.home, files: {}, sessions: {} });
       changed = true;
     }
     const files = await logFiles(p);
@@ -334,23 +405,34 @@ export async function indexLogs(ledger: Ledger, profiles: LedgerProfile[], now =
     }
     found.sort((a, b) => a.born - b.born || a.file.localeCompare(b.file));
     for (const { key, file, size } of found) {
-      let st = pl.files[key];
+      let st = own(pl.files, key);
       // A file that shrank was rewritten: read it again from the start.
-      if (!st || size < st.offset) st = pl.files[key] = { offset: 0, codex: p.vendor === 'codex' ? {} : undefined };
+      if (!st || size < st.offset) {
+        st = { offset: 0, first: null, codex: p.vendor === 'codex' ? {} : undefined };
+        pl.files[key] = st;
+      }
       if (st.path && st.path !== file) {
         for (const s of Object.values(pl.sessions)) if (s.file === st.path) s.file = file;
         changed = true;
       }
       st.path = file;
-      while (st.offset < size) {
-        const { lines, consumed } = await readFrom(file, st.offset, size);
-        if (!consumed) break;
-        st.offset += consumed;
-        const parsed = p.vendor === 'claude' ? parseClaude(lines) : parseCodex(lines, (st.codex ??= {}));
-        const own = p.vendor === 'claude' ? !file.includes(`${path.sep}subagents${path.sep}`) : !st.codex?.subagent;
-        apply(pl, parsed, file, own, now);
-        changed = true;
-        await pause();
+      // A file that cannot be read (removed since it was listed, or not ours
+      // to read) is left where it stopped and tried again next pass; it must
+      // not hold up the files and profiles after it.
+      try {
+        while (st.offset < size) {
+          const { lines, consumed } = await readFrom(file, st.offset, size);
+          if (!consumed) break;
+          st.offset += consumed;
+          const parsed = p.vendor === 'claude' ? parseClaude(lines) : parseCodex(lines, (st.codex ??= {}));
+          const mine = p.vendor === 'claude' ? !file.includes(`${path.sep}subagents${path.sep}`) : !st.codex?.subagent;
+          const at = apply(pl, parsed, file, mine);
+          if (at !== undefined && (st.first == null || at < st.first)) st.first = at;
+          changed = true;
+          await pause();
+        }
+      } catch {
+        continue;
       }
     }
     prune(pl, now, new Set(files.keys()));

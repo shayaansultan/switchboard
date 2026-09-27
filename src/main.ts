@@ -181,10 +181,23 @@ function profileLabel(p: Profile): string {
   return `${profiles.VENDORS[p.vendor].label} · ${p.name}`;
 }
 
+// A profile's windows as last read just now: not from the cache, not failed.
+function freshWindows(id: string): UsageWindow[] | undefined {
+  const u = live.get(id)?.usage;
+  return u?.windows && !u.stale && !u.error ? u.windows : undefined;
+}
+
+// Which account a profile is signed in to, so two profiles on one account
+// are not suggested as each other's alternative or alerted on twice.
+function accountOf(id: string): string | undefined {
+  const who = live.get(id)?.identity;
+  return who?.email ? `${who.email}\n${who.org ?? ''}` : undefined;
+}
+
 function liveProfiles(): LiveProfile[] {
   return data.profiles.map((p) => {
-    const u = live.get(p.id)?.usage;
-    return { id: p.id, vendor: p.vendor, windows: u?.windows, stale: !!(u?.stale || u?.error) };
+    const windows = live.get(p.id)?.usage?.windows;
+    return { id: p.id, vendor: p.vendor, windows, stale: !freshWindows(p.id), account: accountOf(p.id) };
   });
 }
 
@@ -212,11 +225,11 @@ function recordUsage(list: Profile[]): void {
   const fresh = new Map<string, UsageWindow[]>();
   let wrote = false;
   for (const p of list) {
-    const u = live.get(p.id)?.usage;
-    if (!u?.windows || u.stale || u.error) continue;
-    fresh.set(p.id, u.windows);
+    const windows = freshWindows(p.id);
+    if (!windows) continue;
+    fresh.set(p.id, windows);
     try {
-      wrote = history.windows.record(p.id, u.windows) || wrote;
+      wrote = history.windows.record(p.id, windows) || wrote;
     } catch {
       /* as above */
     }
@@ -226,10 +239,15 @@ function recordUsage(list: Profile[]): void {
     // suggested: its room may be long gone.
     const current = new Map<string, UsageWindow[]>();
     for (const p of data.profiles) {
-      const u = live.get(p.id)?.usage;
-      if (u?.windows && !u.stale && !u.error) current.set(p.id, u.windows);
+      const windows = freshWindows(p.id);
+      if (windows) current.set(p.id, windows);
     }
-    const all = data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, label: profileLabel(p) }));
+    const all = data.profiles.map((p) => ({
+      id: p.id,
+      vendor: p.vendor,
+      label: profileLabel(p),
+      account: accountOf(p.id),
+    }));
     for (const a of alertsFor(alertBaseline, current, all, new Set(fresh.keys())))
       new Notification({ title: a.title, body: a.body }).show();
   }
@@ -686,7 +704,7 @@ function rebuildTray(): void {
   items.push({ type: 'separator' });
   for (const vendor of profiles.VENDOR_IDS) {
     // Where to go next: the account whose fullest window is emptiest.
-    const room = roomiest(liveProfiles(), { id: '', vendor }, Date.now());
+    const room = roomiest(liveProfiles(), vendor, Date.now());
     const roomName = data.profiles.find((p) => p.id === room?.profile)?.name;
     items.push({
       label:
@@ -935,46 +953,57 @@ ipcMain.handle('usage:report', (event, days: unknown) => {
   void indexUsage();
   return history.report(liveProfiles(), z.number().int().min(1).max(366).parse(days));
 });
+// Session ids are UUIDs (Claude Code) or rollout ids (Codex). The shape is
+// checked as well as the ledger, so an id never reads as a CLI option.
+const SESSION_ID = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/);
+// A session the ledger knows. Paths stay here: errors that reach the
+// renderer never carry one.
 function sessionFor(profileId: unknown, sessionId: unknown) {
   const p = byId(z.string().parse(profileId));
-  const s = history.session(p.id, z.string().parse(sessionId));
+  const id = SESSION_ID.parse(sessionId);
+  const s = history.session(p.id, id);
   if (!s) throw new Error('That session is no longer in the usage history.');
-  return { p, s, id: sessionId as string };
+  return { p, s, id };
+}
+// Resuming and showing the transcript both need the log file still there.
+function requireLog(p: Profile, file: string): void {
+  if (fs.existsSync(file)) return;
+  throw new Error(
+    p.vendor === 'claude'
+      ? 'The transcript has been deleted since, as Claude Code does after 30 days.'
+      : 'The rollout file has been deleted since.',
+  );
+}
+function isFolder(dir: string | null): dir is string {
+  try {
+    return !!dir && fs.statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
 }
 ipcMain.handle('usage:resume', async (event, profileId: unknown, sessionId: unknown) => {
   validateSender(event);
   const { p, s, id } = sessionFor(profileId, sessionId);
-  const cwd = s.cwd && fs.existsSync(s.cwd) ? s.cwd : undefined;
-  await launch.openTerminal(launch.shellScript(p, launch.resumeArgs(p, id)), { terminal: data.settings.terminal, cwd });
+  requireLog(p, s.file);
+  try {
+    await launch.openShell(p, data.settings, isFolder(s.cwd) ? s.cwd : undefined, launch.resumeArgs(p, id));
+  } catch {
+    throw new Error(
+      'The terminal could not be opened. Check that Switchboard may control it in System Settings › Privacy & Security › Automation.',
+    );
+  }
 });
-const BUNDLE =
-  /\.(app|appex|pkg|mpkg|prefpane|workflow|action|bundle|plugin|framework|kext|saver|qlgenerator|mdimporter|xpc)$/i;
-ipcMain.handle('usage:open', async (event, profileId: unknown, sessionId: unknown, what: unknown) => {
+// Both are revealed in Finder, never opened: the paths come from log files,
+// and opening a bundle runs it.
+ipcMain.handle('usage:open', (event, profileId: unknown, sessionId: unknown, what: unknown) => {
   validateSender(event);
   const { p, s } = sessionFor(profileId, sessionId);
   if (z.enum(['folder', 'transcript']).parse(what) === 'transcript') {
-    if (!fs.existsSync(s.file))
-      throw new Error(
-        p.vendor === 'claude'
-          ? 'The transcript has been deleted since, as Claude Code does after 30 days.'
-          : 'The rollout file has been deleted since.',
-      );
-    shell.showItemInFolder(s.file);
-  } else {
-    let folder: string;
-    try {
-      if (!s.cwd) throw new Error('no folder');
-      folder = fs.realpathSync(s.cwd);
-    } catch {
-      throw new Error('That folder no longer exists.');
-    }
-    if (!fs.statSync(folder).isDirectory()) throw new Error('That folder no longer exists.');
-    // The path comes from a log file, and opening a bundle runs it: an app
-    // launches, an installer package installs. Checked after following links.
-    if (BUNDLE.test(folder)) throw new Error('That folder is an app or package, so it is not opened.');
-    const failed = await shell.openPath(folder);
-    if (failed) throw new Error(failed);
+    requireLog(p, s.file);
+    return shell.showItemInFolder(s.file);
   }
+  if (!isFolder(s.cwd)) throw new Error('That folder no longer exists.');
+  shell.showItemInFolder(s.cwd);
 });
 
 ipcMain.handle('state:get', () => {
@@ -1100,7 +1129,10 @@ ipcMain.handle('app:launch', (_e, id: string) => launchApp(byId(id)));
 ipcMain.handle('app:quit', (_e, id: string) => quitApp(byId(id)));
 ipcMain.handle('app:forceQuit', (_e, id: string) => quitApp(byId(id), true));
 ipcMain.handle('app:show', (_e, id: string) => showApp(byId(id)));
-ipcMain.handle('app:open', (_e, id: string) => openApp(byId(id)));
+ipcMain.handle('app:open', (event, id: unknown) => {
+  validateSender(event);
+  return openApp(byId(z.string().parse(id)));
+});
 // Accessibility, asked of macOS as Switchboard itself. Its helper inherits
 // the answer, because macOS attributes a child process to the app that
 // started it. 'request' shows macOS's dialog, but only the first time: once

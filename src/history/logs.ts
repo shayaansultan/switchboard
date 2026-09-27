@@ -9,7 +9,9 @@
 // for the ledger to count once. A resumed session's file opens with a copy of
 // the earlier conversation under the new session id; every line keeps its
 // uuid, so notes are keyed by it and a copy is not counted again. Every line
-// names its session and folder.
+// names its session and folder, and a call carries the folder itself, so a
+// response line only becomes a note when it used tools: that keeps the
+// ledger's record of lines seen to prompts, tool calls and responses.
 //
 // Codex writes <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-*.jsonl, a header
 // line naming the session and then events. A prompt is a user message
@@ -21,6 +23,7 @@
 // since the last total. A subagent's rollout opens by replaying its parent's
 // history, which is skipped until the subagent's own turn starts.
 
+import * as crypto from 'node:crypto';
 import type { SessionEntry, TokenCounts } from '../types';
 
 export interface Call {
@@ -34,6 +37,9 @@ export interface Call {
   // The part of cacheWrite kept for an hour, priced higher.
   cacheWriteLong: number;
   subagent: boolean;
+  // Where and how the session ran, when the line says.
+  cwd?: string;
+  entry?: SessionEntry;
 }
 
 // Something learned about a session at a moment: where it ran, what it was
@@ -70,15 +76,23 @@ export interface CodexContext {
   records?: boolean;
   total?: number;
   last?: TokenCounts;
-  // The last prompt counted, so a build that records a prompt both as an
-  // event and as a message counts it once.
-  prompt?: { text: string; at: number };
+  // The last prompt counted, by a hash of its text, so a build that records
+  // a prompt both as an event and as a message counts it once. Only the hash
+  // is kept: this context is saved in the ledger.
+  prompt?: { hash: string; at: number };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Json = any;
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+
+// A short, stable key for a longer one, for the ledger to store.
+export const shortKey = (key: string): string => crypto.createHash('sha1').update(key).digest('base64').slice(0, 12);
+
+// An id the ledger can file things under. `__proto__` would name the
+// object's prototype rather than a key of its own.
+const usableId = (x: unknown): x is string => typeof x === 'string' && x !== '' && x !== '__proto__';
 
 function json(line: string): Json | null {
   try {
@@ -123,13 +137,19 @@ function promptText(content: Json): string | null {
   return text.length ? text.join('\n') : null;
 }
 
+// Claude Code gives a tool result's line a top-level `toolUseResult`. Inside
+// a prompt's text the same word would have its quotes escaped, so a prompt
+// never matches.
+const TOOL_RESULT = '"toolUseResult":';
+
 export function parseClaude(lines: string[]): Parsed {
   const out: Parsed = { calls: [], notes: [] };
   for (const line of lines) {
-    // Most lines are tool results and attachments; skip them unparsed.
-    if (!line.includes('"assistant"') && !line.includes('"user"')) continue;
+    // Most lines are tool results, attachments and snapshots, the largest by
+    // far; skip them unparsed.
+    if ((!line.includes('"assistant"') && !line.includes('"user"')) || line.includes(TOOL_RESULT)) continue;
     const d = json(line);
-    if (!d || typeof d.sessionId !== 'string') continue;
+    if (!d || !usableId(d.sessionId)) continue;
     const at = time(d.timestamp);
     if (at === null) continue;
     const note: Note = { session: d.sessionId, at, entry: claudeEntry(d.entrypoint) };
@@ -147,6 +167,8 @@ export function parseClaude(lines: string[]): Parsed {
       }
       if (tools.length) note.tools = tools;
       if (files.length) note.files = files;
+      // Only a line that used tools says something its call does not.
+      if (tools.length) out.notes.push(note);
       const u = m.usage;
       if (u && typeof m.model === 'string' && m.model !== '<synthetic>' && !d.isApiErrorMessage) {
         const cacheWrite =
@@ -165,17 +187,19 @@ export function parseClaude(lines: string[]): Parsed {
           },
           cacheWriteLong: Math.min(cacheWrite, num(u.cache_creation?.ephemeral_1h_input_tokens)),
           subagent: !!d.isSidechain,
+          cwd: note.cwd,
+          entry: note.entry,
         });
       }
     } else if (d.type === 'user') {
       const text = d.isMeta || d.isSidechain ? null : promptText(m.content);
       // A tool result or reminder says nothing the response around it does
-      // not, and skipping it keeps the ledger's record of lines seen small.
-      if (text === null) continue;
+      // not, and an interruption is the person stopping work, not asking.
+      if (text === null || text.trimStart().startsWith('[Request interrupted')) continue;
       note.prompts = 1;
       note.title = titleFrom(text);
+      out.notes.push(note);
     }
-    out.notes.push(note);
   }
   return out;
 }
@@ -240,7 +264,7 @@ export function parseCodex(lines: string[], ctx: CodexContext): Parsed {
       if (ctx.session) continue;
       const meta = p.meta ?? p;
       const root = meta.session_id ?? meta.id;
-      if (typeof root !== 'string') continue;
+      if (!usableId(root)) continue;
       ctx.session = root;
       ctx.subagent =
         (typeof meta.id === 'string' && meta.id !== root) ||
@@ -255,8 +279,10 @@ export function parseCodex(lines: string[], ctx: CodexContext): Parsed {
     const session = ctx.session;
     // A subagent's prompts come from the agent that started it, not a person.
     const prompt = (text: string) => {
-      if (ctx.subagent || (ctx.prompt?.text === text && Math.abs(at - ctx.prompt.at) < 5000)) return;
-      ctx.prompt = { text, at };
+      if (ctx.subagent) return;
+      const hash = shortKey(text);
+      if (ctx.prompt?.hash === hash && Math.abs(at - ctx.prompt.at) < 5000) return;
+      ctx.prompt = { hash, at };
       out.notes.push({ session, at, prompts: 1, title: titleFrom(text), cwd: ctx.cwd, entry: ctx.entry });
     };
     if (d.type === 'turn_context') {

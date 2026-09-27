@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright';
+import { claudeAssistant, claudeUser, iso, write } from '../test/history-fixtures.ts';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const home = await fs.mkdtemp(path.join(os.tmpdir(), 'switchboard-usage-ui-'));
@@ -29,50 +30,33 @@ await fs.writeFile(path.join(store, 'profiles.json'), JSON.stringify({ settings,
 // An hour ago in Personal, and this morning in Work: one session each, the
 // first response repeated as Claude Code writes one line per content block.
 const now = Date.now();
-const iso = (ms) => new Date(ms).toISOString();
 function session(id, cwd, title, start, calls, model = 'claude-sonnet-5') {
-  const lines = [
-    {
-      type: 'user',
-      sessionId: id,
-      timestamp: iso(start),
-      cwd,
-      entrypoint: 'cli',
-      message: { role: 'user', content: title },
-    },
-  ];
+  const lines = [claudeUser({ session: id, at: start, text: title, cwd })];
   for (let i = 0; i < calls; i++) {
-    const message = {
+    const line = claudeAssistant({
+      session: id,
+      at: start + (i + 1) * 60_000,
       id: `msg_${id}_${i}`,
+      request: `req_${id}_${i}`,
       model,
-      content: [
-        {
-          type: 'tool_use',
-          id: `t_${id}_${i}`,
-          name: i % 2 ? 'Edit' : 'Read',
-          input: { file_path: `${cwd}/src/f${i % 3}.ts` },
-        },
-      ],
-      usage: { input_tokens: 10, output_tokens: 100_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
-    };
-    const line = {
-      type: 'assistant',
-      sessionId: id,
-      timestamp: iso(start + (i + 1) * 60_000),
       cwd,
-      requestId: `req_${id}_${i}`,
-      message,
-    };
+      input: 10,
+      output: 100_000,
+      block: {
+        type: 'tool_use',
+        id: `t_${id}_${i}`,
+        name: i % 2 ? 'Edit' : 'Read',
+        input: { file_path: `${cwd}/src/f${i % 3}.ts` },
+      },
+    });
     lines.push(line, ...(i === 0 ? [line] : []));
   }
-  return lines.map((l) => JSON.stringify(l)).join('\n') + '\n';
+  return lines;
 }
 const personalLog = path.join(home, '.claude', 'projects', '-work-switchboard', 'personal-1.jsonl');
 const workLog = path.join(store, 'claude', 'claude-work', 'home', 'projects', '-work-api', 'work-1.jsonl');
-await fs.mkdir(path.dirname(personalLog), { recursive: true });
-await fs.mkdir(path.dirname(workLog), { recursive: true });
-await fs.writeFile(personalLog, session('personal-1', '/work/switchboard', 'Add a usage tab', now - 60 * 60_000, 10));
-await fs.writeFile(workLog, session('work-1', '/work/api', 'Migrate billing', now - 3 * 60 * 60_000, 5));
+write(personalLog, session('personal-1', '/work/switchboard', 'Add a usage tab', now - 60 * 60_000, 10));
+write(workLog, session('work-1', '/work/api', 'Migrate billing', now - 3 * 60 * 60_000, 5));
 
 // Window history as the app records it from each poll: Personal's current
 // 5-hour window filled while its session ran.
@@ -108,8 +92,8 @@ try {
 
   // The first report may arrive before the logs are read; the tab is told
   // when the ledger changes and asks again.
-  await until(async () => (await page.locator('.tile .v').first().textContent())?.startsWith('$'), 'the value tile');
-  await until(async () => (await page.locator('.tile .v').first().textContent()) !== '$0.00', 'indexed sessions');
+  await until(async () => (await page.locator('.stat .v').first().textContent())?.startsWith('$'), 'the value tile');
+  await until(async () => (await page.locator('.stat .v').first().textContent()) !== '$0.00', 'indexed sessions');
   const report = await page.evaluate(() => window.sb.usageReport(30));
   // $10 per million output tokens; the repeated first line counts once.
   assert.equal(Math.round(report.totals.value), 15);
@@ -131,6 +115,9 @@ try {
   const inspector = page.locator('.inspector:visible');
   await until(async () => (await inspector.locator('h3').textContent()) === 'Migrate billing', 'the inspector');
   assert.match(await inspector.textContent(), /Edit 2/);
+  // A session's folder is revealed in Finder, never opened.
+  assert.equal(await inspector.getByRole('button', { name: 'Show folder' }).count(), 1);
+  assert.equal(await inspector.getByRole('button', { name: 'Open folder' }).count(), 0);
   await page.locator('.session-row', { hasText: 'Add a usage tab' }).click();
   await until(async () => /Its share of the window/.test(await inspector.textContent()), 'the window share');
   await page.screenshot({ path: path.join(output, 'sessions.png'), fullPage: true });

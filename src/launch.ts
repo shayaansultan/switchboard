@@ -378,9 +378,10 @@ export async function openLogin(profile: Profile, settings: Settings): Promise<v
   });
 }
 
-export async function openShell(profile: Profile, settings: Settings, cwd?: string): Promise<void> {
+// A terminal on the profile's CLI in `cwd`, run with `extra` arguments if any.
+export async function openShell(profile: Profile, settings: Settings, cwd?: string, extra = ''): Promise<void> {
   ensureDirs(profile);
-  await openTerminal(shellScript(profile), { terminal: settings.terminal, cwd });
+  await openTerminal(shellScript(profile, extra), { terminal: settings.terminal, cwd });
 }
 
 export function revealDir(profile: Profile): Promise<unknown> {

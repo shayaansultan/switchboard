@@ -10,6 +10,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { UsageForecast, UsageWindow, Vendor, WindowPace } from '../types';
+import { dayOf } from './ledger';
 
 export interface WindowRecord {
   at: number;
@@ -38,16 +39,15 @@ export function windowLength(label: string): number | null {
   return Number(m[1]) * (m[2] === 'd' ? 24 : 1) * HOUR;
 }
 
+const sameResetMs = (a: number, b: number): boolean => Math.abs(a - b) <= SAME_RESET_MS;
+
 // Whether two reset times are the same reset, allowing for the drift.
 export function sameReset(a: string | null, b: string | null): boolean {
   if (a === null || b === null) return a === b;
-  return Math.abs(Date.parse(a) - Date.parse(b)) <= SAME_RESET_MS;
+  return sameResetMs(Date.parse(a), Date.parse(b));
 }
 
-function monthOf(ms: number): string {
-  const d = new Date(ms);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
+const monthOf = (ms: number): string => dayOf(ms).slice(0, 7);
 
 export class WindowHistory {
   private last = new Map<string, WindowRecord['windows']>();
@@ -150,7 +150,7 @@ export function instances(records: WindowRecord[], profile: string): WindowInsta
       const end = w.resetsAt ? Date.parse(w.resetsAt) : NaN;
       if (!len || Number.isNaN(end) || w.pct === null) continue;
       let cur = open.get(w.label);
-      if (cur && Math.abs(cur.end - end) > SAME_RESET_MS) {
+      if (cur && !sameResetMs(cur.end, end)) {
         done.push(cur);
         cur = undefined;
       }
@@ -196,6 +196,9 @@ export interface LiveProfile {
   // The windows came from the cache or a failed reading, so the room they
   // show may be gone.
   stale?: boolean;
+  // The account's email. One account can be signed in to several profiles,
+  // which then share its windows.
+  account?: string;
 }
 
 // How fast a window is filling, in points an hour: over the last hour of
@@ -203,10 +206,14 @@ export interface LiveProfile {
 function rate(list: WindowInstance[], w: UsageWindow, now: number): number | null {
   const end = Date.parse(w.resetsAt as string);
   const len = windowLength(w.label) as number;
-  const mine = list.find((i) => i.label === w.label && Math.abs(i.end - end) <= SAME_RESET_MS);
+  const mine = list.find((i) => i.label === w.label && sameResetMs(i.end, end));
   const pct = w.pct ?? 0;
   const before = mine?.points.filter(([at]) => at <= now - HOUR).at(-1);
   const first = mine?.points[0];
+  // Over the time since the last reading an hour or more ago. The window may
+  // have stood there until much later, but only if Switchboard was watching;
+  // after a night asleep the rise may be the whole night's, and taking it as
+  // the last hour's would warn of a window that is filling slowly.
   if (before) return ((pct - before[1]) * HOUR) / (now - before[0]);
   if (first && now - first[0] >= 15 * 60_000) return ((pct - first[1]) * HOUR) / (now - first[0]);
   const elapsed = now - (end - len);
@@ -239,21 +246,25 @@ export function forecast(
         fullAt: new Date(fullAt).toISOString(),
         ratePerHour: Math.round(r * 10) / 10,
         pace: pace(w, now),
-        alternative: roomiest(live, p, now),
+        alternative: roomiest(live, p.vendor, now, p),
       };
     }
   }
   return best;
 }
 
+// The vendor's profile whose fullest window is emptiest, other than
+// `except` and any profile on the same account as it.
 export function roomiest(
   live: LiveProfile[],
-  not: { id: string; vendor: Vendor },
+  vendor: Vendor,
   now: number,
+  except?: { id: string; account?: string },
 ): { profile: string; label: string; pct: number } | null {
   let best: { profile: string; label: string; pct: number } | null = null;
   for (const p of live) {
-    if (p.id === not.id || p.vendor !== not.vendor || p.stale) continue;
+    if (p.vendor !== vendor || p.stale) continue;
+    if (except && (p.id === except.id || (!!except.account && p.account === except.account))) continue;
     // A window whose reset has passed since the reading is empty now.
     const windows = p.windows?.map((w) => (w.resetsAt && Date.parse(w.resetsAt) <= now ? { ...w, pct: 0 } : w));
     const t = tightest(windows, now);

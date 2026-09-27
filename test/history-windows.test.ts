@@ -149,6 +149,63 @@ test('the account with the most room is read fresh, and a window past its reset 
     // Full when read, but its window has reset since.
     { id: 'reset', vendor: 'claude' as const, windows: [w('5h', 96, NOW - 60_000)] },
   ];
-  expect(roomiest(live, live[0], NOW)).toEqual({ profile: 'reset', label: '5h', pct: 0 });
-  expect(roomiest(live.slice(0, 3), live[0], NOW)).toEqual({ profile: 'work', label: '5h', pct: 40 });
+  expect(roomiest(live, 'claude', NOW, live[0])).toEqual({ profile: 'reset', label: '5h', pct: 0 });
+  expect(roomiest(live.slice(0, 3), 'claude', NOW, live[0])).toEqual({ profile: 'work', label: '5h', pct: 40 });
+});
+
+test("a rise across a gap in the readings is not taken as the last hour's", () => {
+  // 50% last night, 55% on waking: 5 points over ten hours, not in one. At
+  // half a point an hour the week's window does not fill before its reset.
+  const end = NOW + 50 * H;
+  const records: WindowRecord[] = [{ at: NOW - 10 * H, profile: 'p', windows: [w('7d', 50, end)] }];
+  const live = [{ id: 'p', vendor: 'claude' as const, windows: [w('7d', 55, end)] }];
+  expect(forecast(new Map([['p', instances(records, 'p')]]), live, NOW)).toBeNull();
+});
+
+test('the roomiest account needs no profile to leave out, and skips one on the same account', () => {
+  const live = [
+    { id: 'a', vendor: 'claude' as const, windows: [w('5h', 95, NOW + H)], account: 'me@x.com' },
+    { id: 'a2', vendor: 'claude' as const, windows: [w('5h', 95, NOW + H)], account: 'me@x.com' },
+    { id: 'b', vendor: 'claude' as const, windows: [w('5h', 40, NOW + H)], account: 'you@x.com' },
+    { id: 'c', vendor: 'codex' as const, windows: [w('5h', 5, NOW + H)] },
+  ];
+  expect(roomiest(live, 'claude', NOW)?.profile).toBe('b');
+  expect(roomiest(live, 'codex', NOW)?.profile).toBe('c');
+  expect(roomiest(live, 'claude', NOW, live[2])).toBeNull();
+  // Without an account the exclusion is by profile alone, as before.
+  const plain = [
+    { id: 'x', vendor: 'claude' as const, windows: [w('5h', 50, NOW + H)] },
+    { id: 'y', vendor: 'claude' as const, windows: [w('5h', 20, NOW + H)] },
+  ];
+  expect(roomiest(plain, 'claude', NOW, plain[1])?.profile).toBe('x');
+});
+
+test('an account signed in to two profiles is alerted once per window', () => {
+  const profiles = [
+    { id: 'a', vendor: 'claude' as const, label: 'Claude · A', account: 'me@x.com' },
+    { id: 'a2', vendor: 'claude' as const, label: 'Claude · A2', account: 'me@x.com' },
+    { id: 'c', vendor: 'codex' as const, label: 'Codex · C', account: 'me@x.com' },
+    { id: 'n', vendor: 'claude' as const, label: 'Claude · N' },
+    { id: 'n2', vendor: 'claude' as const, label: 'Claude · N2' },
+  ];
+  const ids = profiles.map((p) => p.id);
+  const before = new Map(ids.map((id) => [id, [w('5h', 85, NOW + H), w('7d', 85, NOW + 50 * H)]]));
+  const after = new Map(ids.map((id) => [id, [w('5h', 92, NOW + H), w('7d', 91, NOW + 50 * H)]]));
+  const alerts = alertsFor(before, after, profiles, new Set(ids), NOW);
+  // One per window for the shared account; Codex is another account; and
+  // profiles with no account known are told apart as before.
+  expect(alerts.map((a) => a.profile)).toEqual(['a', 'a', 'c', 'c', 'n', 'n', 'n2', 'n2']);
+});
+
+test("a 7-day window's alert names the day it resets", () => {
+  const profiles = [{ id: 'p', vendor: 'claude' as const, label: 'Claude · P' }];
+  const resets = NOW + 50 * H;
+  const [alert] = alertsFor(
+    new Map([['p', [w('7d', 80, resets)]]]),
+    new Map([['p', [w('7d', 90, resets)]]]),
+    profiles,
+    new Set(['p']),
+    NOW,
+  );
+  expect(alert.body).toContain(new Date(resets).toLocaleDateString([], { weekday: 'short' }));
 });

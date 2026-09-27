@@ -26,10 +26,10 @@ test('reports what the app indexed, by account and by model', async () => {
   expect(byAccount.code).toBe(0);
   const out = byAccount.json<{
     totals: { value: number; sessions: number };
-    rows: { profile: string; value: number }[];
+    rows: { id: string; name: string; value: number }[];
   }>();
   expect(out.totals).toMatchObject({ value: 10, sessions: 1 });
-  expect(out.rows.find((r) => r.profile === 'claude-default')?.value).toBe(10);
+  expect(out.rows.find((r) => r.id === 'claude-default')).toMatchObject({ name: 'Default', value: 10 });
 
   const byModel = await run('tokens', '--by', 'model');
   expect(byModel.json<{ rows: unknown[] }>().rows).toEqual([
@@ -39,6 +39,10 @@ test('reports what the app indexed, by account and by model', async () => {
   const human = await run('tokens', '--by', 'project', '--human');
   expect(human.out).toContain('app');
   expect(human.out).not.toContain('/code/app');
+  expect(human.out).toContain('$10.00 API-equivalent');
+  expect((await run('tokens', '--by', 'project')).json<{ rows: unknown[] }>().rows).toEqual([
+    { project: 'app', profiles: ['claude-default'], value: 10, sessions: 1, agentMinutes: 1 },
+  ]);
 });
 
 test('rejects a bad range or grouping', async () => {

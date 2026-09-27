@@ -154,3 +154,54 @@ test('a Codex prompt is a user message, less the context Codex adds, counted onc
   );
   expect(notes.filter((n) => n.prompts).map((n) => n.title)).toEqual(['Port the worker', 'Port the worker', 'Read it']);
 });
+
+test('tool results are skipped unread; a prompt that merely mentions the field is not', () => {
+  const result = JSON.stringify({
+    type: 'user',
+    sessionId: 's1',
+    timestamp: new Date(T).toISOString(),
+    message: { role: 'user', content: 'Fix the parser' },
+    toolUseResult: { stdout: 'ok' },
+  });
+  const prompt = claudeUser({ session: 's1', at: T + 1, text: 'Why is "toolUseResult": null in my log?' });
+  const { notes } = parseClaude([result, prompt]);
+  expect(notes.map((n) => n.title)).toEqual(['Why is "toolUseResult": null in my log?']);
+});
+
+test('a response line is a note only when it used tools, and its call carries the folder', () => {
+  const { calls, notes } = parseClaude([
+    claudeAssistant({ session: 's1', at: T, id: 'm1', output: 1, cwd: '/work/app' }),
+  ]);
+  expect(notes).toEqual([]);
+  expect(calls[0]).toMatchObject({ cwd: '/work/app', entry: 'cli' });
+});
+
+test('an interruption is not a prompt', () => {
+  const { notes } = parseClaude([
+    claudeUser({ session: 's1', at: T, text: '[Request interrupted by user]' }),
+    claudeUser({ session: 's1', at: T + 1, text: '[Request interrupted by user for tool use]' }),
+  ]);
+  expect(notes).toEqual([]);
+});
+
+test('a Codex prompt is kept in the context by hash only', () => {
+  const ctx: CodexContext = {};
+  parseCodex(
+    [
+      codexLine(T, 'session_meta', { id: 't', cwd: '/w' }),
+      codexLine(T + 1, 'event_msg', { type: 'user_message', message: 'Keep this private' }),
+      codexLine(T + 2, 'response_item', {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'Keep this private' }],
+      }),
+    ],
+    ctx,
+  );
+  expect(JSON.stringify(ctx)).not.toContain('private');
+  expect(ctx.prompt?.hash).toHaveLength(12);
+});
+
+test('a session id of __proto__ is not filed', () => {
+  expect(parseClaude([claudeAssistant({ session: '__proto__', at: T, id: 'm', output: 1 })]).calls).toEqual([]);
+});

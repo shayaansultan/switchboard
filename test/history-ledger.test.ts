@@ -9,6 +9,7 @@ import {
   emptyLedger,
   indexLogs,
   loadLedger,
+  openLedger,
   saveLedger,
   type Ledger,
   type LedgerProfile,
@@ -147,15 +148,19 @@ test('facts are kept by day, model and folder; old sessions are pruned', async (
   );
 });
 
-test('a profile no longer listed is dropped, and the ledger round-trips', async () => {
+test('a profile no longer listed keeps its facts but not its sessions, and the ledger round-trips', async () => {
   write(transcript, [claudeAssistant({ session: 's1', at: T, id: 'm1', output: 20 })]);
   const ledger = emptyLedger(T);
   await indexLogs(ledger, [claude], T);
   const file = path.join(base, 'ledger.json');
   saveLedger(file, ledger);
   expect(loadLedger(file)).toEqual(ledger);
-  await indexLogs(ledger, [], T);
-  expect(ledger.profiles).toEqual({});
+  expect(await indexLogs(ledger, [], T)).toBe(true);
+  expect(ledger.profiles['claude-work'].sessions).toEqual({});
+  expect(totalTokens(ledger, 'claude-work')).toBe(20);
+  // Back again, its logs are not counted a second time.
+  await indexLogs(ledger, [claude], T);
+  expect(totalTokens(ledger, 'claude-work')).toBe(20);
 });
 
 test("a resumed session's copy of the earlier conversation is not counted again", async () => {
@@ -221,4 +226,121 @@ test("a Codex subagent's rollout is filed under its root, not as the root's tran
   fs.renameSync(parent, archived);
   await indexLogs(ledger, [codex], T + 400_000);
   expect(ledger.profiles['codex-default'].sessions.root.file).toBe(archived);
+});
+
+test('an unreadable log is passed over, not a reason to stop the pass', async () => {
+  const bad = path.join(claudeHome, 'projects', '-work-app', 'root-owned.jsonl');
+  write(bad, [claudeAssistant({ session: 's0', at: T, id: 'm0', output: 5 })]);
+  write(transcript, [claudeAssistant({ session: 's1', at: T, id: 'm1', output: 10 })]);
+  const other = path.join(codexHome, 'sessions', '2026', '09', '20', 'rollout-x.jsonl');
+  write(other, [
+    codexLine(T, 'session_meta', { id: 'th', cwd: '/w' }),
+    codexLine(T, 'turn_context', { model: 'gpt-5.3-codex' }),
+    codexLine(T + 1, 'token_usage_record', { response_id: 'r', usage: codexUsage(100, 0, 1) }),
+  ]);
+  fs.chmodSync(bad, 0o000);
+  const ledger = emptyLedger(T);
+  try {
+    expect(await indexLogs(ledger, [claude, codex], T)).toBe(true);
+  } finally {
+    fs.chmodSync(bad, 0o600);
+  }
+  expect(totalTokens(ledger, 'claude-work')).toBe(10);
+  expect(totalTokens(ledger, 'codex-default')).toBe(101);
+  // Readable again, it is read on the next pass.
+  await indexLogs(ledger, [claude, codex], T);
+  expect(totalTokens(ledger, 'claude-work')).toBe(15);
+});
+
+test('a ledger that cannot be used is copied aside before a new one starts', () => {
+  fs.mkdirSync(base, { recursive: true });
+  const file = path.join(base, 'ledger.json');
+  const old = JSON.stringify({ ...emptyLedger(T), v: 1 });
+  fs.writeFileSync(file, old);
+  expect(openLedger(file, T + 1).profiles).toEqual({});
+  expect(fs.readFileSync(path.join(base, `ledger.json.unreadable-${T + 1}`), 'utf8')).toBe(old);
+  fs.writeFileSync(file, '{"v":3,"profi');
+  openLedger(file, T + 2);
+  expect(fs.readFileSync(path.join(base, `ledger.json.unreadable-${T + 2}`), 'utf8')).toBe('{"v":3,"profi');
+  // No file: nothing to keep.
+  fs.rmSync(file);
+  openLedger(file, T + 3);
+  expect(fs.existsSync(path.join(base, `ledger.json.unreadable-${T + 3}`))).toBe(false);
+});
+
+test('a profile whose home moved keeps its facts, and logs that moved with it count once', async () => {
+  write(transcript, [claudeAssistant({ session: 's1', at: T, id: 'm1', output: 20 })]);
+  const ledger = emptyLedger(T);
+  await indexLogs(ledger, [claude], T);
+  const moved = path.join(base, 'claude-moved');
+  fs.cpSync(claudeHome, moved, { recursive: true });
+  await indexLogs(ledger, [{ ...claude, home: moved }], T);
+  expect(totalTokens(ledger, 'claude-work')).toBe(20);
+  expect(ledger.profiles['claude-work'].home).toBe(moved);
+});
+
+test("a resumed copy made long after the original is still known, while the original's log remains", async () => {
+  const earlier = [
+    claudeUser({ session: 's1', at: T, text: 'Add a usage tab', uuid: 'u1' }),
+    claudeAssistant({ session: 's1', at: T + 60_000, id: 'm1', output: 100, uuid: 'a1' }),
+  ];
+  write(transcript, earlier);
+  const ledger = emptyLedger(T);
+  await indexLogs(ledger, [claude], T + 120_000);
+  // Claude Code kept its logs longer than 30 days; the session is resumed 50
+  // days later, and passes run in between.
+  await indexLogs(ledger, [claude], T + 50 * DAY);
+  const copy = (line: string) => line.replace('"sessionId":"s1"', '"sessionId":"s2"');
+  write(path.join(claudeHome, 'projects', '-work-app', 's2.jsonl'), earlier.map(copy));
+  await indexLogs(ledger, [claude], T + 50 * DAY + 1000);
+  expect(totalTokens(ledger, 'claude-work')).toBe(100);
+  expect(ledger.profiles['claude-work'].sessions.s2).toBeUndefined();
+});
+
+test('the keys of lines no log could hold any more are let go', async () => {
+  write(transcript, [claudeAssistant({ session: 's1', at: T, id: 'm1', output: 1 })]);
+  const ledger = emptyLedger(T);
+  await indexLogs(ledger, [claude], T);
+  expect(Object.keys(ledger.profiles['claude-work'].seen)).toHaveLength(1);
+  // Claude Code deleted the transcript; a newer one is all there is.
+  fs.rmSync(transcript);
+  write(path.join(claudeHome, 'projects', '-work-app', 's9.jsonl'), [
+    claudeAssistant({ session: 's9', at: T + 40 * DAY, id: 'm9', output: 1 }),
+  ]);
+  await indexLogs(ledger, [claude], T + 40 * DAY);
+  expect(Object.values(ledger.profiles['claude-work'].seen)).toEqual([Math.floor((T + 40 * DAY) / DAY)]);
+});
+
+test('a Codex prompt is remembered by a hash, not its text', async () => {
+  write(path.join(codexHome, 'sessions', '2026', '09', '20', 'rollout-p.jsonl'), [
+    codexLine(T, 'session_meta', { id: 'th', cwd: '/w' }),
+    codexLine(T + 1, 'response_item', {
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'input_text', text: 'A private prompt about the merger' }],
+    }),
+  ]);
+  const ledger = emptyLedger(T);
+  await indexLogs(ledger, [codex], T);
+  expect(ledger.profiles['codex-default'].sessions.th.prompts).toBe(1);
+  // The title is the prompt's first line; the record of the file is not the prompt.
+  expect(JSON.stringify(ledger.profiles['codex-default'].files)).not.toContain('merger');
+});
+
+test('ids from the logs that name Object.prototype are plain keys', async () => {
+  const tool = { type: 'tool_use', id: 't1', name: 'constructor', input: {} };
+  write(transcript, [
+    claudeUser({ session: 'constructor', at: T, text: 'Go' }),
+    claudeAssistant({ session: 'constructor', at: T + 1000, id: 'm1', model: 'toString', output: 5, block: tool }),
+    claudeAssistant({ session: '__proto__', at: T + 2000, id: 'm2', output: 5 }),
+  ]);
+  const ledger = emptyLedger(T);
+  await indexLogs(ledger, [claude], T + 3000);
+  const pl = ledger.profiles['claude-work'];
+  expect(Object.hasOwn(pl.sessions, 'constructor')).toBe(true);
+  expect(pl.sessions.constructor.tools).toEqual({ constructor: 1 });
+  expect(pl.sessions.constructor.models.toString.n).toBe(1);
+  expect(Object.getPrototypeOf(pl.sessions)).toBe(Object.prototype);
+  expect(({} as Record<string, unknown>).start).toBeUndefined();
+  expect(loadLedger((saveLedger(path.join(base, 'l.json'), ledger), path.join(base, 'l.json')))).toEqual(ledger);
 });

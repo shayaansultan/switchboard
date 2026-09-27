@@ -1,7 +1,8 @@
 // Invented agent logs and window readings for the demo accounts, put through
 // the real indexer and report builder, so the Usage tab's screenshot and its
-// browser test show what the app would compute, not a hand-made report.
-// Nothing here reads a real profile.
+// browser test show what the app would compute, not a hand-made report. The
+// log lines come from the history tests' builders, so the demo and the tests
+// write the same shapes. Nothing here reads a real profile.
 //
 //   const report = await usageFixture(days)
 
@@ -12,6 +13,7 @@ import { emptyLedger, indexLogs, SLOT_MS, type LedgerProfile } from '../src/hist
 import { buildReport } from '../src/history/report';
 import type { WindowRecord } from '../src/history/windows';
 import type { UsageReport, UsageWindow } from '../src/types';
+import { claudeAssistant, claudeUser, codexLine, codexUsage, iso, write } from '../test/history-fixtures';
 
 const H = 3_600_000;
 const D = 24 * H;
@@ -124,8 +126,6 @@ const PLACED: { account: string; start: (now: number) => number; calls: number; 
   },
 ];
 
-const iso = (ms: number) => new Date(ms).toISOString();
-
 function claudeLines(
   session: string,
   cwd: string,
@@ -135,42 +135,30 @@ function claudeLines(
   calls: number,
   r: () => number,
 ) {
-  const lines = [
-    JSON.stringify({
-      type: 'user',
-      sessionId: session,
-      timestamp: iso(start),
-      cwd,
-      entrypoint: r() < 0.8 ? 'cli' : 'claude-desktop',
-      message: { role: 'user', content: title },
-    }),
-  ];
+  const lines = [claudeUser({ session, at: start, text: title, cwd, entry: r() < 0.8 ? 'cli' : 'claude-desktop' })];
   let at = start;
   for (let i = 0; i < calls; i++) {
     at += (20 + r() * 70) * 1000;
     const tool = r() < 0.5 ? (r() < 0.5 ? 'Read' : 'Bash') : r() < 0.6 ? 'Edit' : r() < 0.5 ? 'Grep' : 'Write';
     const file = `${cwd}/src/${['app', 'usage', 'store', 'main', 'style'][Math.floor(r() * 5)]}.ts`;
     const write = Math.round(2000 + r() * 9000);
+    const input = Math.round(2 + r() * 40);
+    const output = Math.round(300 + r() * 4200);
+    const cacheRead = Math.round(40_000 + r() * 90_000);
     lines.push(
-      JSON.stringify({
-        type: 'assistant',
-        sessionId: session,
-        timestamp: iso(at),
+      claudeAssistant({
+        session,
+        at,
+        id: `msg_${session}_${i}`,
+        request: `req_${session}_${i}`,
+        model,
         cwd,
-        entrypoint: 'cli',
-        requestId: `req_${session}_${i}`,
-        message: {
-          id: `msg_${session}_${i}`,
-          model,
-          content: [{ type: 'tool_use', id: `toolu_${session}_${i}`, name: tool, input: { file_path: file } }],
-          usage: {
-            input_tokens: Math.round(2 + r() * 40),
-            output_tokens: Math.round(300 + r() * 4200),
-            cache_read_input_tokens: Math.round(40_000 + r() * 90_000),
-            cache_creation_input_tokens: write,
-            cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: write },
-          },
-        },
+        input,
+        output,
+        cacheRead,
+        cacheWrite: write,
+        cacheWriteHour: write,
+        block: { type: 'tool_use', id: `toolu_${session}_${i}`, name: tool, input: { file_path: file } },
       }),
     );
   }
@@ -186,33 +174,28 @@ function codexLines(
   calls: number,
   r: () => number,
 ) {
-  const line = (at: number, type: string, payload: object) => JSON.stringify({ timestamp: iso(at), type, payload });
   const lines = [
-    line(start, 'session_meta', {
+    codexLine(start, 'session_meta', {
       id: session,
       session_id: session,
       cwd,
       originator: r() < 0.7 ? 'codex_cli_rs' : 'Codex Desktop',
     }),
-    line(start, 'turn_context', { model, cwd }),
-    line(start, 'event_msg', { type: 'user_message', message: title }),
+    codexLine(start, 'turn_context', { model, cwd }),
+    codexLine(start, 'event_msg', { type: 'user_message', message: title }),
   ];
   let at = start;
   for (let i = 0; i < calls; i++) {
     at += (25 + r() * 80) * 1000;
     const cached = Math.round(30_000 + r() * 70_000);
     const output = Math.round(400 + r() * 5000);
+    const name = r() < 0.7 ? 'shell' : 'apply_patch';
+    const input = cached + Math.round(r() * 3000);
     lines.push(
-      line(at, 'response_item', { type: 'function_call', name: r() < 0.7 ? 'shell' : 'apply_patch' }),
-      line(at, 'token_usage_record', {
+      codexLine(at, 'response_item', { type: 'function_call', name }),
+      codexLine(at, 'token_usage_record', {
         response_id: `resp_${session}_${i}`,
-        usage: {
-          input_tokens: cached + Math.round(r() * 3000),
-          cached_input_tokens: cached,
-          output_tokens: output,
-          reasoning_output_tokens: 0,
-          total_tokens: cached + output,
-        },
+        usage: codexUsage(input, cached, output),
       }),
     );
   }
@@ -237,8 +220,10 @@ export async function usageFixture(days = 30, now = Date.now()): Promise<UsageRe
           a.vendor === 'claude'
             ? path.join(accountHome, 'projects', cwd.replace(/\//g, '-'), `${id}.jsonl`)
             : path.join(accountHome, 'sessions', `rollout-${id}.jsonl`);
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(file, lines.filter((l) => JSON.parse(l).timestamp <= iso(now)).join('\n') + '\n');
+        write(
+          file,
+          lines.filter((l) => JSON.parse(l).timestamp <= iso(now)),
+        );
       };
       for (const [i, s] of PLACED.entries())
         if (s.account === a.id) place(`${a.id}-placed-${i}`, s.cwd, s.title, a.models[0], s.start(now), s.calls);

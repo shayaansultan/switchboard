@@ -14,9 +14,17 @@ last reading. A window instance is one window between resets: readings that
 share a label and a reset time. From these the tab works out when a window ran
 out and how long the account waited (from the reading that first said 100% to
 the reset, counting once the time two of its windows were full together), and
-how fast the current window is filling (over its last hour, or
-since it opened). A forecast appears when a window at 50% or more is on course
-to reach 100% more than ten minutes before it resets.
+how fast the current window is filling: since the last reading an hour or
+more ago (a slow estimate when the window stood still for a while, but never
+one that mistakes a night's use while the Mac slept for an hour's), else
+since its first reading, else since it opened. A
+forecast appears when a window at 50% or more is on course to reach 100% more
+than ten minutes before it resets.
+
+A notification comes when a window reaches 90% (naming the day of the reset
+when it is not today, and the profile of the same vendor with the most room,
+on another account) and when a window that was at 90% or more resets. An
+account signed in to several profiles is told once per window.
 
 Window history starts the day you update. There is nothing to backfill it from.
 
@@ -45,8 +53,13 @@ something new.
   same usage, and copies the earlier conversation into a new file when a
   session is resumed. Responses are counted once per message and request id,
   and prompts, tools and edited files once per line id, across all of a
-  profile's files. Files are read oldest first, so a line counts in the
-  session that first wrote it.
+  profile's files. These ids are kept for as long as a log that could hold
+  them is (down to the earliest line of the oldest log present, and at most
+  90 days, as long as sessions are kept), so a session resumed weeks later is
+  still not counted twice.
+  Files are read oldest first, so a line counts in the session that first
+  wrote it. Tool results, the bulk of a transcript, are skipped unread, and an
+  interruption ("[Request interrupted by user]") is not a prompt.
 - Codex moves old rollouts into `archived_sessions/`; files are known by name,
   so a moved file is not read twice, and its sessions' transcript follows it.
   Running totals are counted by how much they rose. A prompt is a user
@@ -54,24 +67,37 @@ something new.
   subagent's rollout names itself, then replays its parent's history
   (parent's header included), which is skipped; its usage counts toward the
   root session as subagent work.
-- A line still being written is left for the next pass.
+- A line still being written is left for the next pass. A file that cannot
+  be read (removed since it was listed, or not readable by you) is left where
+  it stopped and tried again next pass; the rest are read regardless.
 - Agent time is the time from each prompt or response to the next response
   in a session: the agent thinking, running tools, waiting on a subagent. The
   time before a prompt is not counted, and no single step counts for more
   than half an hour, so a permission prompt left overnight is not a night's
   work.
 
-What is kept, in `~/.switchboard/usage/ledger.json` (read again from the
-logs when its format changes): totals per day, model and
+What is kept, in `~/.switchboard/usage/ledger.json`: totals per day, model and
 folder for 400 days, and per session (title from its first prompt, folder,
-tools used, files edited, value per five-minute slot) for 90 days. Claude Code
-deletes its own logs after 30 days by default, so the ledger is the only record
-of anything older. The tab says "recorded since", never "lifetime".
+tools used, files edited, value per five-minute slot) for 90 days, plus how
+far each log has been read and the ids above. Claude Code deletes its own logs
+after 30 days by default, so the ledger is the only record of anything older.
+The tab says "recorded since", never "lifetime".
+
+For the same reason nothing in the ledger is thrown away lightly:
+
+- A ledger the app cannot use (from another version, or damaged) is copied to
+  `ledger.json.unreadable-<time>` before a new one is started from whatever
+  logs remain. `switchboard tokens` reports no history until the app has
+  written one it can read.
+- A profile that is removed keeps its totals, which stay in the Usage tab's
+  figures; its sessions go. Should it come back, its logs are not counted
+  again. A profile whose home moves keeps its totals and starts reading the
+  new home, without counting again logs that moved with it.
 
 ## Value
 
 `src/history/prices.ts` holds list prices per million tokens for the current
-Claude and OpenAI coding models, from models.dev as of 24 September 2026.
+Claude and OpenAI coding models, from models.dev as of 26 September 2026.
 Claude's one-hour cache writes are charged at twice the input price; OpenAI
 charges nothing for cache writes. Long-context surcharges and fast-mode prices
 are not applied, so very long requests read low. A model the table does not
@@ -92,7 +118,10 @@ grouped by day.
 ## What crosses to the window
 
 The report the renderer receives holds counts, dollar estimates, model names,
-session titles, tool names, edited file names relative to their folder, and
-folder names (with the parent added where two share a name). Full paths,
-transcripts and the ledger itself stay in the main process; Resume, Open folder
-and Show transcript ask the main process by session id.
+session titles, tool names, edited file names (relative to the session's
+folder, or the bare name for a file outside it), and folder names (with the
+parent added where two share a name). Full paths,
+transcripts and the ledger itself stay in the main process; Resume, Show folder
+and Show transcript ask the main process by session id. Show folder and Show
+transcript reveal the path in Finder and never open it: the path comes from a
+log file, and opening an app bundle or installer package would run it.

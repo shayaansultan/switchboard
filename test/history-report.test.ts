@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { sandboxHome } from './setup';
 import { dayOf, emptyLedger, indexLogs, type LedgerProfile } from '../src/history/ledger';
-import { buildReport } from '../src/history/report';
+import { buildReport, sessionPaths } from '../src/history/report';
 import type { WindowRecord } from '../src/history/windows';
 import type { UsageWindow } from '../src/types';
 import { claudeAssistant, claudeUser, write } from './history-fixtures';
@@ -125,4 +125,59 @@ test('time at a limit counts once when two windows are full together', () => {
   const r = buildReport({ ledger, records, windowsSince: records[0].at, live, days: 7, now: NOW });
   expect(r.totals.limitHits).toBe(2);
   expect(r.totals.waitedMs).toBe(2 * H);
+});
+
+test('an edited file outside the session folder crosses by name only', async () => {
+  const edit = (file: string, id: string) => ({ type: 'tool_use', id, name: 'Edit', input: { file_path: file } });
+  write(path.join(personal.home, 'projects', 'a', 'e.jsonl'), [
+    claudeUser({ session: 'e', at: NOW - H, text: 'Tidy up', cwd: '/code/app' }),
+    claudeAssistant({
+      session: 'e',
+      at: NOW - H + 1000,
+      id: 'e1',
+      output: 1,
+      cwd: '/code/app',
+      block: edit('/code/app/src/a.ts', 't1'),
+    }),
+    claudeAssistant({
+      session: 'e',
+      at: NOW - H + 2000,
+      id: 'e2',
+      output: 1,
+      cwd: '/code/app',
+      block: edit('/Users/me/.claude/CLAUDE.md', 't2'),
+    }),
+  ]);
+  const ledger = emptyLedger(NOW - D);
+  await indexLogs(ledger, [personal], NOW);
+  const live = [{ id: 'personal', vendor: 'claude' as const, windows: undefined }];
+  const r = buildReport({ ledger, records: [], windowsSince: null, live, days: 7, now: NOW });
+  expect(r.blocks[0].sessions[0].files).toEqual(['src/a.ts', 'CLAUDE.md']);
+  expect(JSON.stringify(r)).not.toContain('/Users/me');
+  // The main process still has the session by id, and only by its own ids.
+  expect(sessionPaths(ledger, 'personal', 'e')?.cwd).toBe('/code/app');
+  expect(sessionPaths(ledger, 'personal', 'constructor')).toBeNull();
+  expect(sessionPaths(ledger, 'personal', '__proto__')).toBeNull();
+  expect(sessionPaths(ledger, 'constructor', 'e')).toBeNull();
+});
+
+test('a day group runs from local midnight to the next, across a change of the clocks', async () => {
+  const tz = process.env.TZ;
+  process.env.TZ = 'Europe/London';
+  try {
+    // The clocks go back on 25 October 2026 in London: a 25-hour day.
+    const at = new Date(2026, 9, 25, 12).getTime();
+    write(path.join(personal.home, 'projects', 'a', 'dst.jsonl'), [
+      claudeAssistant({ session: 'dst', at, id: 'd1', output: 1 }),
+    ]);
+    const ledger = emptyLedger(at - D);
+    await indexLogs(ledger, [personal], at + H);
+    const live = [{ id: 'personal', vendor: 'claude' as const, windows: undefined }];
+    const [block] = buildReport({ ledger, records: [], windowsSince: null, live, days: 1, now: at + H }).blocks;
+    expect(block.kind).toBe('day');
+    expect(Date.parse(block.end) - Date.parse(block.start)).toBe(25 * H);
+  } finally {
+    if (tz === undefined) delete process.env.TZ;
+    else process.env.TZ = tz;
+  }
 });

@@ -15,10 +15,16 @@ import {
   dayWord,
   duration,
   money,
+  planOf,
+  profileById,
   profileColor,
   profileName,
   relTime,
   severityClass,
+  shortDay,
+  shownPct,
+  freshTokens,
+  tokenSum,
   type State,
   type TokenCounts,
   type UsageBlock,
@@ -26,7 +32,7 @@ import {
   type UsageSession,
   type WindowPace,
 } from './lib';
-import { Badge, Btn, Icon, Note, Panel, Seg, Skeleton } from './ui/primitives';
+import { Badge, Btn, Icon, Meter, Note, Panel, Ring, Seg, Skeleton, Track } from './ui/primitives';
 import { useTip } from './ui/overlays';
 
 type View = 'overview' | 'tokens' | 'sessions';
@@ -82,7 +88,9 @@ export function Usage({ state, version }: { state: State; version: number }) {
       </div>
       {error ? <Note tone="warn">Couldn't read the usage history: {error}</Note> : null}
       {!report ? (
-        <Loading />
+        error ? null : (
+          <Loading />
+        )
       ) : view === 'overview' ? (
         <Overview state={state} report={report} />
       ) : view === 'tokens' ? (
@@ -105,19 +113,31 @@ function Loading() {
 
 // ---------------------------------------------------------------- shared
 
-const known = (state: State, id: string) => state.profiles.some((p) => p.id === id);
-const fresh = (t: TokenCounts) => t.input + t.output + t.cacheWrite;
-const allTokens = (t: TokenCounts) => t.input + t.output + t.cacheRead + t.cacheWrite;
+const known = (state: State, id: string) => !!profileById(state, id);
+
+// The history keeps a removed profile's work, so a day's values can name
+// profiles the window no longer has. The charts fold those into one muted
+// entry, so a day's bar still adds up to the totals above it.
+const REMOVED = '(removed)';
+const shownValues = (state: State, values: Record<string, number>): Record<string, number> => {
+  const out: Record<string, number> = {};
+  for (const [id, v] of Object.entries(values)) {
+    const k = known(state, id) ? id : REMOVED;
+    out[k] = (out[k] ?? 0) + v;
+  }
+  return out;
+};
+const seriesOrder = (state: State) => [...state.profiles.map((p) => p.id), REMOVED];
 
 function Swatch({ color }: { color: string }) {
-  return <span class="swatch" style={{ background: color }} />;
+  return <span class="key-swatch" style={{ background: color }} />;
 }
 
 function Who({ state, id }: { state: State; id: string }) {
   return (
     <span class="who-inline">
-      <Swatch color={profileColor(state, id)} />
-      {profileName(state, id)}
+      <Swatch color={id === REMOVED ? 'var(--muted)' : profileColor(state, id)} />
+      {id === REMOVED ? 'Removed profiles' : profileName(state, id)}
     </span>
   );
 }
@@ -134,13 +154,15 @@ function Tile({
   delta?: { text: string; tone: 'good' | 'bad' | 'neutral' } | null;
 }) {
   return (
-    <div class="tile">
+    <div class="stat">
       <span class="k">{k}</span>
       <span class="v-row">
         <span class="v">{v}</span>
         {delta ? <span class={`delta ${delta.tone}`}>{delta.text}</span> : null}
       </span>
-      <span class="s">{sub}</span>
+      <span class="s" title={typeof sub === 'string' ? sub : undefined}>
+        {sub}
+      </span>
     </div>
   );
 }
@@ -157,18 +179,19 @@ function change(cur: number, prev: number | undefined, tone: 'neutral' | 'lower-
   } as const;
 }
 
-// A row of the ranked lists: a name, a bar sized against the largest, the value.
-function Ranked({ rows }: { rows: { key: string; name: ComponentChildren; share: number; value: string }[] }) {
-  if (!rows.length) return <Note class="pad">Nothing in this range.</Note>;
-  const max = Math.max(...rows.map((r) => r.share), 0) || 1;
+// A ranked list: a name, a bar, the value. The bar is sized against `max`
+// where the rows have a natural whole (a percentage's 100), else against the
+// largest row. `solid` is the taller bar in each row's own colour.
+type RankedRow = { key: string; name: ComponentChildren; share: number; value: ComponentChildren; color?: string };
+function Ranked({ rows, max, solid = false }: { rows: RankedRow[]; max?: number; solid?: boolean }) {
+  if (!rows.length) return <Note>Nothing in this range.</Note>;
+  const top = max ?? (Math.max(...rows.map((r) => r.share), 0) || 1);
   return (
-    <div class="ranked">
+    <div class={solid ? 'ranked solid' : 'ranked'}>
       {rows.map((r) => (
         <div class="ranked-row" key={r.key}>
           <span class="name">{r.name}</span>
-          <span class="meter">
-            <span style={{ width: `${(r.share / max) * 100}%` }} />
-          </span>
+          <Meter frac={r.share / top} color={r.color} class={solid ? 'solid' : undefined} />
           <span class="num">{r.value}</span>
         </div>
       ))}
@@ -209,7 +232,7 @@ function Overview({ state, report }: { state: State; report: UsageReport }) {
           and records every usage reading from now on.
         </div>
       ) : null}
-      <div class="tiles">
+      <div class="stats">
         <Tile
           k="API-equivalent value"
           v={money(t.value)}
@@ -235,7 +258,7 @@ function Overview({ state, report }: { state: State; report: UsageReport }) {
           }
         />
       </div>
-      <Panel title="Value per day, by account" actions={<Legend state={state} ids={activeIds(report)} />}>
+      <Panel title="Value per day, by account" actions={<Legend state={state} ids={activeIds(state, report)} />}>
         <DailyBars state={state} report={report} />
       </Panel>
       <div class="usage-cols">
@@ -258,22 +281,21 @@ function limitChange(cur: number, prev: number) {
   return { text: `${d > 0 ? '+' : '−'}${Math.abs(d)}`, tone: d > 0 ? ('bad' as const) : ('good' as const) };
 }
 
-const activeIds = (report: UsageReport): string[] => {
+const activeIds = (state: State, report: UsageReport): string[] => {
   const ids = new Set<string>();
-  for (const d of report.daily) for (const [id, v] of Object.entries(d.value)) if (v > 0) ids.add(id);
+  for (const d of report.daily)
+    for (const [id, v] of Object.entries(shownValues(state, d.value))) if (v > 0) ids.add(id);
   return [...ids];
 };
 
 function Legend({ state, ids }: { state: State; ids: string[] }) {
-  const ordered = state.profiles.filter((p) => ids.includes(p.id));
   return (
     <span class="legend">
-      {ordered.map((p) => (
-        <span key={p.id}>
-          <Swatch color={p.color} />
-          {profileName(state, p.id)}
-        </span>
-      ))}
+      {seriesOrder(state)
+        .filter((id) => ids.includes(id))
+        .map((id) => (
+          <Who key={id} state={state} id={id} />
+        ))}
     </span>
   );
 }
@@ -298,11 +320,11 @@ function Forecast({ state, report }: { state: State; report: UsageReport }) {
   const early = Date.parse(f.resetsAt) - Date.parse(f.fullAt);
   const gap = early >= 3_600_000 ? 'over an hour' : `${Math.round(early / 60_000)} minutes`;
   const alt = f.alternative;
-  const other = alt ? state.profiles.find((p) => p.id === alt.profile) : undefined;
+  const other = alt ? profileById(state, alt.profile) : undefined;
   const otherName = other ? profileName(state, other.id) : '';
   return (
     <div class="forecast" role="status">
-      <PctRing pct={f.pct} />
+      <Ring pct={f.pct} />
       <div class="forecast-text">
         <b>
           {profileName(state, f.profile)} will fill its {f.label} window at about {clock(f.fullAt)}, {gap} before it
@@ -311,64 +333,53 @@ function Forecast({ state, report }: { state: State; report: UsageReport }) {
         <span>
           {paceWords(f.pace)}
           {paceWords(f.pace) ? ', and ' : ''}
-          {Math.round(f.ratePerHour)}% an hour lately.
+          {rate(f.ratePerHour)}% an hour lately.
           {alt && other ? ` ${otherName} has ${100 - alt.pct}% of its ${alt.label} window left.` : ''}
         </span>
       </div>
       <div class="forecast-actions">
         {/* Its desktop app where there is one; a terminal in it otherwise. */}
         {other && state.vendors[other.vendor].installed ? (
-          <Btn variant="primary" onClick={(e) => act(() => window.sb.openApp(other.id), e.currentTarget)}>
+          <Btn variant="primary" size="sm" onClick={(e) => act(() => window.sb.openApp(other.id), e.currentTarget)}>
             Open {otherName}
           </Btn>
         ) : other ? (
-          <Btn variant="primary" icon="terminal" onClick={(e) => act(() => window.sb.shell(other.id), e.currentTarget)}>
+          <Btn
+            variant="primary"
+            size="sm"
+            icon="terminal"
+            onClick={(e) => act(() => window.sb.shell(other.id), e.currentTarget)}
+          >
             Open a terminal in {otherName}
           </Btn>
         ) : null}
-        <Btn onClick={() => setDismissed({ profile: f.profile, label: f.label, resetsAt: f.resetsAt })}>Dismiss</Btn>
+        <Btn size="sm" onClick={() => setDismissed({ profile: f.profile, label: f.label, resetsAt: f.resetsAt })}>
+          Dismiss
+        </Btn>
       </div>
     </div>
   );
 }
+
+// A weekly window can fill at well under a point an hour; say 0.4, not 0.
+const rate = (perHour: number) => (perHour < 1 ? perHour.toFixed(1) : String(Math.round(perHour)));
 
 function paceWords(pace: number | null): string {
   if (pace === null || Math.abs(pace) < 3) return pace === null ? '' : 'On an even pace';
   return pace > 0 ? `${pace} points ahead of an even pace` : `${-pace} points behind an even pace`;
 }
 
-function PctRing({ pct }: { pct: number }) {
-  const r = 22;
-  const c = 2 * Math.PI * r;
-  return (
-    <svg class="pct-ring" viewBox="0 0 54 54" aria-hidden="true">
-      <circle cx="27" cy="27" r={r} class="ring-track" />
-      <circle
-        cx="27"
-        cy="27"
-        r={r}
-        class="ring-value"
-        stroke-dasharray={`${((c * pct) / 100).toFixed(1)} ${c.toFixed(1)}`}
-        transform="rotate(-90 27 27)"
-      />
-      <text x="27" y="31" text-anchor="middle">
-        {pct}%
-      </text>
-    </svg>
-  );
-}
-
 // An account's fullest window, with a tick where an even pace would be.
 function AccountCard({ state, id, t }: { state: State; id: string; t: WindowPace | null }) {
-  const p = state.profiles.find((x) => x.id === id);
-  const plan = p?.usage?.plan || p?.identity?.plan;
+  const p = profileById(state, id);
+  const plan = p ? planOf(p) : undefined;
   const remaining = state.settings.usageMode === 'remaining';
-  const shown = (pct: number) => (remaining ? 100 - pct : pct);
-  const tip = useTip(
+  const shown = (pct: number) => shownPct(pct, remaining);
+  const tipLines =
     t && t.pace !== null
-      ? [`${paceWords(t.pace)}`, `The tick is where an even burn across the ${t.label} window would be now.`]
-      : null,
-  );
+      ? [paceWords(t.pace), `The tick is where an even burn across the ${t.label} window would be now.`]
+      : null;
+  const tip = useTip(tipLines);
   return (
     <div class="acct-card">
       <div class="ac-head">
@@ -384,13 +395,16 @@ function AccountCard({ state, id, t }: { state: State; id: string; t: WindowPace
             </span>
             <b>{shown(t.pct)}%</b>
           </div>
-          <div class="ac-track" {...tip}>
-            <div
-              class={`fill ${severityClass({ label: t.label, pct: t.pct, resetsAt: t.resetsAt })}`}
-              style={{ width: `${shown(t.pct)}%` }}
-            />
-            {t.pace !== null ? <span class="tick" style={{ left: `${shown(t.pct - t.pace)}%` }} /> : null}
-          </div>
+          <Track
+            class="big"
+            w={t}
+            shown={shown(t.pct)}
+            tick={t.pace !== null ? shown(t.pct - t.pace) : null}
+            {...(tipLines
+              ? { tabIndex: 0, role: 'img', 'aria-label': `${t.label} window ${t.pct}% used. ${tipLines.join(' ')}` }
+              : {})}
+            {...tip}
+          />
           <div class="ac-foot">
             <span>{relTime(t.resetsAt)}</span>
             <PaceChip pace={t.pace} />
@@ -421,8 +435,9 @@ function niceMax(v: number): number {
 }
 
 function DailyBars({ state, report }: { state: State; report: UsageReport }) {
-  const order = state.profiles.map((p) => p.id);
-  const totals = report.daily.map((d) => Object.values(d.value).reduce((a, b) => a + b, 0));
+  const order = seriesOrder(state);
+  const days = report.daily.map((d) => shownValues(state, d.value));
+  const totals = days.map((v) => Object.values(v).reduce((a, b) => a + b, 0));
   const max = niceMax(Math.max(...totals, 0));
   const every = Math.ceil(report.daily.length / 6);
   return (
@@ -439,7 +454,7 @@ function DailyBars({ state, report }: { state: State; report: UsageReport }) {
               key={d.day}
               state={state}
               day={d.day}
-              values={d.value}
+              values={days[i]}
               order={order}
               max={max}
               total={totals[i]}
@@ -455,9 +470,6 @@ function DailyBars({ state, report }: { state: State; report: UsageReport }) {
     </div>
   );
 }
-
-const shortDay = (day: string) =>
-  new Date(`${day}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
 function DayColumn({
   state,
@@ -475,14 +487,21 @@ function DayColumn({
   total: number;
 }) {
   const ids = order.filter((id) => (values[id] ?? 0) > 0);
-  const tip = useTip([
-    `${dayWord(`${day}T12:00:00`)} · ${money(total)}`,
-    ...ids.map((id) => `${profileName(state, id)}: ${money(values[id])}`),
-  ]);
+  const lines = [
+    `${dayWord(day)} · ${money(total)}`,
+    ...ids.map((id) => `${id === REMOVED ? 'Removed profiles' : profileName(state, id)}: ${money(values[id])}`),
+  ];
+  const tip = useTip(lines);
   return (
-    <div class="dcol" tabIndex={0} aria-label={`${day}: ${money(total)}`} {...tip}>
+    <div class="dcol" tabIndex={0} role="img" aria-label={lines.join(', ')} {...tip}>
       {ids.map((id) => (
-        <span key={id} style={{ height: `${(values[id] / max) * 100}%`, background: profileColor(state, id) }} />
+        <span
+          key={id}
+          style={{
+            height: `${(values[id] / max) * 100}%`,
+            background: id === REMOVED ? 'var(--muted)' : profileColor(state, id),
+          }}
+        />
       ))}
     </div>
   );
@@ -490,9 +509,14 @@ function DayColumn({
 
 function WhereItWent({ state, report }: { state: State; report: UsageReport }) {
   const [by, setBy] = useState<'projects' | 'models'>('projects');
+  // One unit per list: dollars where any project has a price, else agent
+  // time. Mixed, a project of unpriced models would be sized in
+  // milliseconds against the others' dollars.
+  const top = report.projects.slice(0, 5);
+  const priced = top.some((p) => p.value > 0);
   const rows =
     by === 'projects'
-      ? report.projects.slice(0, 5).map((p) => ({
+      ? top.map((p) => ({
           key: p.name,
           name: (
             <>
@@ -502,7 +526,7 @@ function WhereItWent({ state, report }: { state: State; report: UsageReport }) {
               <code>{p.name}</code>
             </>
           ),
-          share: p.value || p.agentMs,
+          share: priced ? p.value : p.agentMs,
           value: p.value ? money(p.value) : duration(p.agentMs),
         }))
       : report.models.slice(0, 5).map((m) => ({
@@ -536,7 +560,7 @@ function WhereItWent({ state, report }: { state: State; report: UsageReport }) {
 function Heat({ report }: { report: UsageReport }) {
   const days = report.heat;
   const max = Math.max(...days.map((d) => d.agentMs ?? 0), 1);
-  const lead = (new Date(`${days[0]?.day ?? '2000-01-03'}T12:00:00`).getDay() + 6) % 7;
+  const lead = days[0] ? (new Date(`${days[0].day}T12:00:00`).getDay() + 6) % 7 : 0;
   const level = (ms: number | null) =>
     ms === null ? 'n' : ms === 0 ? '0' : String(1 + Math.min(4, Math.floor((ms / max) * 5)));
   return (
@@ -564,7 +588,7 @@ function Heat({ report }: { report: UsageReport }) {
 
 function HeatCell({ day, ms, level }: { day: string; ms: number | null; level: string }) {
   const tip = useTip([
-    dayWord(`${day}T12:00:00`),
+    dayWord(day),
     ms === null ? 'Not recorded' : ms ? `${duration(ms)} of agent work` : 'No agent work',
   ]);
   return <span class={`cell l${level}`} {...tip} />;
@@ -582,43 +606,43 @@ const KINDS: Record<keyof TokenCounts, string> = {
 function Tokens({ state, report }: { state: State; report: UsageReport }) {
   const t = report.totals;
   const p = report.previous;
-  const tokens = allTokens(t.tokens);
+  const tokens = tokenSum(t.tokens);
   const hit = tokens
     ? Math.round((t.tokens.cacheRead / (t.tokens.input + t.tokens.cacheRead + t.tokens.cacheWrite || 1)) * 100)
     : null;
+  // Removed profiles are in the total but in no vendor's account.
+  const removed = report.daily.reduce((sum, d) => sum + (shownValues(state, d.value)[REMOVED] ?? 0), 0);
   const byVendor = (vendor: string) =>
-    report.accounts
-      .filter((a) => state.profiles.find((x) => x.id === a.profile)?.vendor === vendor)
-      .reduce((s, a) => s + a.value, 0);
+    report.accounts.filter((a) => profileById(state, a.profile)?.vendor === vendor).reduce((s, a) => s + a.value, 0);
   const mix = [...report.mix].sort((a, b) => b.tokens - a.tokens);
   const reads = report.mix.find((m) => m.kind === 'cacheRead');
   const readLine =
     reads && tokens && t.value
       ? `cache reads are ${Math.round((reads.tokens / tokens) * 100)}% of tokens but ${Math.round((reads.value / t.value) * 100)}% of value`
       : null;
-  const accounts = report.accounts.filter((a) => known(state, a.profile) && (a.value || allTokens(a.tokens)));
-  const maxAcct = Math.max(...accounts.map((a) => a.value), 0);
-  const scale = niceMax(Math.max(...report.daily.flatMap((d) => Object.values(d.value)), 0));
+  const accounts = report.accounts.filter((a) => known(state, a.profile) && (a.value || tokenSum(a.tokens)));
+  // One scale for the accounts drawn, not for profiles no longer listed.
+  const scale = niceMax(Math.max(...accounts.flatMap((a) => report.daily.map((d) => d.value[a.profile] ?? 0)), 0));
   return (
     <>
-      <div class="tiles four">
+      <div class="stats four">
         <Tile
           k="Tokens"
           v={count(tokens)}
           sub="input, output and cache"
-          delta={change(tokens, p ? allTokens(p.tokens) : undefined)}
+          delta={change(tokens, p ? tokenSum(p.tokens) : undefined)}
         />
         <Tile
           k="Fresh tokens"
-          v={count(fresh(t.tokens))}
+          v={count(freshTokens(t.tokens))}
           sub="without cache reads"
-          delta={change(fresh(t.tokens), p ? fresh(p.tokens) : undefined)}
+          delta={change(freshTokens(t.tokens), p ? freshTokens(p.tokens) : undefined)}
         />
         <Tile k="Cache hit" v={hit === null ? '—' : `${hit}%`} sub="of input served from cache" />
         <Tile
           k="API-equivalent value"
           v={money(t.value)}
-          sub={`Claude ${money(byVendor('claude'))} · Codex ${money(byVendor('codex'))}`}
+          sub={`Claude ${money(byVendor('claude'))} · Codex ${money(byVendor('codex'))}${removed >= 0.005 ? ` · removed ${money(removed)}` : ''}`}
           delta={change(t.value, p?.value)}
         />
       </div>
@@ -639,15 +663,11 @@ function Tokens({ state, report }: { state: State; report: UsageReport }) {
                 <tr key={m.kind}>
                   <td>{KINDS[m.kind]}</td>
                   <td>
-                    <span class="meter">
-                      <span style={{ width: `${tokens ? (m.tokens / tokens) * 100 : 0}%` }} />
-                    </span>
+                    <Meter frac={tokens ? m.tokens / tokens : 0} />
                   </td>
                   <td class="num">{count(m.tokens)}</td>
                   <td>
-                    <span class="meter quiet">
-                      <span style={{ width: `${t.value ? (m.value / t.value) * 100 : 0}%` }} />
-                    </span>
+                    <Meter class="quiet" frac={t.value ? m.value / t.value : 0} />
                   </td>
                   <td class="num">{money(m.value)}</td>
                 </tr>
@@ -657,6 +677,7 @@ function Tokens({ state, report }: { state: State; report: UsageReport }) {
         </Panel>
         <Panel title="Cache hit by account" meta="higher is cheaper">
           <Ranked
+            max={100}
             rows={report.cacheHit
               .filter((c) => c.pct !== null && known(state, c.profile))
               .map((c) => ({
@@ -669,57 +690,57 @@ function Tokens({ state, report }: { state: State; report: UsageReport }) {
         </Panel>
       </div>
       <Panel title="Value by account" meta={`last ${report.days} days`}>
+        <Ranked
+          solid
+          rows={accounts.map((a) => ({
+            key: a.profile,
+            name: <Who state={state} id={a.profile} />,
+            share: a.value,
+            color: profileColor(state, a.profile),
+            value: (
+              <>
+                {money(a.value)} <span class="muted">· {count(tokenSum(a.tokens))} tokens</span>
+              </>
+            ),
+          }))}
+        />
+      </Panel>
+      <Panel title="Daily value per account" meta={accounts.length ? `same scale, $0 – ${axisMoney(scale)}` : null}>
         {accounts.length ? (
-          <div class="acct-values">
+          <div class="multiples">
             {accounts.map((a) => (
-              <div class="acct-value" key={a.profile}>
-                <Who state={state} id={a.profile} />
-                <span class="meter solid">
-                  <span
-                    style={{
-                      width: `${maxAcct ? (a.value / maxAcct) * 100 : 0}%`,
-                      background: profileColor(state, a.profile),
-                    }}
-                  />
+              <div class="multiple" key={a.profile}>
+                <span class="multiple-head">
+                  <Who state={state} id={a.profile} />
+                  <span class="muted">{money(a.value)}</span>
                 </span>
-                <span class="num">
-                  {money(a.value)} <span class="muted">· {count(allTokens(a.tokens))} tokens</span>
-                </span>
+                <Spark
+                  values={report.daily.map((d) => d.value[a.profile] ?? 0)}
+                  max={scale}
+                  color={profileColor(state, a.profile)}
+                />
               </div>
             ))}
           </div>
         ) : (
-          <Note class="pad">Nothing in this range.</Note>
+          <Note>Nothing in this range.</Note>
         )}
-      </Panel>
-      <Panel title="Daily value per account" meta={`same scale, $0 – ${axisMoney(scale)}`}>
-        <div class="multiples">
-          {accounts.map((a) => (
-            <div class="multiple" key={a.profile}>
-              <span class="multiple-head">
-                <Who state={state} id={a.profile} />
-                <span class="muted">{money(a.value)}</span>
-              </span>
-              <Spark
-                values={report.daily.map((d) => d.value[a.profile] ?? 0)}
-                max={scale}
-                color={profileColor(state, a.profile)}
-              />
-            </div>
-          ))}
-        </div>
       </Panel>
       <Provenance report={report} />
     </>
   );
 }
 
+// An SVG path through points already in the chart's coordinates.
+const linePath = (points: [number, number][]) =>
+  points.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('');
+
 function Spark({ values, max, color }: { values: number[]; max: number; color: string }) {
   const W = 240;
   const H = 56;
   const x = (i: number) => 1 + (i / Math.max(1, values.length - 1)) * (W - 6);
   const y = (v: number) => H - 2 - (v / (max || 1)) * (H - 6);
-  const d = values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+  const d = linePath(values.map((v, i) => [x(i), y(v)]));
   return (
     <svg class="spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ color }} aria-hidden="true">
       <line x1="0" x2={W} y1={H - 2} y2={H - 2} class="axis" />
@@ -731,30 +752,35 @@ function Spark({ values, max, color }: { values: number[]; max: number; color: s
 
 // ---------------------------------------------------------------- sessions
 
+const sessionKey = (s: UsageSession) => `${s.profile}/${s.id}`;
+
 function Sessions({ state, report }: { state: State; report: UsageReport }) {
-  const [account, setAccount] = useState('all');
+  const [chosenAccount, setAccount] = useState('all');
   const [onlyHits, setOnlyHits] = useState<'all' | 'hits'>('all');
   const [picked, setPicked] = useState<string | null>(null);
-  // Ten windows at a time: a month of them is a long page.
-  const [limit, setLimit] = useState(10);
   const owners = [...new Set(report.blocks.map((b) => b.profile))].filter((id) => known(state, id));
+  // An account picked in another range may have no windows in this one;
+  // the filter falls back to all rather than showing an empty list under a
+  // blank menu.
+  const account = chosenAccount === 'all' || owners.includes(chosenAccount) ? chosenAccount : 'all';
+  // Ten windows at a time: a month of them is a long page. Any change of
+  // range or filter starts again from ten.
+  const listing = `${report.days}|${account}|${onlyHits}`;
+  const [more, setMore] = useState({ listing, limit: 10 });
+  const limit = more.listing === listing ? more.limit : 10;
   const matching = report.blocks.filter(
     (b) => known(state, b.profile) && (account === 'all' || b.profile === account) && (onlyHits === 'all' || b.hitAt),
   );
   const blocks = matching.slice(0, limit);
   const all = blocks.flatMap((b) => b.sessions.map((s) => ({ s, b })));
-  const chosen = all.find((x) => `${x.b.profile}/${x.s.id}` === picked) ?? all[0] ?? null;
-  const key = (b: UsageBlock, s: UsageSession) => `${b.profile}/${s.id}`;
+  const chosen = all.find((x) => sessionKey(x.s) === picked) ?? all[0] ?? null;
   return (
     <>
       <div class="toolbar">
         <Seg
           label="Windows"
           value={onlyHits}
-          onChange={(v) => {
-            setOnlyHits(v);
-            setLimit(10);
-          }}
+          onChange={setOnlyHits}
           options={[
             { id: 'all', label: 'All windows' },
             { id: 'hits', label: 'Only limit hits' },
@@ -764,10 +790,7 @@ function Sessions({ state, report }: { state: State; report: UsageReport }) {
           class="plain-select"
           aria-label="Account"
           value={account}
-          onChange={(e) => {
-            setAccount((e.currentTarget as HTMLSelectElement).value);
-            setLimit(10);
-          }}
+          onChange={(e) => setAccount((e.currentTarget as HTMLSelectElement).value)}
         >
           <option value="all">All accounts</option>
           {owners.map((id) => (
@@ -789,15 +812,15 @@ function Sessions({ state, report }: { state: State; report: UsageReport }) {
                 key={`${b.profile}-${b.start}-${b.label}`}
                 state={state}
                 block={b}
-                picked={chosen ? key(chosen.b, chosen.s) : null}
-                onPick={(s) => setPicked(key(b, s))}
+                picked={chosen ? sessionKey(chosen.s) : null}
+                onPick={(s) => setPicked(sessionKey(s))}
                 inline={
                   chosen && chosen.b === b ? <Inspector state={state} report={report} block={b} s={chosen.s} /> : null
                 }
               />
             ))}
             {matching.length > blocks.length ? (
-              <Btn class="more-windows" onClick={() => setLimit(limit + 10)}>
+              <Btn class="more-windows" onClick={() => setMore({ listing, limit: limit + 10 })}>
                 Show more windows ({matching.length - blocks.length})
               </Btn>
             ) : null}
@@ -814,7 +837,7 @@ function Sessions({ state, report }: { state: State; report: UsageReport }) {
 }
 
 function blockTitle(b: UsageBlock): string {
-  if (b.kind === 'day') return dayWord(`${b.label}T12:00:00`);
+  if (b.kind === 'day') return dayWord(b.label);
   return `${dayWord(b.start)} ${clock(b.start)} – ${clock(b.end)}`;
 }
 
@@ -832,7 +855,7 @@ function Block({
   inline: ComponentChildren;
 }) {
   return (
-    <section class="block">
+    <section class="panel block">
       <div class="block-head">
         <Swatch color={profileColor(state, b.profile)} />
         <b>{blockTitle(b)}</b>
@@ -846,12 +869,11 @@ function Block({
           {b.peak !== null ? (
             <>
               Peak
-              <span class="meter tiny">
-                <span
-                  class={severityClass({ label: b.label, pct: b.peak, resetsAt: null }) || 'ok'}
-                  style={{ width: `${b.peak}%` }}
-                />
-              </span>
+              <Meter
+                class="tiny"
+                frac={b.peak / 100}
+                tone={severityClass({ label: b.label, pct: b.peak, resetsAt: null })}
+              />
               {b.peak}% ·{' '}
             </>
           ) : null}
@@ -859,7 +881,7 @@ function Block({
         </span>
       </div>
       {b.sessions.map((s) => {
-        const on = picked === `${b.profile}/${s.id}`;
+        const on = picked === sessionKey(s);
         return (
           <div key={s.id}>
             <button type="button" class={`session-row ${on ? 'on' : ''}`} aria-pressed={on} onClick={() => onPick(s)}>
@@ -872,7 +894,7 @@ function Block({
               </span>
               <code class="model">{s.model ?? '—'}</code>
               <span class="num time">{duration(s.agentMs)}</span>
-              <span class="num tokens">{count(allTokens(s.tokens))}</span>
+              <span class="num tokens">{count(tokenSum(s.tokens))}</span>
               <span class="num">{money(s.value)}</span>
               <Icon name="right" size={14} />
             </button>
@@ -916,15 +938,25 @@ function Inspector({
         <div class="insp-actions">
           <Btn
             variant="primary"
+            size="sm"
             icon="terminal"
             onClick={(e) => act(() => window.sb.resumeSession(s.profile, s.id), e.currentTarget)}
           >
             Resume in terminal
           </Btn>
-          <Btn onClick={(e) => act(() => window.sb.openSession(s.profile, s.id, 'folder'), e.currentTarget)}>
-            Open folder
-          </Btn>
-          <Btn onClick={(e) => act(() => window.sb.openSession(s.profile, s.id, 'transcript'), e.currentTarget)}>
+          {/* Revealed in Finder, not opened: the folder's name came from a log. */}
+          {s.project ? (
+            <Btn
+              size="sm"
+              onClick={(e) => act(() => window.sb.openSession(s.profile, s.id, 'folder'), e.currentTarget)}
+            >
+              Show folder
+            </Btn>
+          ) : null}
+          <Btn
+            size="sm"
+            onClick={(e) => act(() => window.sb.openSession(s.profile, s.id, 'transcript'), e.currentTarget)}
+          >
             Show transcript
           </Btn>
         </div>
@@ -976,7 +1008,7 @@ function Inspector({
             [
               ['Model', <code>{s.model ?? '—'}</code>],
               ['Value', money(s.value)],
-              ['Tokens', `${count(allTokens(s.tokens))} · ${count(fresh(s.tokens))} fresh`],
+              ['Tokens', `${count(tokenSum(s.tokens))} · ${count(freshTokens(s.tokens))} fresh`],
               ['Cache hit', s.cacheHit === null ? '—' : `${s.cacheHit}%`],
               ['Agent time', duration(s.agentMs)],
               ['Subagents', s.subagents ? `${s.subagents.calls} calls · ${money(s.subagents.value)}` : 'None'],
@@ -1029,7 +1061,7 @@ function WindowChart({ block: b, s, fullAt }: { block: UsageBlock; s: UsageSessi
   const end = Date.parse(b.end);
   const x = (ms: number) => L + ((Math.min(end, Math.max(start, ms)) - start) / (end - start)) * (W - L - R);
   const y = (pct: number) => T + (1 - pct / 100) * (H - T - B);
-  const line = b.points.map(([at, pct], i) => `${i ? 'L' : 'M'}${x(at).toFixed(1)},${y(pct).toFixed(1)}`).join('');
+  const line = linePath(b.points.map(([at, pct]) => [x(at), y(pct)]));
   const last = b.points[b.points.length - 1];
   const hours = Math.round((end - start) / 3_600_000);
   const ticks = [0, 0.5, 1].map((f) => start + f * (end - start));
