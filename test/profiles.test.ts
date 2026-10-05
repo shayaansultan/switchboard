@@ -397,6 +397,39 @@ test('a Default profile is launched untouched, with no redirection', () => {
   expect(launch.launchArgs(claudeSource(), true)).toEqual(['-a', profiles.VENDORS.claude.appPath]);
 });
 
+// ---- the profile band ----
+// A non-default Claude profile's app is launched with the band's plugin and
+// the name and colour it draws; the Default profile and Codex get none of it.
+
+test('a second Claude profile is launched with the band naming it', () => {
+  const data = profiles.load();
+  const p = profiles.add(data, { vendor: 'claude', name: 'Band' }).profile;
+  const env = launch.profileBandEnvironment(p, '/plugins/profile-band', '/bin/switchboard');
+  expect(env).toEqual({
+    CLAUDE_CODE_PLUGIN_DIRS: '/plugins/profile-band',
+    SWITCHBOARD_PROFILE: p.id,
+    SWITCHBOARD_PROFILE_NAME: 'Band',
+    SWITCHBOARD_PROFILE_COLOR: p.color,
+    SWITCHBOARD_COMMAND: '/bin/switchboard',
+  });
+  // Without the command installed the band still names the profile.
+  expect(launch.profileBandEnvironment(p, '/plugins/profile-band', null)).not.toHaveProperty('SWITCHBOARD_COMMAND');
+  expect(launch.launchArgs(p, false, env)).toContain('SWITCHBOARD_PROFILE_NAME=Band');
+});
+
+test('the Default profile, a Codex profile and a build without the plugin get no band', () => {
+  const data = profiles.load();
+  const codex = profiles.add(data, { vendor: 'codex', name: 'No band' }).profile;
+  const claude = profiles.add(data, { vendor: 'claude', name: 'No plugin' }).profile;
+  expect(launch.profileBandEnvironment(claudeSource(), '/plugins/profile-band')).toEqual({});
+  expect(launch.profileBandEnvironment(codex, '/plugins/profile-band')).toEqual({});
+  expect(launch.profileBandEnvironment(claude, null)).toEqual({});
+});
+
+test('a checkout finds the band plugin it ships', () => {
+  expect(launch.profileBandPlugin()).toBe(path.join(__dirname, '..', 'plugins', 'profile-band'));
+});
+
 // ---- Codex project grouping ----
 // The desktop app's sidebar state lives in .codex-global-state.json next to
 // the sessions. Only the keys that place threads may travel; the rest of that

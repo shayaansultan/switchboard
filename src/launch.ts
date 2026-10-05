@@ -121,7 +121,10 @@ export async function launchDesktop(profile: Profile): Promise<void> {
   // rewritten below, from changing under the app using them.
   if (already && profile.proxyBucket)
     throw new Error('Quit this desktop profile before launching with a proxy bucket.');
-  const environment = await desktopEnvironment(profile, dirs(profile).home);
+  const environment = {
+    ...(await desktopEnvironment(profile, dirs(profile).home)),
+    ...profileBandEnvironment(profile),
+  };
   try {
     await run('open', launchArgs(profile, already, environment));
   } catch (error) {
@@ -199,6 +202,48 @@ export async function forceQuitDesktop(profile: Profile): Promise<boolean> {
 export function appEventsHelper(): string | null {
   const file = path.join(__dirname, 'app-events').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
   return fs.existsSync(file) ? file : null;
+}
+
+// ---- the profile band (plugins/profile-band) ----
+
+// A Claude Code mod that fills the band above the prompt with the profile's
+// colour, its name and plan, and how much of its rate limits is left, so two
+// Claude windows can be told apart at a glance. Claude Code reads it from
+// disk, so like the helper above it is unpacked beside app.asar. Null when
+// this build has no copy.
+export function profileBandPlugin(): string | null {
+  const dir = path
+    .join(__dirname, '..', 'plugins', 'profile-band')
+    .replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
+  return fs.existsSync(path.join(dir, '.claude-plugin', 'plugin.json')) ? dir : null;
+}
+
+// The `switchboard` command the band asks for rate limits, by full path: the
+// desktop app's sessions do not get a login shell's PATH. Null when the
+// command is not installed, and the band then shows no limits.
+export function switchboardCommand(): string | null {
+  const file = path.join(os.homedir(), '.local', 'bin', 'switchboard');
+  return fs.existsSync(file) ? file : null;
+}
+
+// What a Claude profile's desktop app is launched with so the mod can name
+// it. `open --env` hands these to the app, which passes them to every Code
+// session it starts. The Default profile gets nothing: it is the unmarked
+// window. Name and colour are read at launch, so a rename or recolour shows
+// after the next launch.
+export function profileBandEnvironment(
+  profile: Profile,
+  plugin: string | null = profileBandPlugin(),
+  command: string | null = switchboardCommand(),
+): Record<string, string> {
+  if (profile.vendor !== 'claude' || profile.isDefault || !plugin) return {};
+  return {
+    CLAUDE_CODE_PLUGIN_DIRS: plugin,
+    SWITCHBOARD_PROFILE: profile.id,
+    SWITCHBOARD_PROFILE_NAME: profile.name,
+    SWITCHBOARD_PROFILE_COLOR: profile.color,
+    ...(command ? { SWITCHBOARD_COMMAND: command } : {}),
+  };
 }
 
 // How many windows each process has open, or null without Accessibility

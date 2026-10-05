@@ -51,10 +51,15 @@
       "icon": "build/icon.icns"
     },
     "asarUnpack": [
-      "out/app-events"
+      "out/app-events",
+      "plugins/**"
     ],
     "files": [
       "out/**/*",
+      "plugins/profile-band/.claude-plugin/plugin.json",
+      "plugins/profile-band/hooks/hooks.json",
+      "plugins/profile-band/hooks/register.tsx",
+      "plugins/profile-band/types/index.d.ts",
       "build/trayTemplate.png",
       "build/trayTemplate@2x.png",
       "build/icon-1024.png",

@@ -1,2 +1,4 @@
 [test]
 preload = ["./test/setup.ts"]
+# plugins/ holds Claude Code mods, whose tests run under `claude plugin test`.
+root = "./test"
