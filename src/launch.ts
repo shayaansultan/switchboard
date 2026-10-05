@@ -9,7 +9,7 @@ import { execFile, type ExecFileOptions, type ExecFileOptionsWithStringEncoding 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { VENDORS, VENDOR_IDS, dirs, ensureDirs } from './store';
+import { HOME, VENDORS, VENDOR_IDS, dirs, ensureDirs } from './store';
 import { shellQuote } from './shell';
 import type { Instance, Profile, Settings } from './types';
 import { desktopEnvironment } from './buckets/desktop';
@@ -227,7 +227,7 @@ export function profileBandPlugin(): string | null {
 // file at that path is never run. Null otherwise, and the band then shows no
 // limits.
 export function switchboardCommand(): string | null {
-  const file = path.join(os.homedir(), '.local', 'bin', 'switchboard');
+  const file = path.join(HOME, '.local', 'bin', 'switchboard');
   try {
     return fs.readFileSync(file, 'utf8').split('\n')[1]?.startsWith('# Switchboard CLI launcher') ? file : null;
   } catch {

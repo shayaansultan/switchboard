@@ -6,7 +6,6 @@
 
 const { test, expect, beforeEach, afterEach } = require('bun:test');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 
 const { sandboxHome: SANDBOX } = require('./setup');
@@ -428,7 +427,9 @@ test('the Default profile, a Codex profile and a build without the plugin get no
 });
 
 test("the band runs only Switchboard's own launcher, never a foreign one", () => {
-  const file = path.join(os.homedir(), '.local', 'bin', 'switchboard');
+  const file = path.join(process.env.HOME, '.local', 'bin', 'switchboard');
+  // Never the real launcher: this test writes and deletes the file.
+  expect(file).toContain('switchboard-tests-');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, '#!/bin/sh\nexec something-else "$@"\n');
   expect(launch.switchboardCommand()).toBeNull();
