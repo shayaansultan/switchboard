@@ -208,14 +208,17 @@ export function appEventsHelper(): string | null {
 
 // A Claude Code mod that fills the band above the prompt with the profile's
 // colour, its name and plan, and how much of its rate limits is left, so two
-// Claude apps on different profiles can be told apart at a glance. Claude Code reads it from
-// disk, so like the helper above it is unpacked beside app.asar. Null when
-// this build has no copy.
+// Claude apps on different profiles can be told apart at a glance. Claude Code
+// reads it from disk, so a packaged app ships it as a plain folder under
+// Resources (extraResources in package.json: the app's own files drop every
+// .d.ts, and the plugin's type contract is one); a checkout uses its own copy.
+// Null when this build has neither.
 export function profileBandPlugin(): string | null {
-  const dir = path
-    .join(__dirname, '..', 'plugins', 'profile-band')
-    .replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
-  return fs.existsSync(path.join(dir, '.claude-plugin', 'plugin.json')) ? dir : null;
+  const candidates = [
+    process.resourcesPath && path.join(process.resourcesPath, 'plugins', 'profile-band'),
+    path.join(__dirname, '..', 'plugins', 'profile-band'),
+  ];
+  return candidates.find((dir) => dir && fs.existsSync(path.join(dir, '.claude-plugin', 'plugin.json'))) || null;
 }
 
 // The `switchboard` command the band asks for rate limits, by full path: the

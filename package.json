@@ -51,15 +51,22 @@
       "icon": "build/icon.icns"
     },
     "asarUnpack": [
-      "out/app-events",
-      "plugins/**"
+      "out/app-events"
+    ],
+    "extraResources": [
+      {
+        "from": "plugins/profile-band",
+        "to": "plugins/profile-band",
+        "filter": [
+          ".claude-plugin/plugin.json",
+          "hooks/hooks.json",
+          "hooks/register.tsx",
+          "types/index.d.ts"
+        ]
+      }
     ],
     "files": [
       "out/**/*",
-      "plugins/profile-band/.claude-plugin/plugin.json",
-      "plugins/profile-band/hooks/hooks.json",
-      "plugins/profile-band/hooks/register.tsx",
-      "plugins/profile-band/types/index.d.ts",
       "build/trayTemplate.png",
       "build/trayTemplate@2x.png",
       "build/icon-1024.png",
