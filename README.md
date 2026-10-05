@@ -227,7 +227,14 @@ switchboard exec work -- claude -p "…"   # run anything inside a profile's acc
 eval "$(switchboard env work)"        # put the current shell into a profile
 switchboard launch work               # open its desktop window
 switchboard add codex Client --from codex   # a new profile, set up like the Default
+switchboard routed work app-server    # Codex through work's proxy bucket, as its window runs
 ```
+
+A Codex profile assigned to a proxy bucket reaches the pool through a local
+port that changes whenever the bucket's worker restarts. A client Switchboard
+does not launch, such as T3 Code or a script, should run `switchboard routed
+PROFILE` as its Codex binary; it starts the worker if needed and finds the
+current port on every call.
 
 Install it from the **CLI** tab in the window, or once with
 `switchboard install-cli` (or `node out/cli.js install-cli` from this checkout)
@@ -245,7 +252,7 @@ its result as JSON on stdout and exits 0. A failed one prints nothing on stdout,
 one JSON object on stderr with a stable `error` code, a `message` and usually a
 `hint`, and exits 1 (it ran and failed), 2 (usage), 3 (not found) or 4 (refused
 by a safety rule, such as removing a profile whose window is open, or
-`--yes` missing). `exec` and `cli` exit with the child's own status. Per-profile
+`--yes` missing). `exec`, `cli` and `routed` exit with the child's own status. Per-profile
 usage errors are data inside a successful result, with a `status` of `ok`,
 `stale`, `not-signed-in`, `error` or `none`.
 

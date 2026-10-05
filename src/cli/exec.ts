@@ -1,4 +1,5 @@
-// Putting a shell, a command or a sign-in inside a profile's environment.
+// Putting a shell, a command or a sign-in inside a profile's environment,
+// and running a Codex profile's CLI through its proxy bucket.
 
 import * as launch from '../launch';
 import { desktopEnvironment } from '../buckets/desktop';
