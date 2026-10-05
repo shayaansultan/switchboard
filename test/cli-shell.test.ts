@@ -59,6 +59,20 @@ test('global flags stop at -- and, for cli, at the profile', () => {
   });
   expect(splitFlags(['-q', 'cli', 'work'])).toMatchObject({ flags: { quiet: true }, rest: ['cli', 'work'] });
   expect(splitFlags(['list', '-h'])).toMatchObject({ rest: ['help', 'list'] });
+  expect(splitFlags(['routed', 'work', 'app-server', '--json'])).toMatchObject({
+    flags: { json: false },
+    rest: ['routed', 'work', 'app-server', '--json'],
+  });
+});
+
+test('routed refuses a profile that has no bucket to route through', async () => {
+  await run('add', 'codex', 'Job');
+  await run('add', 'claude', 'Work');
+  for (const profile of ['codex-job', 'claude-work']) {
+    const result = await run('routed', profile, 'app-server');
+    expect(result.code).toBe(4);
+    expect(result.failure()).toMatchObject({ error: 'not-routed', hint: `switchboard assign ${profile} BUCKET` });
+  }
 });
 
 test('shell quoting survives a single quote in a path', () => {
