@@ -13,7 +13,15 @@ import type { Context } from './cli/context';
 import { parse, required } from './cli/context';
 import { doctorCommand } from './cli/doctor';
 import { launchCommand, quitCommand, quitOthersCommand, revealCommand, runningCommand } from './cli/desktop';
-import { cliCommand, commandCommand, envCommand, execCommand, loginCommand, terminalCommand } from './cli/exec';
+import {
+  cliCommand,
+  commandCommand,
+  envCommand,
+  execCommand,
+  loginCommand,
+  routedCommand,
+  terminalCommand,
+} from './cli/exec';
 import { classify, consoleIo, Output, refused, usageError, type Flags, type Io } from './cli/output';
 import {
   addCommand,
@@ -63,6 +71,7 @@ Shell
   switchboard env PROFILE [--fish]            eval "$(switchboard env work)"
   switchboard exec PROFILE [--cwd DIR] -- CMD [ARGS]
   switchboard cli PROFILE [ARGS]              exec with the vendor's own CLI
+  switchboard routed PROFILE [ARGS]           cli through the profile's bucket, as its desktop window runs
   switchboard terminal PROFILE [--cwd DIR]    Open a terminal window inside the profile
   switchboard login PROFILE [--here]          Sign the profile's CLI in
 
@@ -78,7 +87,7 @@ Setup
 Flags: --human (tables for lists) --yes --quiet --json --version --help
 Profiles are addressed by id (claude-work), vendor (claude = its Default), vendor/name or a unique name.
 Results are JSON on stdout. Failures print {"error": CODE, ...} on stderr and exit 1 (failed),
-2 (usage), 3 (not found) or 4 (refused). exec and cli exit with the command's own status.
+2 (usage), 3 (not found) or 4 (refused). exec, cli and routed exit with the command's own status.
 `;
 
 const COMMANDS = z.enum([
@@ -106,6 +115,7 @@ const COMMANDS = z.enum([
   'env',
   'exec',
   'cli',
+  'routed',
   'terminal',
   'login',
   'bucket',
@@ -115,7 +125,7 @@ const COMMANDS = z.enum([
 ]);
 
 // Flags that apply to every command. They may appear anywhere before `--`,
-// or, for `cli PROFILE ...`, anywhere before the profile: everything after it
+// or, for `cli PROFILE ...` and `routed PROFILE ...`, anywhere before the profile: everything after it
 // belongs to the vendor's CLI.
 export function splitFlags(args: string[]): { flags: Flags; rest: string[]; version: boolean } {
   const flags: Flags = { json: false, human: false, yes: false, quiet: false };
@@ -124,7 +134,7 @@ export function splitFlags(args: string[]): { flags: Flags; rest: string[]; vers
   let passthrough = false;
   for (const arg of args) {
     if (passthrough) rest.push(arg);
-    else if (arg === '--' || (rest[0] === 'cli' && rest.length === 2)) {
+    else if (arg === '--' || ((rest[0] === 'cli' || rest[0] === 'routed') && rest.length === 2)) {
       passthrough = true;
       rest.push(arg);
     } else if (arg === '--json') flags.json = true;
@@ -227,6 +237,8 @@ async function dispatch(rest: string[], out: Output): Promise<number | void> {
       return execCommand(args, ctx);
     case 'cli':
       return cliCommand(args, ctx);
+    case 'routed':
+      return routedCommand(args, ctx);
     case 'terminal':
       return terminalCommand(args, ctx);
     case 'login':
