@@ -39,6 +39,18 @@ The "Default" profiles point at the normal locations, `~/.claude`, `~/.codex`
 and `~/Library/Application Support/{Claude,Codex}`. Switchboard never writes to
 them itself.
 
+## Which Claude app is which?
+
+Two Claude apps on different profiles look the same, so Switchboard marks every
+Claude profile but the Default one. When it launches that profile's desktop app
+it passes a small Claude Code plugin (`plugins/profile-band`), and each Code
+session shows the profile band: a bar in the profile's colour just above the
+prompt, with its name in bold and its plan on the left, and how much of its
+5-hour and 7-day limits is left on the right. The limits refresh every five
+minutes from Switchboard's cache, fetched live when that is over 15 minutes
+old, and need the `switchboard` command installed. The Default profile's app
+has no band. A rename or recolour shows after the profile's next launch.
+
 ## Does it work with Claude Code and the Codex CLI?
 
 Yes. Each profile gets its own CLI login, and the **Terminal** button opens a

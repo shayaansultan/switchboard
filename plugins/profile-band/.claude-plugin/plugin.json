@@ -1,0 +1,6 @@
+{
+  "name": "switchboard-profile-band",
+  "version": "0.2.0",
+  "description": "A bar above the prompt in the Switchboard profile's colour, with its name, plan and rate limits left",
+  "types": "./types/index.d.ts"
+}

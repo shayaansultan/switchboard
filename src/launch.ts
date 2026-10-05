@@ -9,7 +9,7 @@ import { execFile, type ExecFileOptions, type ExecFileOptionsWithStringEncoding 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { VENDORS, VENDOR_IDS, dirs, ensureDirs } from './store';
+import { HOME, VENDORS, VENDOR_IDS, dirs, ensureDirs } from './store';
 import { shellQuote } from './shell';
 import type { Instance, Profile, Settings } from './types';
 import { desktopEnvironment } from './buckets/desktop';
@@ -121,7 +121,10 @@ export async function launchDesktop(profile: Profile): Promise<void> {
   // rewritten below, from changing under the app using them.
   if (already && profile.proxyBucket)
     throw new Error('Quit this desktop profile before launching with a proxy bucket.');
-  const environment = await desktopEnvironment(profile, dirs(profile).home);
+  const environment = {
+    ...(await desktopEnvironment(profile, dirs(profile).home)),
+    ...profileBandEnvironment(profile),
+  };
   try {
     await run('open', launchArgs(profile, already, environment));
   } catch (error) {
@@ -199,6 +202,57 @@ export async function forceQuitDesktop(profile: Profile): Promise<boolean> {
 export function appEventsHelper(): string | null {
   const file = path.join(__dirname, 'app-events').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
   return fs.existsSync(file) ? file : null;
+}
+
+// ---- the profile band (plugins/profile-band) ----
+
+// A Claude Code mod that fills the band above the prompt with the profile's
+// colour, its name and plan, and how much of its rate limits is left, so two
+// Claude apps on different profiles can be told apart at a glance. Claude Code
+// reads it from disk, so a packaged app ships it as a plain folder under
+// Resources (extraResources in package.json: the app's own files drop every
+// .d.ts, and the plugin's type contract is one); a checkout uses its own copy.
+// Null when this build has neither.
+export function profileBandPlugin(): string | null {
+  const candidates = [
+    process.resourcesPath && path.join(process.resourcesPath, 'plugins', 'profile-band'),
+    path.join(__dirname, '..', 'plugins', 'profile-band'),
+  ];
+  return candidates.find((dir) => dir && fs.existsSync(path.join(dir, '.claude-plugin', 'plugin.json'))) || null;
+}
+
+// The `switchboard` command the band asks for rate limits, by full path: the
+// desktop app's sessions do not get a login shell's PATH. Only Switchboard's
+// own launcher counts (shim.ts writes it with this comment line), so a foreign
+// file at that path is never run. Null otherwise, and the band then shows no
+// limits.
+export function switchboardCommand(): string | null {
+  const file = path.join(HOME, '.local', 'bin', 'switchboard');
+  try {
+    return fs.readFileSync(file, 'utf8').split('\n')[1]?.startsWith('# Switchboard CLI launcher') ? file : null;
+  } catch {
+    return null;
+  }
+}
+
+// What a Claude profile's desktop app is launched with so the mod can name
+// it. `open --env` hands these to the app, which passes them to every Code
+// session it starts. The Default profile gets nothing: its app is the
+// unmarked one. Name and colour are read at launch, so a rename or recolour shows
+// after the next launch.
+export function profileBandEnvironment(
+  profile: Profile,
+  plugin: string | null = profileBandPlugin(),
+  command: string | null = switchboardCommand(),
+): Record<string, string> {
+  if (profile.vendor !== 'claude' || profile.isDefault || !plugin) return {};
+  return {
+    CLAUDE_CODE_PLUGIN_DIRS: plugin,
+    SWITCHBOARD_PROFILE: profile.id,
+    SWITCHBOARD_PROFILE_NAME: profile.name,
+    SWITCHBOARD_PROFILE_COLOR: profile.color,
+    ...(command ? { SWITCHBOARD_COMMAND: command } : {}),
+  };
 }
 
 // How many windows each process has open, or null without Accessibility
