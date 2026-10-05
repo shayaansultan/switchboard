@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { AppStates, QUIT_DEADLINE_MS, START_DEADLINE_MS } from '../src/app-state';
+import { AppStates, openAction, QUIT_DEADLINE_MS, START_DEADLINE_MS } from '../src/app-state';
 
 function clock() {
   let t = 1_000;
@@ -137,4 +137,27 @@ test('quitting ignores windows: a windowless app being quit still reads as quitt
   s.expect('a', 'quitting');
   s.observe(alive({ a: true }), new Set(['a']));
   expect(s.get('a')).toBe('quitting');
+});
+
+test('opening an app starts it when off and brings it forward when running', () => {
+  const added = { helper: true, isDefault: false, routed: false };
+  expect(openAction('off', added)).toBe('launch');
+  expect(openAction('starting', added)).toBe('none');
+  expect(openAction('running', added)).toBe('show');
+  expect(openAction('background', added)).toBe('show');
+  expect(openAction('stalled', added)).toBe('show');
+  // Without the helper only the Default can be focused, by launching it again;
+  // launching an added profile again would start a second copy.
+  const bare = { helper: false, isDefault: true, routed: false };
+  expect(openAction('running', bare)).toBe('launch');
+  expect(openAction('running', { ...bare, isDefault: false })).toBeNull();
+  // A routed launch refuses a running app, and one that won't quit is not
+  // relaunched.
+  expect(openAction('running', { ...bare, routed: true })).toBeNull();
+  expect(openAction('stalled', bare)).toBeNull();
+});
+
+test('an app on its way out is not opened, since a launch would race the quit', () => {
+  expect(openAction('quitting', { helper: true, isDefault: false, routed: false })).toBeNull();
+  expect(openAction('quitting', { helper: false, isDefault: true, routed: false })).toBeNull();
 });

@@ -14,6 +14,11 @@ export type ProfilesView = import('../types').ProfilesView;
 export type BucketView = import('../types').BucketView;
 export type BucketAccount = BucketView['accounts'][number];
 export type CliStatus = import('../types').CliStatus;
+export type UsageReport = import('../types').UsageReport;
+export type UsageBlock = import('../types').UsageBlock;
+export type UsageSession = import('../types').UsageSession;
+export type TokenCounts = import('../types').TokenCounts;
+export type WindowPace = import('../types').WindowPace;
 
 export function relTime(iso: string | null): string {
   if (!iso) return '';
@@ -21,10 +26,16 @@ export function relTime(iso: string | null): string {
   if (Number.isNaN(ms)) return '';
   if (ms <= 0) return 'resets now';
   const m = Math.round(ms / 60000);
-  if (m < 60) return `resets in ${m}m`;
+  if (m < 48 * 60) return `resets in ${hm(m)}`;
+  return `resets in ${Math.round(m / 60 / 24)}d`;
+}
+
+// A span of whole minutes, the one way the window spells it: "38m", "2h",
+// "2h 5m".
+export function hm(m: number): string {
+  if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);
-  if (h < 48) return m % 60 ? `resets in ${h}h ${m % 60}m` : `resets in ${h}h`;
-  return `resets in ${Math.round(h / 24)}d`;
+  return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
 }
 
 // The same moment without the words, for the space beside a bar's label.
@@ -73,6 +84,89 @@ export async function act(fn: () => unknown, btn?: EventTarget | null): Promise<
   } finally {
     if (b) b.disabled = false;
   }
+}
+
+// Every token of a count, and the fresh ones: all but cache reads. The
+// history's own sum lives in the main process, out of the window's reach.
+export const tokenSum = (t: TokenCounts) => t.input + t.output + t.cacheRead + t.cacheWrite;
+export const freshTokens = (t: TokenCounts) => tokenSum(t) - t.cacheRead;
+
+// Dollars as the Usage tab shows them: whole from $100, cents below.
+export function money(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '—';
+  if (v >= 100) return `$${Math.round(v).toLocaleString('en-US')}`;
+  return `$${v.toFixed(2)}`;
+}
+
+// 1.94B, 134M, 12K, 800. A number that would round up to 1000 of a unit
+// is said in the next one: 999,600 is "1M", not "1000K".
+const UNITS: [number, string][] = [
+  [1e9, 'B'],
+  [1e6, 'M'],
+  [1e3, 'K'],
+];
+const scaled = (v: number) => (v >= 100 ? String(Math.round(v)) : v.toFixed(v >= 10 ? 1 : 2).replace(/\.?0+$/, ''));
+export function count(n: number): string {
+  for (let i = 0; i < UNITS.length; i++) {
+    const [size, unit] = UNITS[i];
+    if (n < size) continue;
+    const text = scaled(n / size);
+    if (Number(text) >= 1000 && i > 0) return `${scaled(n / UNITS[i - 1][0])}${UNITS[i - 1][1]}`;
+    return `${text}${unit}`;
+  }
+  const whole = Math.round(n);
+  return whole >= 1000 ? '1K' : String(whole);
+}
+
+// 2h 5m, 38m, under a minute.
+export function duration(ms: number): string {
+  const m = Math.round(ms / 60000);
+  if (m < 1) return ms > 0 ? '<1m' : '0m';
+  return hm(m);
+}
+
+// A timestamp, or a bare local day ("2026-09-23", read as its noon so no
+// time zone moves it to the day before).
+const moment = (at: string) => new Date(/^\d{4}-\d{2}-\d{2}$/.test(at) ? `${at}T12:00:00` : at);
+
+// "Today", "Yesterday", "Tue 23 Sep", in the system's locale like `clock`.
+export function dayWord(at: string): string {
+  const d = moment(at);
+  const today = new Date();
+  const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((start(today) - start(d)) / 86_400_000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+// "23 Sep", for a chart's axis.
+export function shortDay(at: string): string {
+  return moment(at).toLocaleDateString([], { day: 'numeric', month: 'short' });
+}
+
+export function profileById(state: State, id: string): ProfileView | undefined {
+  return state.profiles.find((p) => p.id === id);
+}
+
+// The plan the usage reading names, else the one the sign-in named.
+export function planOf(p: ProfileView): string | undefined {
+  return p.usage?.plan || p.identity?.plan || undefined;
+}
+
+// A window's percentage as the settings ask to show it: used, or left.
+export function shownPct(pct: number, remaining: boolean): number {
+  return remaining ? 100 - pct : pct;
+}
+
+// The profile a usage row belongs to, named as the Usage tab names it.
+export function profileName(state: State, id: string): string {
+  const p = profileById(state, id);
+  return p ? `${state.vendors[p.vendor].label} · ${p.name}` : id;
+}
+
+export function profileColor(state: State, id: string): string {
+  return profileById(state, id)?.color ?? 'var(--muted)';
 }
 
 export function providerLabel(account: BucketAccount): string {

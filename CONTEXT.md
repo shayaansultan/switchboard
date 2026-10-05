@@ -59,6 +59,33 @@ A rate-limit window of an account: the 5-hour or 7-day allowance, sometimes
 scoped to one model. A window has a percentage used and a time at which it
 resets. The ring on a profile shows its fullest window.
 
+## Session
+
+One agent conversation: a Claude Code session or a Codex thread, in a
+terminal or inside a desktop app. Not a window: a session counts against
+whichever windows were open while it ran. Subagents belong to the session
+that started them.
+
+## Usage history
+
+What Switchboard keeps so the Usage tab can look back: the **window history**
+(every reading of every window, from the day recording began) and the **token
+ledger** (tokens, models, folders and sessions read from each profile's own
+agent logs). Say "recorded since", never "lifetime": Claude Code deletes its
+logs after 30 days, so nothing older than the ledger exists.
+
+## API-equivalent value
+
+What an account's tokens would cost at API list prices, in dollars. An
+estimate, and not a bill: a subscription does not charge per token. Always
+labelled as such; never added to a window percentage.
+
+## Pace
+
+How far a window is ahead of or behind an even burn across it, in points: a
+5-hour window 60% used halfway through is 10 ahead. Shown once 3% of the
+window has passed.
+
 ## Plan
 
 The subscription tier of an account, with its capacity relative to the

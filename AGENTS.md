@@ -31,6 +31,7 @@ bun run build                   # out/ for Electron
 bunx electron .                 # run from the checkout (see below)
 bun run test:buckets-ui         # Playwright against the real window, buckets tab
 bun run test:awake-ui           # same, keep-awake control
+bun run test:usage-ui           # same, Usage tab against invented agent logs
 bun run demo                    # regenerate docs/screenshot.png and the social card
 bun run cli -- list --human     # the CLI straight from source
 ```
@@ -54,9 +55,13 @@ bun run cli -- list --human     # the CLI straight from source
   falls back to polling (and no window counts) without it.
 - `src/cli.ts` and `src/cli/`: the `switchboard` command. JSON on stdout by
   default, `--human` for prose; `src/cli/output.ts` is the contract.
+- `src/history/`: usage history. `logs.ts` reads Claude Code and Codex logs,
+  `ledger.ts` indexes them incrementally per profile, `windows.ts` keeps every
+  window reading, `report.ts` builds what the Usage tab and `switchboard
+tokens` show, `alerts.ts` decides notifications. Main process and CLI only.
 - `src/buckets/`: proxy buckets, the local proxy and its worker.
 - `src/opencode/`: the `oc` CLI for OpenCode profiles; runs without Electron.
-- `src/renderer/`: `app.tsx` (the window), `profiles.tsx`, `buckets.tsx`,
+- `src/renderer/`: `app.tsx` (the window), `profiles.tsx`, `usage.tsx`, `buckets.tsx`,
   `dialogs.tsx`, `ui/` (primitives, overlays, menus), one `style.css`.
 - `test/`: Bun tests, one file per module. `demo/`: the fixture, the
   screenshot capture and the Playwright end-to-end scripts. `docs/`: design
@@ -68,8 +73,10 @@ bun run cli -- list --human     # the CLI straight from source
   dark value in the `prefers-color-scheme: dark` block. Never write a literal
   colour in a rule; add a token to both sets.
 - The renderer only ever receives percentages, reset times, email, plan and
-  the proxy's reason an account is unavailable.
-  Tokens and credentials are read in the main process, used once, dropped.
+  the proxy's reason an account is unavailable, and from the usage history
+  token counts, dollar estimates, model names, session titles and folder
+  names. Never a full path, a transcript or a credential: tokens and
+  credentials are read in the main process, used once, dropped.
 - Renderer buttons call the main process through `act()` in
   `src/renderer/lib.ts`, which handles the pending state and errors. Do not
   call `window.sb` from a click handler directly.

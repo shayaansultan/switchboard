@@ -323,6 +323,11 @@ export function shellScript(profile: Profile, extra = ''): string {
   return assign ? `export ${assign}; ${cli}` : cli;
 }
 
+// The CLI arguments that pick an agent session back up.
+export function resumeArgs(profile: Profile, sessionId: string): string {
+  return profile.vendor === 'claude' ? `--resume ${shellQuote(sessionId)}` : `resume ${shellQuote(sessionId)}`;
+}
+
 // Open a window in the chosen terminal that runs `script` in `cwd`.
 // Unknown or uninstalled choices fall back to Terminal.app.
 export async function openTerminal(
@@ -373,9 +378,10 @@ export async function openLogin(profile: Profile, settings: Settings): Promise<v
   });
 }
 
-export async function openShell(profile: Profile, settings: Settings, cwd?: string): Promise<void> {
+// A terminal on the profile's CLI in `cwd`, run with `extra` arguments if any.
+export async function openShell(profile: Profile, settings: Settings, cwd?: string, extra = ''): Promise<void> {
   ensureDirs(profile);
-  await openTerminal(shellScript(profile), { terminal: settings.terminal, cwd });
+  await openTerminal(shellScript(profile, extra), { terminal: settings.terminal, cwd });
 }
 
 export function revealDir(profile: Profile): Promise<unknown> {

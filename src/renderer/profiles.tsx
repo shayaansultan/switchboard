@@ -8,9 +8,11 @@ import {
   act,
   ago,
   clock,
+  planOf,
   relShort,
   relTime,
   severityClass,
+  shownPct,
   type BucketAccount,
   type BucketView,
   type Identity,
@@ -232,7 +234,6 @@ function IdentityBlock({
 }) {
   const { openMenu } = useOverlays();
   const id: Partial<Identity> = p.identity ?? {};
-  const u: Usage = p.usage ?? {};
   // Nothing known yet (first launch, no cache): show placeholders, not
   // misleading "not signed in" text.
   const pending = !p.identity;
@@ -286,7 +287,7 @@ function IdentityBlock({
           )}
         </span>
         {pill && p.isDefault ? <Badge tone="mute">default dirs</Badge> : null}
-        {u.plan || id.plan ? <Badge>{u.plan || id.plan}</Badge> : null}
+        {planOf(p) ? <Badge>{planOf(p)}</Badge> : null}
         {pill ? (
           <StatusPill on={app === 'running'} tone={APP_UI[app].tone} dot={APP_UI[app].dot}>
             {APP_UI[app].label}
@@ -333,7 +334,7 @@ function IdentityBlock({
 function useMenuItems(p: ProfileView, state: State, rename: () => void): MenuItem[] {
   const { openSetup, newBucket } = useActions();
   const id: Partial<Identity> = p.identity ?? {};
-  const plan = p.usage?.plan || id.plan;
+  const plan = planOf(p);
   const who = [p.isDefault ? 'Default profile' : null, id.loggedIn ? id.email : 'not signed in', plan]
     .filter(Boolean)
     .join(' · ');
@@ -591,7 +592,7 @@ export function BucketSummary({ bucket, remaining }: { bucket: BucketView; remai
       pools.set(label, [...(pools.get(label) ?? []), { account, pct: w.pct, w }]);
     }
   }
-  const shown = (pct: number): number => (remaining ? 100 - pct : pct);
+  const shown = (pct: number): number => shownPct(pct, remaining);
   const who = (part: Part): string => part.account.email ?? part.account.name;
   const capacity = (part: Part): number => part.account.plan?.capacity ?? 1;
   const about = (part: Part): string =>

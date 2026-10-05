@@ -6,6 +6,7 @@ import {
   Menu,
   nativeImage,
   nativeTheme,
+  Notification,
   clipboard,
   dialog,
   powerMonitor,
@@ -26,11 +27,14 @@ import { AwakeController, isAwakeValue, macAwakeSystem } from './awake';
 import { barPng, meterPng, stripPng } from './trayart';
 import { composeTrayText, type TrayText } from './tray-status';
 import { PollingPause, type PauseReason } from './polling-pause';
-import { AppStates, START_DEADLINE_MS } from './app-state';
+import { AppStates, openAction, START_DEADLINE_MS } from './app-state';
 import { DesktopWatch } from './desktop-watch';
 import { installShim, launcherScript } from './shim';
 import { INSTALLED_APP } from './buckets/runtime';
 import { HOME } from './store';
+import { UsageHistory, type LedgerProfile, type LiveProfile } from './history';
+import { alertsFor } from './history/alerts';
+import { roomiest } from './history/windows';
 import type {
   AppState,
   CliStatus,
@@ -45,6 +49,7 @@ import type {
   SetupItemView,
   State,
   Store,
+  UsageWindow,
   Vendor,
 } from './types';
 
@@ -163,6 +168,93 @@ function saveCache(): void {
   }
 }
 loadCache();
+
+// ---- usage history ----
+// Every fresh reading of a profile's windows is kept (see history/windows.ts)
+// and checked for alerts, and each refresh reads what the profiles' agent
+// logs gained since the last (history/ledger.ts). The Usage tab asks for a
+// report and is told when there is something new to ask for.
+const history = new UsageHistory();
+const alertBaseline = new Map<string, UsageWindow[]>();
+
+function profileLabel(p: Profile): string {
+  return `${profiles.VENDORS[p.vendor].label} · ${p.name}`;
+}
+
+// A profile's windows as last read just now: not from the cache, not failed.
+function freshWindows(id: string): UsageWindow[] | undefined {
+  const u = live.get(id)?.usage;
+  return u?.windows && !u.stale && !u.error ? u.windows : undefined;
+}
+
+// Which account a profile is signed in to, so two profiles on one account
+// are not suggested as each other's alternative or alerted on twice.
+function accountOf(id: string): string | undefined {
+  const who = live.get(id)?.identity;
+  return who?.email ? `${who.email}\n${who.org ?? ''}` : undefined;
+}
+
+function liveProfiles(): LiveProfile[] {
+  return data.profiles.map((p) => {
+    const windows = live.get(p.id)?.usage?.windows;
+    return { id: p.id, vendor: p.vendor, windows, stale: !freshWindows(p.id), account: accountOf(p.id) };
+  });
+}
+
+function ledgerProfiles(): LedgerProfile[] {
+  return data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, home: profiles.dirs(p).home }));
+}
+
+function usageChanged(): void {
+  if (win && !win.isDestroyed()) win.webContents.send('usage:changed');
+}
+
+// A poll or a refresh of one profile is a reason to read the logs, but not
+// more than once a minute; opening the Usage tab asks the same.
+const INDEX_GAP_MS = 60_000;
+
+async function indexUsage(): Promise<void> {
+  try {
+    if (await history.index(ledgerProfiles(), INDEX_GAP_MS)) usageChanged();
+  } catch {
+    /* history is a nicety; the next refresh tries again */
+  }
+}
+
+function recordUsage(list: Profile[]): void {
+  const fresh = new Map<string, UsageWindow[]>();
+  let wrote = false;
+  for (const p of list) {
+    const windows = freshWindows(p.id);
+    if (!windows) continue;
+    fresh.set(p.id, windows);
+    try {
+      wrote = history.windows.record(p.id, windows) || wrote;
+    } catch {
+      /* as above */
+    }
+  }
+  if (data.settings.usageAlerts !== false && Notification.isSupported()) {
+    // An account whose last reading failed or came from the cache is not
+    // suggested: its room may be long gone.
+    const current = new Map<string, UsageWindow[]>();
+    for (const p of data.profiles) {
+      const windows = freshWindows(p.id);
+      if (windows) current.set(p.id, windows);
+    }
+    const all = data.profiles.map((p) => ({
+      id: p.id,
+      vendor: p.vendor,
+      label: profileLabel(p),
+      account: accountOf(p.id),
+    }));
+    for (const a of alertsFor(alertBaseline, current, all, new Set(fresh.keys())))
+      new Notification({ title: a.title, body: a.body }).show();
+  }
+  for (const [id, windows] of fresh) alertBaseline.set(id, windows);
+  if (wrote) usageChanged();
+  void indexUsage();
+}
 
 // ---- store shared with the CLI ----
 // The CLI writes profiles.json directly. A foreign write arrives here through
@@ -360,6 +452,20 @@ async function showApp(p: Profile): Promise<void> {
   desktopWatch.poke();
 }
 
+// The app in front, whatever it is doing now: see openAction.
+async function openApp(p: Profile): Promise<void> {
+  const state = appStates.get(p.id);
+  const action = openAction(state, { helper: !!helper, isDefault: p.isDefault, routed: !!p.proxyBucket });
+  if (action === 'launch') return launchApp(p);
+  if (action === 'show') return showApp(p);
+  if (action === null) {
+    const app = `${profiles.VENDORS[p.vendor].label} for "${p.name}"`;
+    if (state === 'quitting') throw new Error(`${app} is still quitting. Open it once it has.`);
+    if (state === 'stalled') throw new Error(`${app} has not quit. Force quit it from Profiles first.`);
+    throw new Error(`${app} is already open. Switch to it from the Dock.`);
+  }
+}
+
 // Resolves once the app is gone or has passed the deadline; a stalled app is
 // shown as such, with Force quit, rather than reported as an error.
 async function quitApp(p: Profile, force = false): Promise<void> {
@@ -422,6 +528,7 @@ async function refreshAll(onlyId?: string, force = false): Promise<void> {
   const list = onlyId ? data.profiles.filter((p) => p.id === onlyId) : data.profiles;
   await Promise.all(list.map((p) => refreshProfile(p, force).catch(() => {})));
   saveCache();
+  recordUsage(list);
   broadcast();
 }
 
@@ -596,7 +703,16 @@ function rebuildTray(): void {
   });
   items.push({ type: 'separator' });
   for (const vendor of profiles.VENDOR_IDS) {
-    items.push({ label: profiles.VENDORS[vendor].label, enabled: false });
+    // Where to go next: the account whose fullest window is emptiest.
+    const room = roomiest(liveProfiles(), vendor, Date.now());
+    const roomName = data.profiles.find((p) => p.id === room?.profile)?.name;
+    items.push({
+      label:
+        room && roomName && data.profiles.filter((p) => p.vendor === vendor).length > 1
+          ? `${profiles.VENDORS[vendor].label} · most room: ${roomName}, ${100 - room.pct}% left`
+          : profiles.VENDORS[vendor].label,
+      enabled: false,
+    });
     for (const p of data.profiles.filter((x) => x.vendor === vendor)) {
       const s = live.get(p.id) ?? {};
       const windows = s.usage?.windows ?? [];
@@ -832,6 +948,64 @@ ipcMain.handle('buckets:account', async (event, id: string, name: unknown, enabl
   }
 });
 
+ipcMain.handle('usage:report', (event, days: unknown) => {
+  validateSender(event);
+  void indexUsage();
+  return history.report(liveProfiles(), z.number().int().min(1).max(366).parse(days));
+});
+// Session ids are UUIDs (Claude Code) or rollout ids (Codex). The shape is
+// checked as well as the ledger, so an id never reads as a CLI option.
+const SESSION_ID = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/);
+// A session the ledger knows. Paths stay here: errors that reach the
+// renderer never carry one.
+function sessionFor(profileId: unknown, sessionId: unknown) {
+  const p = byId(z.string().parse(profileId));
+  const id = SESSION_ID.parse(sessionId);
+  const s = history.session(p.id, id);
+  if (!s) throw new Error('That session is no longer in the usage history.');
+  return { p, s, id };
+}
+// Resuming and showing the transcript both need the log file still there.
+function requireLog(p: Profile, file: string): void {
+  if (fs.existsSync(file)) return;
+  throw new Error(
+    p.vendor === 'claude'
+      ? 'The transcript has been deleted since, as Claude Code does after 30 days.'
+      : 'The rollout file has been deleted since.',
+  );
+}
+function isFolder(dir: string | null): dir is string {
+  try {
+    return !!dir && fs.statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+ipcMain.handle('usage:resume', async (event, profileId: unknown, sessionId: unknown) => {
+  validateSender(event);
+  const { p, s, id } = sessionFor(profileId, sessionId);
+  requireLog(p, s.file);
+  try {
+    await launch.openShell(p, data.settings, isFolder(s.cwd) ? s.cwd : undefined, launch.resumeArgs(p, id));
+  } catch {
+    throw new Error(
+      'The terminal could not be opened. Check that Switchboard may control it in System Settings › Privacy & Security › Automation.',
+    );
+  }
+});
+// Both are revealed in Finder, never opened: the paths come from log files,
+// and opening a bundle runs it.
+ipcMain.handle('usage:open', (event, profileId: unknown, sessionId: unknown, what: unknown) => {
+  validateSender(event);
+  const { p, s } = sessionFor(profileId, sessionId);
+  if (z.enum(['folder', 'transcript']).parse(what) === 'transcript') {
+    requireLog(p, s.file);
+    return shell.showItemInFolder(s.file);
+  }
+  if (!isFolder(s.cwd)) throw new Error('That folder no longer exists.');
+  shell.showItemInFolder(s.cwd);
+});
+
 ipcMain.handle('state:get', () => {
   noteInteraction();
   return stateSnapshot();
@@ -955,6 +1129,10 @@ ipcMain.handle('app:launch', (_e, id: string) => launchApp(byId(id)));
 ipcMain.handle('app:quit', (_e, id: string) => quitApp(byId(id)));
 ipcMain.handle('app:forceQuit', (_e, id: string) => quitApp(byId(id), true));
 ipcMain.handle('app:show', (_e, id: string) => showApp(byId(id)));
+ipcMain.handle('app:open', (event, id: unknown) => {
+  validateSender(event);
+  return openApp(byId(z.string().parse(id)));
+});
 // Accessibility, asked of macOS as Switchboard itself. Its helper inherits
 // the answer, because macOS attributes a child process to the app that
 // started it. 'request' shows macOS's dialog, but only the first time: once

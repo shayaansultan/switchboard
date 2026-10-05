@@ -397,6 +397,16 @@ test('a Default profile is launched untouched, with no redirection', () => {
   expect(launch.launchArgs(claudeSource(), true)).toEqual(['-a', profiles.VENDORS.claude.appPath]);
 });
 
+test('resuming a session runs the vendor CLI inside the profile', () => {
+  const data = profiles.load();
+  const claude = profiles.add(data, { vendor: 'claude', name: 'Resume' }).profile;
+  const codex = profiles.add(data, { vendor: 'codex', name: 'Resume' }).profile;
+  expect(launch.shellScript(claude, launch.resumeArgs(claude, "abc'1"))).toBe(
+    `export CLAUDE_CONFIG_DIR='${profiles.dirs(claude).home}'; claude --resume 'abc'\\''1'`,
+  );
+  expect(launch.resumeArgs(codex, 'thread-1')).toBe("resume 'thread-1'");
+});
+
 // ---- Codex project grouping ----
 // The desktop app's sidebar state lives in .codex-global-state.json next to
 // the sessions. Only the keys that place threads may travel; the rest of that
