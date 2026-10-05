@@ -59,6 +59,13 @@ A rate-limit window of an account: the 5-hour or 7-day allowance, sometimes
 scoped to one model. A window has a percentage used and a time at which it
 resets. The ring on a profile shows its fullest window.
 
+## Profile band
+
+The bar in a profile's colour that Switchboard has every Code session of a
+Claude profile's app draw above the prompt: the profile's name, its plan and
+how much of its windows is left. The Default profile's app has none. Call it
+the profile band, not a banner or a header.
+
 ## Plan
 
 The subscription tier of an account, with its capacity relative to the

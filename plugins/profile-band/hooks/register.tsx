@@ -1,11 +1,12 @@
 // A Claude Code mod that Switchboard passes to every Claude profile it
 // launches (CLAUDE_CODE_PLUGIN_DIRS, see src/launch.ts). It fills the band
 // above the prompt with the profile's colour: its name and plan on the left,
-// how much of its 5-hour and 7-day rate limits is left on the right, so a
-// window's profile, and whether it has room for more work, can be spotted from
-// across the screen. The limits come from `switchboard usage`, which answers
-// from Switchboard's cache, every few minutes. The Default profile is launched
-// without the variables and draws nothing.
+// how much of its 5-hour and 7-day rate limits is left on the right, so which
+// profile an app belongs to, and whether it has room for more work, can be
+// spotted from across the screen. The limits come from `switchboard usage`
+// every five minutes: Switchboard's cache, fetched live when that is over 15
+// minutes old, and never renewing the sign-in this session is using. The
+// Default profile is launched without the variables and draws nothing.
 
 import { atom, read, update } from 'claude-code';
 import type { EngineInterface, Register } from 'claude-code';
@@ -87,7 +88,7 @@ export const register: Register = (on) => {
 
     const refresh = async () => {
       try {
-        const { exitCode, stdout } = await $.process.run([command, 'usage', id, '--max-age', '15m'], {
+        const { exitCode, stdout } = await $.process.run([command, 'usage', id, '--max-age', '15m', '--no-renew'], {
           timeoutMs: 20000,
         });
         if (exitCode !== 0) return;
@@ -122,7 +123,9 @@ export const register: Register = (on) => {
     const windows = (u?.windows ?? []).map((w) => {
       const left = `${w.label} ${w.remaining}% left`;
       const reset = w.label === '5h' ? until(w.resetsAt, now) : null;
-      return { key: w.label, text: reset ? `${left} · resets in ${reset}` : left, isLow: w.severity !== 'normal' };
+      // Low as Switchboard's own window colours it: warned, or 70% used.
+      const isLow = w.severity === 'warning' || w.severity === 'critical' || w.remaining <= 30;
+      return { key: w.label, text: reset ? `${left} · resets in ${reset}` : left, isLow };
     });
     // Narrow windows drop the limits first, then the plan, never the name.
     const room = e.props.bodyColumns - 2 - p.name.length;

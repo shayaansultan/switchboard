@@ -28,7 +28,7 @@ const USAGE = JSON.stringify({
         plan: 'Max 20x',
         windows: [
           { label: '5h', remaining: 12, resetsAt: '2026-10-05T09:30:00Z', severity: 'warning' },
-          { label: '7d', remaining: 71, resetsAt: '2026-10-09T18:00:00Z', severity: 'normal' },
+          { label: '7d', remaining: 71, resetsAt: '2026-10-09T18:00:00Z', severity: null },
           { label: '7d Fable', remaining: 100, resetsAt: '2026-10-09T18:00:00Z', severity: 'normal' },
         ],
       },
@@ -49,7 +49,7 @@ for (const surface of SURFACES) {
     mock.env(on, ENV);
     const clock = mock.clock(on, { now: NOW });
     on('process.run', (_, e) => {
-      expect(e.argv).toEqual(['/bin/switchboard', 'usage', 'claude-answerthis', '--max-age', '15m']);
+      expect(e.argv).toEqual(['/bin/switchboard', 'usage', 'claude-answerthis', '--max-age', '15m', '--no-renew']);
       return { value: RAN };
     });
     on('session.start', (_, e) => ({ cwd: e.cwd }));
@@ -64,7 +64,7 @@ for (const surface of SURFACES) {
     });
     expect(await ui.find({ type: 'Text', text: 'Max 20x' })).toBeDefined();
     expect((await ui.find({ type: 'Text', text: '5h 12% left · resets in 2h 30m' }))?.props.bold).toBe(true);
-    expect(await ui.find({ type: 'Text', text: '7d 71% left' })).toBeDefined();
+    expect((await ui.find({ type: 'Text', text: '7d 71% left' }))?.props.bold).toBe(false);
     expect(await ui.find({ text: 'Fable' })).toBeUndefined();
   });
 

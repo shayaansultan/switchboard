@@ -6,6 +6,7 @@
 
 const { test, expect, beforeEach, afterEach } = require('bun:test');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const { sandboxHome: SANDBOX } = require('./setup');
@@ -424,6 +425,17 @@ test('the Default profile, a Codex profile and a build without the plugin get no
   expect(launch.profileBandEnvironment(claudeSource(), '/plugins/profile-band')).toEqual({});
   expect(launch.profileBandEnvironment(codex, '/plugins/profile-band')).toEqual({});
   expect(launch.profileBandEnvironment(claude, null)).toEqual({});
+});
+
+test("the band runs only Switchboard's own launcher, never a foreign one", () => {
+  const file = path.join(os.homedir(), '.local', 'bin', 'switchboard');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '#!/bin/sh\nexec something-else "$@"\n');
+  expect(launch.switchboardCommand()).toBeNull();
+  fs.writeFileSync(file, '#!/bin/sh\n# Switchboard CLI launcher\nexec switchboard "$@"\n');
+  expect(launch.switchboardCommand()).toBe(file);
+  fs.rmSync(file);
+  expect(launch.switchboardCommand()).toBeNull();
 });
 
 test('a checkout finds the band plugin it ships', () => {

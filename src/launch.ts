@@ -208,7 +208,7 @@ export function appEventsHelper(): string | null {
 
 // A Claude Code mod that fills the band above the prompt with the profile's
 // colour, its name and plan, and how much of its rate limits is left, so two
-// Claude windows can be told apart at a glance. Claude Code reads it from
+// Claude apps on different profiles can be told apart at a glance. Claude Code reads it from
 // disk, so like the helper above it is unpacked beside app.asar. Null when
 // this build has no copy.
 export function profileBandPlugin(): string | null {
@@ -219,17 +219,23 @@ export function profileBandPlugin(): string | null {
 }
 
 // The `switchboard` command the band asks for rate limits, by full path: the
-// desktop app's sessions do not get a login shell's PATH. Null when the
-// command is not installed, and the band then shows no limits.
+// desktop app's sessions do not get a login shell's PATH. Only Switchboard's
+// own launcher counts (shim.ts writes it with this comment line), so a foreign
+// file at that path is never run. Null otherwise, and the band then shows no
+// limits.
 export function switchboardCommand(): string | null {
   const file = path.join(os.homedir(), '.local', 'bin', 'switchboard');
-  return fs.existsSync(file) ? file : null;
+  try {
+    return fs.readFileSync(file, 'utf8').split('\n')[1]?.startsWith('# Switchboard CLI launcher') ? file : null;
+  } catch {
+    return null;
+  }
 }
 
 // What a Claude profile's desktop app is launched with so the mod can name
 // it. `open --env` hands these to the app, which passes them to every Code
-// session it starts. The Default profile gets nothing: it is the unmarked
-// window. Name and colour are read at launch, so a rename or recolour shows
+// session it starts. The Default profile gets nothing: its app is the
+// unmarked one. Name and colour are read at launch, so a rename or recolour shows
 // after the next launch.
 export function profileBandEnvironment(
   profile: Profile,
