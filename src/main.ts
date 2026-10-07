@@ -18,6 +18,8 @@ import * as path from 'node:path';
 import * as profiles from './profiles';
 import * as launch from './launch';
 import * as usage from './usage';
+import { prepareUsageReset, type ResetSession } from './usage-resets';
+import { prepareBucketUsageReset } from './buckets/usage-resets';
 import * as buckets from './buckets';
 import { shellQuote } from './shell';
 import { writeJson } from './storage';
@@ -846,6 +848,76 @@ ipcMain.handle('state:measure', async () => {
     broadcast();
   }
   return stateSnapshot();
+});
+// One reset flow at a time, including profiles sharing the same account.
+let resetDialogOpen = false;
+async function showUsageResets(name: string, prepare: () => Promise<ResetSession>, refresh: () => Promise<void>) {
+  if (resetDialogOpen) throw new Error('A usage-reset dialog is already open.');
+  resetDialogOpen = true;
+  const show = (options: Electron.MessageBoxOptions) =>
+    win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options);
+  try {
+    const session = await prepare();
+    const usable = session.offers.filter((offer) => offer.usable);
+    const list = session.offers
+      .map(
+        (offer) =>
+          `${offer.usable ? `${usable.indexOf(offer) + 1}. ` : ''}${offer.title}${offer.usable ? '' : ' (not usable now)'}\n${offer.detail}`,
+      )
+      .join('\n\n');
+    const pick = await show({
+      type: 'info',
+      title: 'Usage resets',
+      message: `${name} · ${session.account}`,
+      detail: [list || 'No reset grants are available.', session.note].join('\n\n'),
+      buttons: [...usable.map((_, i) => `Use reset ${i + 1}…`), 'Close'],
+      defaultId: usable.length,
+      cancelId: usable.length,
+    });
+    const offer = usable[pick.response];
+    if (!offer) return;
+    const confirmation = await show({
+      type: 'warning',
+      title: 'Confirm usage reset',
+      message: `Use “${offer.title}” for ${session.account}?`,
+      detail: `${offer.detail}\n\nThis spends one reset and cannot be undone. It applies to this account across apps. It does not buy credits or change your subscription.`,
+      buttons: ['Use reset', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    if (confirmation.response !== 0) return;
+    let message: string;
+    try {
+      message = (await session.redeem(offer.id)).message;
+    } finally {
+      await refresh();
+    }
+    await show({ type: 'info', title: 'Usage reset result', message, buttons: ['OK'] });
+  } finally {
+    resetDialogOpen = false;
+  }
+}
+ipcMain.handle('usage:resets', async (event, input: unknown) => {
+  validateSender(event);
+  const p = byId(z.string().parse(input));
+  await showUsageResets(
+    p.name,
+    () => prepareUsageReset(p),
+    () => refreshAll(p.id, true),
+  );
+});
+ipcMain.handle('buckets:usageResets', async (event, input: unknown, account: unknown) => {
+  validateSender(event);
+  const bucket = buckets.load(z.string().parse(input));
+  const name = z.string().min(1).parse(account);
+  await showUsageResets(
+    bucket.name,
+    () => prepareBucketUsageReset(bucket.id, name),
+    async () => {
+      await refreshBuckets();
+      broadcast();
+    },
+  );
 });
 ipcMain.handle('state:refresh', async (_e, id?: string) => {
   noteInteraction();

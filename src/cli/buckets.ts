@@ -14,6 +14,7 @@ import { notFound, refused, table, usageError } from './output';
 import { assertNotRunning, instances } from './desktop';
 import { loadBucket } from './profiles';
 import { confirm, mutateStore } from './resolve';
+import { resetsCommand } from './resets';
 
 const SUBCOMMANDS = z.enum([
   'list',
@@ -22,6 +23,7 @@ const SUBCOMMANDS = z.enum([
   'start',
   'stop',
   'refresh',
+  'resets',
   'login',
   'enable',
   'disable',
@@ -49,6 +51,8 @@ export async function bucketCommand(rest: string[], ctx: Context): Promise<numbe
   const sub = parsed.data;
   const args = rest.slice(1);
   switch (sub) {
+    case 'resets':
+      return resetsCommand(args, ctx, true);
     case 'list': {
       const all = await buckets.snapshot();
       ctx.out.result({ buckets: all }, () => table(all.map(summarize), ['id', 'name', 'status', 'accounts']));

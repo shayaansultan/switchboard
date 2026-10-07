@@ -180,6 +180,8 @@ function AccountRow({
           tip={['More']}
           onClick={(e) =>
             openMenu(e.currentTarget as HTMLElement, [
+              { label: 'Usage resets…', run: () => window.sb.bucketUsageResets(bucket.id, account.name) },
+              'separator',
               ...(account.problem
                 ? [
                     {
