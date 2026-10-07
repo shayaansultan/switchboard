@@ -69,10 +69,18 @@ export async function prepareBucketUsageReset(id: string, name: string): Promise
       const refreshed = await control(id, 'refresh-account', name);
       const observed = refreshed?.accounts.find((account) => account.name === name);
       if (observed?.status === 'cooldown')
-        return ' Its proxy cooldown was cleared. The vendor rate-limited the usage recheck, so usage and routing weight will refresh later. Paused accounts remain paused.';
+        return {
+          status: 'deferred',
+          message:
+            ' Its proxy cooldown was cleared. The vendor rate-limited the usage recheck, so usage and routing weight will refresh later. Paused accounts remain paused.',
+        };
       if (!observed || !['fresh', 'disabled'].includes(observed.status))
         throw new Error('The worker could not refresh the reset account.');
-      return ' Its proxy cooldown was cleared and usage and routing weight were refreshed. Paused accounts remain paused.';
+      return {
+        status: 'refreshed',
+        message:
+          ' Its proxy cooldown was cleared and usage and routing weight were refreshed. Paused accounts remain paused.',
+      };
     },
   });
   return {

@@ -51,7 +51,21 @@ export interface ResetSession {
   account: string;
   offers: ResetOffer[];
   note: string;
-  redeem(id: string): Promise<string>;
+  redeem(id: string): Promise<ResetResult>;
+}
+export interface ResetResult {
+  outcome:
+    | 'reset'
+    | 'already_used'
+    | 'not_limited'
+    | 'cooldown'
+    | 'ineligible'
+    | 'unavailable'
+    | 'nothing_to_reset'
+    | 'no_credit'
+    | 'already_redeemed';
+  proxyRecovery: 'not-needed' | 'refreshed' | 'deferred' | 'unconfirmed';
+  message: string;
 }
 
 async function json(url: string, headers: Record<string, string>, body?: unknown): Promise<unknown> {
@@ -107,7 +121,7 @@ export interface ResetAccount {
   accountId?: string;
   request(url: string, headers: Record<string, string>, body?: unknown): Promise<unknown>;
   validate(): Promise<void>;
-  afterReset?(): Promise<string>;
+  afterReset?(): Promise<{ status: 'refreshed' | 'deferred'; message: string }>;
 }
 
 export async function prepareUsageReset(profile: Profile): Promise<ResetSession> {
@@ -144,11 +158,19 @@ export async function prepareUsageReset(profile: Profile): Promise<ResetSession>
 
 export async function prepareAccountReset(connection: ResetAccount): Promise<ResetSession> {
   const request = connection.request;
-  const afterReset = async () => {
+  const resultWithRecovery = async (outcome: ResetResult['outcome'], message: string): Promise<ResetResult> => {
+    if (outcome !== 'reset' || !connection.afterReset) return { outcome, message, proxyRecovery: 'not-needed' };
     try {
-      return connection.afterReset ? await connection.afterReset() : '';
+      const recovery = await connection.afterReset();
+      return { outcome, message: message + recovery.message, proxyRecovery: recovery.status };
     } catch {
-      return ' The vendor reset succeeded, but proxy recovery could not be confirmed. Refresh the bucket before spending another reset.';
+      return {
+        outcome,
+        proxyRecovery: 'unconfirmed',
+        message:
+          message +
+          ' The vendor reset succeeded, but proxy recovery could not be confirmed. Refresh the bucket before spending another reset.',
+      };
     }
   };
   if (connection.vendor === 'claude') {
@@ -253,7 +275,7 @@ export async function prepareAccountReset(connection: ResetAccount): Promise<Res
           ineligible: 'Claude reports this account is no longer eligible.',
           unavailable: 'Claude could not confirm a reset. Check its Usage page before trying again.',
         };
-        return messages[result.result] + (result.result === 'reset' ? await afterReset() : '');
+        return resultWithRecovery(result.result, messages[result.result]);
       },
     };
   }
@@ -294,7 +316,7 @@ export async function prepareAccountReset(connection: ResetAccount): Promise<Res
         no_credit: 'ChatGPT reports no reset credit is available.',
         already_redeemed: 'ChatGPT reports this credit was already redeemed.',
       };
-      return messages[response.code] + (response.code === 'reset' ? await afterReset() : '');
+      return resultWithRecovery(response.code, messages[response.code]);
     },
   };
 }

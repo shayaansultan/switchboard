@@ -47,7 +47,7 @@ Read
   switchboard usage [PROFILE...] [--vendor V] [--max-age 15m | --refresh] [--no-renew]
   switchboard pick VENDOR [--window 5h|7d|LABEL] [--max-age 15m] [--min-headroom N]
   switchboard resets PROFILE [--redeem GRANT_ID --yes]
-                                            List or spend native-account reset grants
+                                            List native grants (spends with --redeem)
   switchboard running                         Desktop windows and which profile owns each
   switchboard setup-items VENDOR              What add --from and bring-over can carry
   switchboard doctor                          Installed apps, CLIs, proxy, store and cache health

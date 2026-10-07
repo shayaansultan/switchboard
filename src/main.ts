@@ -888,7 +888,7 @@ async function showUsageResets(name: string, prepare: () => Promise<ResetSession
     if (confirmation.response !== 0) return;
     let message: string;
     try {
-      message = await session.redeem(offer.id);
+      message = (await session.redeem(offer.id)).message;
     } finally {
       await refresh();
     }

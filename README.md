@@ -109,9 +109,9 @@ switchboard bucket resets BUCKET ACCOUNT --redeem GRANT_ID --yes
 ```
 
 Results are JSON by default; add `--human` for readable output. Without `--yes`,
-redemption prompts in a terminal and refuses in noninteractive calls. A result's
-`message` reports the vendor outcome; an exit of zero alone does not mean quota
-was reset. Run `switchboard usage PROFILE --refresh` for fresh native usage.
+redemption prompts in a terminal and refuses in noninteractive calls. Check the JSON `outcome` for the vendor result and `proxyRecovery` for
+`not-needed`, `refreshed`, `deferred` or `unconfirmed`. An exit of zero alone
+does not mean quota was reset. Run `switchboard usage PROFILE --refresh` for fresh native usage.
 `bun run test:usage-resets` runs the isolated app and proxy worker integration checks.
 
 ## Is the app running?

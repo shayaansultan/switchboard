@@ -148,7 +148,7 @@ for (const vendor of ['claude', 'codex']) {
     const session = await prepareBucketUsageReset(bucket.id, account.name);
     expect(requests.some((r) => r.body?.method === 'POST' || r.path.endsWith('reset-quota'))).toBe(false);
     const result = await session.redeem(session.offers[0]!.id);
-    expect(result).toContain('proxy cooldown was cleared');
+    expect(result.message).toContain('proxy cooldown was cleared');
     const writes = requests.filter(
       (r) => r.body?.method === 'POST' || r.path.endsWith('reset-quota') || r.path.startsWith('/refresh-account'),
     );
@@ -178,13 +178,13 @@ test('worker replacement invalidates a prepared reset', async () => {
 test('no-credit outcome never clears local proxy limits', async () => {
   outcome = 'no_credit';
   const session = await prepareBucketUsageReset(bucket.id, account.name);
-  expect(await session.redeem('credit-one')).toContain('no reset credit');
+  expect((await session.redeem('credit-one')).message).toContain('no reset credit');
   expect(requests.some((r) => r.path.endsWith('reset-quota'))).toBe(false);
 });
 test('proxy recovery failure reports the vendor success separately and does not redeem again', async () => {
   failRecovery = true;
   const session = await prepareBucketUsageReset(bucket.id, account.name);
-  expect(await session.redeem('credit-one')).toContain('vendor reset succeeded, but proxy recovery');
+  expect((await session.redeem('credit-one')).message).toContain('vendor reset succeeded, but proxy recovery');
   expect(requests.filter((r) => r.body?.method === 'POST')).toHaveLength(1);
 });
 
@@ -201,9 +201,9 @@ test('a rate-limited recheck reports the confirmed cooldown clear without implyi
   refreshStatus = 'cooldown';
   const session = await prepareBucketUsageReset(bucket.id, account.name);
   const result = await session.redeem('credit-one');
-  expect(result).toContain('proxy cooldown was cleared');
-  expect(result).toContain('refresh later');
-  expect(result).not.toContain('recovery could not be confirmed');
+  expect(result.message).toContain('proxy cooldown was cleared');
+  expect(result.message).toContain('refresh later');
+  expect(result.message).not.toContain('recovery could not be confirmed');
   expect(requests.filter((r) => r.body?.method === 'POST')).toHaveLength(1);
 });
 
@@ -223,3 +223,19 @@ for (const vendor of ['claude', 'codex']) {
     expect(requests.some((r) => r.path.startsWith('/refresh-account'))).toBe(true);
   });
 }
+
+test('CLI reports a non-reset vendor outcome without prose parsing', async () => {
+  outcome = 'no_credit';
+  const result = await cli(
+    'bucket',
+    'resets',
+    bucket.id,
+    account.email.toUpperCase(),
+    '--redeem',
+    'credit-one',
+    '--yes',
+  );
+  expect(result.code).toBe(0);
+  expect(result.json()).toMatchObject({ outcome: 'no_credit', proxyRecovery: 'not-needed' });
+  expect(requests.some((r) => r.path.endsWith('reset-quota'))).toBe(false);
+});

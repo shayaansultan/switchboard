@@ -90,7 +90,7 @@ for (const vendor of ['claude', 'codex'] as const) {
     const session = await prepareUsageReset(profile(vendor));
     expect(session.offers).toHaveLength(1);
     expect(requests.every((r) => !r.body)).toBe(true);
-    expect(await session.redeem(session.offers[0]!.id)).toContain('confirmed');
+    expect((await session.redeem(session.offers[0]!.id)).message).toContain('confirmed');
     const posts = requests.filter((r) => r.body);
     expect(posts).toHaveLength(1);
     expect(posts[0]!.body).toMatchObject(
@@ -157,7 +157,7 @@ test('Claude gives the next spend of a multi-use grant a new request ID after a 
   grant.usable_now = true;
   handle = original;
   const next = await prepareUsageReset(profile('claude'));
-  expect(await next.redeem('launch-grant')).toContain('confirmed');
+  expect((await next.redeem('launch-grant')).message).toContain('confirmed');
   const posts = requests.filter((r) => r.body);
   expect(posts).toHaveLength(2);
   expect(posts[1]!.body!.request_id).not.toBe(posts[0]!.body!.request_id);
@@ -168,7 +168,7 @@ test('Claude unavailable is not called success and preserves the ID while the sp
   handle = (url, body) => (body ? { result: 'unavailable', reason: 'reset_unconfirmed' } : original(url, body));
   for (let i = 0; i < 2; i++) {
     const session = await prepareUsageReset(profile('claude'));
-    expect(await session.redeem('launch-grant')).toContain('could not confirm');
+    expect((await session.redeem('launch-grant')).message).toContain('could not confirm');
   }
   const posts = requests.filter((r) => r.body);
   expect(posts[0]!.body!.request_id).toBe(posts[1]!.body!.request_id);
@@ -190,7 +190,7 @@ test('Claude discards a completed pending spend when a fresh read sees a lower b
   grant.usable_now = true;
   handle = original;
   const toppedUp = await prepareUsageReset(profile('claude'));
-  expect(await toppedUp.redeem('launch-grant')).toContain('confirmed');
+  expect((await toppedUp.redeem('launch-grant')).message).toContain('confirmed');
   const posts = requests.filter((r) => r.body);
   expect(posts[1]!.body!.request_id).not.toBe(posts[0]!.body!.request_id);
 });

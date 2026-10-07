@@ -22,7 +22,8 @@ export async function resetsCommand(rest: string[], ctx: Context, bucket = false
     const worker = await control(target.bucketId, 'status');
     if (!worker?.ready) throw refused('bucket-stopped', 'Start the bucket before checking usage resets.');
     const matches = (await accounts(target.bucketId, worker.receipt.proxyPort)).filter(
-      (account) => account.name === target.accountName || account.email === target.accountName,
+      (account) =>
+        account.name === target.accountName || account.email?.toLowerCase() === target.accountName.toLowerCase(),
     );
     if (!matches.length) throw notFound('no-such-account', 'No matching account in this bucket.');
     if (matches.length > 1) throw usageError('Account is ambiguous; use its exact name from bucket show.');
@@ -43,6 +44,6 @@ export async function resetsCommand(rest: string[], ctx: Context, bucket = false
   const offer = session.offers.find((offer) => offer.id === values.redeem);
   if (!offer?.usable) throw refused('reset-unavailable', 'This grant is not available for redemption.');
   await confirm(ctx.flags, `Spend one “${offer.title}” reset for ${session.account}? This cannot be undone.`);
-  const message = await session.redeem(offer.id);
-  ctx.out.result({ target, account: session.account, grantId: offer.id, message }, () => message);
+  const result = await session.redeem(offer.id);
+  ctx.out.result({ target, account: session.account, grantId: offer.id, ...result }, () => result.message);
 }
