@@ -132,7 +132,7 @@ for (const vendor of ['claude', 'codex'] as const) {
 test('Claude respects the provider-selected next grant and paused status', async () => {
   grant.paused = true;
   const session = await prepareUsageReset(profile('claude'));
-  expect(session.offers[0]!.usable).toBe(false);
+  expect(session.offers[0]).toMatchObject({ usable: false, reason: 'Paused by Claude.' });
   await expect(session.redeem('other-grant')).rejects.toThrow('no longer usable');
   expect(requests.every((r) => !r.body)).toBe(true);
 });

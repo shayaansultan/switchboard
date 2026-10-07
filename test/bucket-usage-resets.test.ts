@@ -194,7 +194,7 @@ test('proxy recovery failure reports the vendor success separately and does not 
 test('older workers may show grants but cannot redeem until targeted refresh is supported', async () => {
   worker.supportsAccountRefresh = false;
   const session = await prepareBucketUsageReset(bucket.id, account.name);
-  expect(session.offers[0]!.usable).toBe(false);
+  expect(session.offers[0]).toMatchObject({ usable: false, reason: 'Restart this bucket to spend resets.' });
   expect(session.note).toContain('Restart this bucket');
   await expect(session.redeem('credit-one')).rejects.toThrow('Restart this bucket');
   expect(requests.some((r) => r.body?.method === 'POST')).toBe(false);

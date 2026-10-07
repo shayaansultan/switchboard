@@ -331,7 +331,7 @@ function IdentityBlock({
 // connection, the session, the files, and last the one that removes it).
 // The primary action never lives here.
 function useMenuItems(p: ProfileView, state: State, rename: () => void): MenuItem[] {
-  const { openSetup, newBucket } = useActions();
+  const { openSetup, newBucket, openResets } = useActions();
   const id: Partial<Identity> = p.identity ?? {};
   const plan = p.usage?.plan || id.plan;
   const who = [p.isDefault ? 'Default profile' : null, id.loggedIn ? id.email : 'not signed in', plan]
@@ -349,7 +349,7 @@ function useMenuItems(p: ProfileView, state: State, rename: () => void): MenuIte
       {
         label: p.proxyBucket ? 'Native account resets…' : 'Usage resets…',
         disabled: !id.loggedIn,
-        run: () => window.sb.usageResets(p.id),
+        run: () => openResets({ kind: 'profile', id: p.id }),
       },
       { label: id.loggedIn ? 'Sign in CLI again' : 'Sign in CLI', run: () => window.sb.login(p.id) },
     ],

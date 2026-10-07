@@ -202,6 +202,47 @@ export interface State {
   desktop: DesktopSupport;
 }
 
+// A usage reset a vendor has saved on an account, as the window and the CLI
+// see it. `detail` is the same facts as one line of prose for --human output.
+export interface ResetOffer {
+  id: string;
+  title: string;
+  detail: string;
+  usable: boolean;
+  // How many resets the grant holds, when the vendor counts them.
+  remaining: number | null;
+  expiresAt: string | null;
+  // What spending it restores, as a sentence.
+  clears: string;
+  // Why it cannot be spent now, when it cannot.
+  reason?: string;
+}
+export interface ResetResult {
+  outcome:
+    | 'reset'
+    | 'already_used'
+    | 'not_limited'
+    | 'cooldown'
+    | 'ineligible'
+    | 'unavailable'
+    | 'nothing_to_reset'
+    | 'no_credit'
+    | 'already_redeemed';
+  proxyRecovery: 'not-needed' | 'refreshed' | 'deferred' | 'unconfirmed';
+  message: string;
+}
+// Whose resets the dialog is showing: a profile's own sign-in, or one
+// account in a proxy bucket.
+export type ResetTarget = { kind: 'profile'; id: string } | { kind: 'bucket'; id: string; account: string };
+// What the window gets back when it opens the dialog. The main process keeps
+// the pinned account and credentials; `token` names that session for redeem.
+export interface ResetList {
+  token: string;
+  account: string;
+  note: string;
+  offers: ResetOffer[];
+}
+
 // The preload bridge, as `window.sb` in the renderer.
 export interface SwitchboardApi {
   setAwake(value: AwakeValue): Promise<void>;
@@ -220,8 +261,9 @@ export interface SwitchboardApi {
   removeBucketAccount(id: string, name: string): Promise<boolean>;
   measureSizes(): Promise<State>;
   refresh(id?: string): Promise<State>;
-  usageResets(id: string): Promise<void>;
-  bucketUsageResets(id: string, account: string): Promise<void>;
+  listResets(target: ResetTarget): Promise<ResetList>;
+  redeemReset(token: string, offerId: string): Promise<ResetResult>;
+  closeResets(token: string): Promise<void>;
   addProfile(p: AddOptions): Promise<{ profile: Profile; result: BringResult }>;
   removeProfile(id: string): Promise<boolean>;
   updateProfile(id: string, patch: { name?: string; color?: string }): Promise<void>;

@@ -14,6 +14,10 @@ export type ProfilesView = import('../types').ProfilesView;
 export type BucketView = import('../types').BucketView;
 export type BucketAccount = BucketView['accounts'][number];
 export type CliStatus = import('../types').CliStatus;
+export type ResetTarget = import('../types').ResetTarget;
+export type ResetList = import('../types').ResetList;
+export type ResetOffer = import('../types').ResetOffer;
+export type ResetResult = import('../types').ResetResult;
 
 export function relTime(iso: string | null): string {
   if (!iso) return '';

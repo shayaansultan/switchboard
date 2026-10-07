@@ -137,6 +137,7 @@ function AccountRow({
   remaining: boolean;
 }) {
   const { openMenu } = useOverlays();
+  const { openResets } = useActions();
   const off = account.status === 'disabled';
   const name = account.email ?? account.name;
   return (
@@ -180,7 +181,10 @@ function AccountRow({
           tip={['More']}
           onClick={(e) =>
             openMenu(e.currentTarget as HTMLElement, [
-              { label: 'Usage resets…', run: () => window.sb.bucketUsageResets(bucket.id, account.name) },
+              {
+                label: 'Usage resets…',
+                run: () => openResets({ kind: 'bucket', id: bucket.id, account: account.name }),
+              },
               'separator',
               ...(account.problem
                 ? [

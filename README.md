@@ -74,10 +74,14 @@ You can read them in the menu bar without opening the window.
 
 ## Can I use a saved usage reset?
 
-Choose **Usage resets…** in a signed-in profile’s menu or a bucket account’s menu. Switchboard checks the
-account for saved grants, shows their expiry and availability, and asks you to
-confirm before spending one. Closing either dialog spends nothing. After a
-request, it refreshes the usage bars and reports the provider’s result.
+Choose **Usage resets…** in a signed-in profile’s menu or a bucket account’s menu.
+A dialog opens in the window with the account’s current usage bars and each
+saved reset: how many are left, when it expires, which windows it clears, and
+why it can’t be used yet when it can’t. Pick one and choose **Use reset…** to
+see a confirmation that names the account and what will be spent; only
+**Use reset** on that screen spends it. Closing at any earlier point spends
+nothing. The last screen shows the provider’s answer beside the refreshed bars,
+with the old percentages struck through.
 
 Claude’s next eligible grant and ChatGPT’s Codex reset credits are supported.
 A routed profile labels its own action **Native account resets…**. To reset a
@@ -108,7 +112,8 @@ switchboard bucket resets BUCKET ACCOUNT
 switchboard bucket resets BUCKET ACCOUNT --redeem GRANT_ID --yes
 ```
 
-Results are JSON by default; add `--human` for readable output. Without `--yes`,
+Results are JSON by default; add `--human` for readable output. Each offer
+carries `remaining`, `expiresAt`, `clears` and, when it can’t be used, `reason`. Without `--yes`,
 redemption prompts in a terminal and refuses in noninteractive calls. Check the JSON `outcome` for the vendor result and `proxyRecovery` for
 `not-needed`, `refreshed`, `deferred` or `unconfirmed`. An exit of zero alone
 does not mean quota was reset. Run `switchboard usage PROFILE --refresh` for fresh native usage.

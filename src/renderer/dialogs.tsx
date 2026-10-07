@@ -1,5 +1,5 @@
 // The three dialogs: a new profile (or bringing things into one), settings,
-// and a new proxy bucket. Each is a native <dialog> shown modally while its
+// and a new proxy bucket, plus the Modal that resets.tsx shares. Each is a native <dialog> shown modally while its
 // `open` prop holds; the form inside is remounted on every open, so it always
 // starts from the current state.
 
@@ -8,14 +8,18 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { act, type BringMode, type ProfileView, type Settings, type State, type Vendor } from './lib';
 import { Btn, Icon, Switch } from './ui/primitives';
 
-function Modal({
+// `locked` keeps Escape from closing it while something it started is
+// still on its way.
+export function Modal({
   id,
   open,
+  locked = false,
   onClose,
   children,
 }: {
   id: string;
   open: boolean;
+  locked?: boolean;
   onClose: () => void;
   children: ComponentChildren;
 }) {
@@ -27,7 +31,15 @@ function Modal({
     if (!open && d.open) d.close();
   }, [open]);
   return (
-    <dialog id={id} ref={ref} onClose={onClose} onCancel={onClose}>
+    <dialog
+      id={id}
+      ref={ref}
+      onClose={onClose}
+      onCancel={(e) => {
+        e.preventDefault();
+        if (!locked) onClose();
+      }}
+    >
       {open ? children : null}
     </dialog>
   );

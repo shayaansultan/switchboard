@@ -158,7 +158,19 @@ export function Skeleton({ width }: { width: number }) {
 }
 
 // One usage window: label with its reset beside it, the bar, the number.
-export function Bar({ w, stale = false, remaining = false }: { w: UsageWindow; stale?: boolean; remaining?: boolean }) {
+// `was` is the used percentage before something changed it, struck through
+// beside the new one.
+export function Bar({
+  w,
+  stale = false,
+  remaining = false,
+  was,
+}: {
+  w: UsageWindow;
+  stale?: boolean;
+  remaining?: boolean;
+  was?: number;
+}) {
   const pct = w.pct ?? 0;
   const shown = remaining ? 100 - pct : pct;
   const passed = stale && !!w.resetsAt && Date.parse(w.resetsAt) <= Date.now();
@@ -174,6 +186,7 @@ export function Bar({ w, stale = false, remaining = false }: { w: UsageWindow; s
         <div class={`fill ${severityClass(w)}`} style={{ width: `${shown}%` }} />
       </div>
       <span class="pct" title={remaining ? `${pct}% used` : `${100 - pct}% left`}>
+        {was === undefined ? null : <s class="was">{remaining ? 100 - was : was}%</s>}
         {shown}%
       </span>
     </div>
