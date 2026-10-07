@@ -857,6 +857,9 @@ ipcMain.handle('state:measure', async () => {
 // dialog again replaces it and a redeem spends it, so a stale token can never
 // reach a vendor.
 let resets: { token: string; session: ResetSession; refresh: () => Promise<void>; busy: boolean } | null = null;
+// Each open bumps this; a prepare that finishes after a newer one started is
+// dropped rather than replacing the session the newer dialog will use.
+let resetsOpened = 0;
 const ResetTargetInput = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('profile'), id: z.string() }),
   z.object({ kind: z.literal('bucket'), id: z.string(), account: z.string().min(1) }),
@@ -866,6 +869,7 @@ ipcMain.handle('resets:list', async (event, input: unknown): Promise<ResetList> 
   const target = ResetTargetInput.parse(input);
   if (resets?.busy) throw new Error('A usage reset is being spent. Wait for its result.');
   resets = null;
+  const opened = ++resetsOpened;
   let session: ResetSession;
   let refresh: () => Promise<void>;
   if (target.kind === 'profile') {
@@ -880,6 +884,7 @@ ipcMain.handle('resets:list', async (event, input: unknown): Promise<ResetList> 
       broadcast();
     };
   }
+  if (opened !== resetsOpened) throw new Error('Usage resets were reopened. Use the newer dialog.');
   const token = randomUUID();
   resets = { token, session, refresh, busy: false };
   return { token, account: session.account, note: session.note, offers: session.offers };

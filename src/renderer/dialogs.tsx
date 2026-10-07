@@ -1,6 +1,6 @@
 // The three dialogs: a new profile (or bringing things into one), settings,
-// and a new proxy bucket, plus the Modal that resets.tsx shares. Each is a native <dialog> shown modally while its
-// `open` prop holds; the form inside is remounted on every open, so it always
+// and a new proxy bucket, plus the Modal that resets.tsx shares. Each is a
+// native <dialog> shown modally while its `open` prop holds; the form inside is remounted on every open, so it always
 // starts from the current state.
 
 import type { ComponentChildren } from 'preact';
@@ -9,7 +9,8 @@ import { act, type BringMode, type ProfileView, type Settings, type State, type 
 import { Btn, Icon, Switch } from './ui/primitives';
 
 // `locked` keeps Escape from closing it while something it started is
-// still on its way.
+// still on its way. Chromium may close a dialog anyway after repeated
+// Escapes, so a locked one that closes is shown again.
 export function Modal({
   id,
   open,
@@ -34,7 +35,11 @@ export function Modal({
     <dialog
       id={id}
       ref={ref}
-      onClose={onClose}
+      onClose={() => {
+        const d = ref.current;
+        if (locked && open && d && !d.open) d.showModal();
+        else onClose();
+      }}
       onCancel={(e) => {
         e.preventDefault();
         if (!locked) onClose();

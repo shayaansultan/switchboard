@@ -56,7 +56,7 @@ function Resets({
   const token = useRef<string | null>(null);
   const account = accountFor(state, target);
   // The bars as they were when the dialog opened, to show what a reset changed.
-  const [before] = useState(() => new Map((account?.windows ?? []).map((w) => [w.label, w.pct ?? 0])));
+  const [before] = useState(() => new Map((account?.windows ?? []).map((w) => [w.label, w.pct])));
 
   useEffect(() => {
     let live = true;
@@ -247,9 +247,13 @@ function Account({
   account: AccountInfo;
   state: State;
   email?: string;
-  before?: Map<string, number>;
+  before?: Map<string, UsageWindow['pct']>;
 }) {
   const remaining = state.settings.usageMode === 'remaining';
+  const was = (w: UsageWindow) => {
+    const old = before?.get(w.label);
+    return old != null && w.pct != null && old !== w.pct ? old : undefined;
+  };
   return (
     <div class="reset-account">
       <div class="head">
@@ -261,12 +265,7 @@ function Account({
       {account.windows.length ? (
         <div class={`bars ${before ? 'compare' : ''}`}>
           {account.windows.map((w) => (
-            <Bar
-              w={w}
-              remaining={remaining}
-              was={before?.get(w.label) !== w.pct ? before?.get(w.label) : undefined}
-              key={w.label}
-            />
+            <Bar w={w} remaining={remaining} was={was(w)} key={w.label} />
           ))}
         </div>
       ) : null}
@@ -303,10 +302,11 @@ function accountFor(state: State, target: ResetTarget): AccountInfo | null {
   const bucket = state.buckets?.find((b) => b.id === target.id);
   const a = bucket?.accounts.find((x) => x.name === target.account);
   if (!bucket || !a) return null;
+  const where = `${bucket.name} · ${providerLabel(a)}`;
   return {
     name: a.email ?? a.name,
-    ident: `${bucket.name} · ${providerLabel(a)}`,
-    sub: `${bucket.name} · ${providerLabel(a)}`,
+    ident: where,
+    sub: where,
     plan: a.plan?.name,
     windows: a.windows,
   };

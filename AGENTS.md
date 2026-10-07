@@ -74,7 +74,9 @@ bun run cli -- list --human     # the CLI straight from source
   Tokens and credentials are read in the main process, used once, dropped.
 - Renderer buttons call the main process through `act()` in
   `src/renderer/lib.ts`, which handles the pending state and errors. Do not
-  call `window.sb` from a click handler directly.
+  call `window.sb` from a click handler directly. The one exception is a
+  dialog step that shows its own pending state and puts the error on screen,
+  as the usage-reset dialog does when a reset is spent.
 - Menus, tooltips and dialogs go through `src/renderer/ui/overlays.tsx`; do
   not add another positioning scheme.
 - Files open with a comment saying what the module is for and why it is
