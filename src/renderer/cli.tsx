@@ -8,6 +8,11 @@ import { Badge, Btn, Icon, Note, Panel, TipBtn } from './ui/primitives';
 const COMMANDS: { cmd: string; what: string }[] = [
   { cmd: 'switchboard list --human', what: 'Every profile, with its running state and signed-in account.' },
   { cmd: 'switchboard pick claude', what: 'Which Claude profile has the most room right now, and why.' },
+  { cmd: 'switchboard resets claude', what: 'Available reset grants for the native Claude account; spends nothing.' },
+  {
+    cmd: 'switchboard bucket resets BUCKET ACCOUNT',
+    what: 'Available reset grants for one proxy account; spends nothing.',
+  },
   { cmd: 'switchboard usage --refresh', what: 'Fresh rate-limit numbers for every profile.' },
   { cmd: 'switchboard exec claude/work -- claude', what: 'Run a command inside the Work profile.' },
   { cmd: 'eval "$(switchboard env claude/work)"', what: 'Move the current shell into a profile.' },
@@ -30,6 +35,8 @@ Choosing an account: \`switchboard pick claude\` (or codex) answers which accoun
 Running inside an account: \`switchboard exec PROFILE -- claude -p "..."\` runs any command with that profile's home in its environment; \`switchboard cli PROFILE ...\` prefixes the vendor's own CLI; \`eval "$(switchboard env PROFILE)"\` moves the current shell into the profile.
 
 Windows and buckets: \`launch\` and \`quit\` open and close a profile's desktop window. Proxy buckets are pools of accounts behind a local proxy that a Codex desktop profile can route through; \`switchboard bucket list\` shows each account's headroom.
+
+Usage resets: \`switchboard resets PROFILE\` lists native-account grants, even for a routed profile. \`switchboard bucket resets BUCKET ACCOUNT\` lists proxy-account grants; use an exact account name or unambiguous email. Listing spends nothing. Add --redeem GRANT_ID only when the person explicitly requests spending a reset; --yes confirms it without a terminal prompt. Read JSON outcome (reset confirms redemption), not just exit 0, and proxyRecovery (not-needed, refreshed, deferred or unconfirmed). A confirmed reset clears that account’s proxy cooldown and refreshes routing weight. Delayed recovery is not a reason to spend another reset. Older workers need a restart, with permission to interrupt routed clients. After an uncertain write, check the vendor Usage page before retrying; Switchboard retains the pending request ID.
 
 Leave to the person: \`remove\`, \`quit-others\` and \`bucket stop\` refuse without --yes and interrupt work or delete data, so pass --yes only when asked for exactly that. \`login\` opens an interactive sign-in the person completes; report not-signed-in and stop rather than retrying. Never edit profiles.json by hand.`;
 
