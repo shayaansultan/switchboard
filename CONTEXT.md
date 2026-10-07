@@ -71,3 +71,14 @@ the profile band, not a banner or a header.
 The subscription tier of an account, with its capacity relative to the
 vendor's base plan: Max 20x, Pro 20x, Business 5x, Team. Capacity sizes an
 account's share of a pooled bar and of a bucket's routing.
+
+## Usage reset
+
+A grant or credit issued by a vendor that restores usage before a window’s
+normal reset time. It belongs to an account, can expire, and is spent only
+after confirmation. It is separate from the time displayed beside a usage bar.
+
+A usage reset can target a native profile account or a proxy bucket account.
+After a confirmed reset of a bucket account, the proxy clears its local
+cooldown and Switchboard refreshes its routing weight. Clearing a proxy
+cooldown alone never restores a vendor's usage allowance.

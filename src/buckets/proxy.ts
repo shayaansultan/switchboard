@@ -71,7 +71,12 @@ const AccountUsage = z.object({
 });
 export type AccountUsage = z.infer<typeof AccountUsage>;
 
-const WorkerStatus = z.object({ receipt: Receipt, accounts: z.array(AccountUsage), ready: z.boolean() });
+const WorkerStatus = z.object({
+  receipt: Receipt,
+  accounts: z.array(AccountUsage),
+  ready: z.boolean(),
+  supportsAccountRefresh: z.boolean().optional(),
+});
 export type WorkerStatus = z.infer<typeof WorkerStatus>;
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -166,10 +171,10 @@ export function proxyConfig(id: string, port: number): string {
   return file;
 }
 
-async function management(
+export async function management(
   id: string,
   port: number,
-  endpoint: 'auth-files' | 'api-call' | 'auth-files/fields' | 'auth-files/status',
+  endpoint: 'auth-files' | 'api-call' | 'auth-files/fields' | 'auth-files/status' | 'reset-quota',
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = 'GET',
   body?: unknown,
   query?: Record<string, string>,
@@ -319,16 +324,23 @@ export function receipt(id: string): Receipt | undefined {
   const file = path.join(paths(id).runtime, 'worker.json');
   return fs.existsSync(file) ? Receipt.parse(readJson(file)) : undefined;
 }
-export async function control(id: string, action: 'status' | 'refresh' | 'stop'): Promise<WorkerStatus | undefined> {
+export async function control(
+  id: string,
+  action: 'status' | 'refresh' | 'stop' | 'refresh-account',
+  accountName?: string,
+): Promise<WorkerStatus | undefined> {
   const current = receipt(id);
   if (!current || current.profileId !== id) return undefined;
   let response: Response;
   try {
-    response = await fetch(`http://127.0.0.1:${current.controlPort}/${action}`, {
-      method: action === 'status' ? 'GET' : 'POST',
-      headers: { Authorization: `Bearer ${secrets(id).managementKey}`, 'X-Switchboard-Instance': current.instance },
-      signal: AbortSignal.timeout(action === 'refresh' ? 90000 : 3000),
-    });
+    response = await fetch(
+      `http://127.0.0.1:${current.controlPort}/${action}${accountName ? `?name=${encodeURIComponent(accountName)}` : ''}`,
+      {
+        method: action === 'status' ? 'GET' : 'POST',
+        headers: { Authorization: `Bearer ${secrets(id).managementKey}`, 'X-Switchboard-Instance': current.instance },
+        signal: AbortSignal.timeout(action === 'refresh' || action === 'refresh-account' ? 90000 : 3000),
+      },
+    );
   } catch {
     return undefined;
   }
@@ -517,8 +529,16 @@ async function serveWorker(id: string): Promise<void> {
     pid: process.pid,
     startedAt: new Date().toISOString(),
   };
-  const status = (): WorkerStatus => ({ receipt: worker, accounts: currentAccounts, ready: !exited && !stopping });
-  const refresh = (): Promise<void> => {
+  const status = (): WorkerStatus => ({
+    receipt: worker,
+    accounts: currentAccounts,
+    ready: !exited && !stopping,
+    supportsAccountRefresh: true,
+  });
+  const refresh = (resetAccount?: string): Promise<void> => {
+    // Wait for an in-flight poll, then force a new observation of just the
+    // reset account. Other accounts retain their vendor API backoff.
+    if (resetAccount && refreshPromise) return refreshPromise.then(() => refresh(resetAccount));
     refreshPromise ??= (async () => {
       const available = await accounts(id, proxyPort);
       const next: AccountUsage[] = [];
@@ -528,7 +548,7 @@ async function serveWorker(id: string): Promise<void> {
             id,
             proxyPort,
             account,
-            currentAccounts.find((item) => item.name === account.name),
+            account.name === resetAccount ? undefined : currentAccounts.find((item) => item.name === account.name),
           ),
         );
       currentAccounts = next;
@@ -550,12 +570,16 @@ async function serveWorker(id: string): Promise<void> {
       response.setHeader('Content-Type', 'application/json');
       response.end(JSON.stringify(status()));
     };
-    switch (`${request.method} ${request.url}`) {
+    const requestUrl = new URL(request.url ?? '/', 'http://localhost');
+    switch (`${request.method} ${requestUrl.pathname}`) {
       case 'GET /status':
         reply();
         break;
+      case 'POST /refresh-account':
       case 'POST /refresh':
-        void refresh()
+        void refresh(
+          requestUrl.pathname === '/refresh-account' ? (requestUrl.searchParams.get('name') ?? undefined) : undefined,
+        )
           .then(reply)
           .catch(() => {
             response.writeHead(502).end();

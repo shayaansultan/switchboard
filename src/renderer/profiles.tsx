@@ -346,6 +346,11 @@ function useMenuItems(p: ProfileView, state: State, rename: () => void): MenuIte
       : [],
     [
       { label: 'Refresh usage', run: () => window.sb.refresh(p.id) },
+      {
+        label: p.proxyBucket ? 'Native account resets…' : 'Usage resets…',
+        disabled: !id.loggedIn,
+        run: () => window.sb.usageResets(p.id),
+      },
       { label: id.loggedIn ? 'Sign in CLI again' : 'Sign in CLI', run: () => window.sb.login(p.id) },
     ],
     [

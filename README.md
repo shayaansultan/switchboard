@@ -72,6 +72,30 @@ as a window runs out.
 
 You can read them in the menu bar without opening the window.
 
+## Can I use a saved usage reset?
+
+Choose **Usage resets…** in a signed-in profile’s menu or a bucket account’s menu. Switchboard checks the
+account for saved grants, shows their expiry and availability, and asks you to
+confirm before spending one. Closing either dialog spends nothing. After a
+request, it refreshes the usage bars and reports the provider’s result.
+
+Claude’s next eligible grant and ChatGPT’s Codex reset credits are supported.
+A routed profile labels its own action **Native account resets…**. To reset a
+proxy account, use that account’s menu in **Proxy buckets**. The proxy supplies
+the selected account’s token; no native profile is required. After the vendor
+confirms a reset, Switchboard clears that account’s proxy cooldown, rechecks
+usage and updates its routing weight. Paused accounts stay paused. Other
+accounts keep their existing cooldowns. It never buys credits or changes a plan. A recent Claude CLI must be installed for Claude reset checks.
+
+Existing bucket workers need a restart after installing this feature. Until a
+worker supports the targeted refresh, its reset dialog shows grants but does
+not allow redemption. Switchboard does not restart an active bucket for you.
+
+These are private vendor interfaces and can change. Unknown responses stop
+the action; failed requests are never retried automatically. Pending request
+IDs are stored locally so an uncertain reply can be retried without spending
+a second reset. Check the vendor’s Usage page if a result is uncertain.
+
 ## Is the app running?
 
 Each profile shows whether its desktop app is running: a green dot in the list,

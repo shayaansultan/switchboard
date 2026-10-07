@@ -220,6 +220,8 @@ export interface SwitchboardApi {
   removeBucketAccount(id: string, name: string): Promise<boolean>;
   measureSizes(): Promise<State>;
   refresh(id?: string): Promise<State>;
+  usageResets(id: string): Promise<void>;
+  bucketUsageResets(id: string, account: string): Promise<void>;
   addProfile(p: AddOptions): Promise<{ profile: Profile; result: BringResult }>;
   removeProfile(id: string): Promise<boolean>;
   updateProfile(id: string, patch: { name?: string; color?: string }): Promise<void>;
