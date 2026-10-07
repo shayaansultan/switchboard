@@ -1,6 +1,7 @@
 // Exercise the built menu, preload and main-process confirmation path. Vendor
 // replies, credentials and native dialogs are simulated; no live reset is spent.
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -86,6 +87,26 @@ try {
   const page = await app.firstWindow();
   await page.waitForFunction(async () => (await window.sb?.getState())?.profiles.every((p) => p.identity?.loggedIn));
   page.on('dialog', (dialog) => dialog.dismiss());
+  // Exercise both delivery paths: the bundled renderer's copy button and the
+  // compiled CLI must expose the canonical skill, not independent summaries.
+  await page.locator('#tab-cli').click();
+  await page.evaluate(() => {
+    navigator.clipboard.writeText = async (text) => {
+      window.copiedGuide = text;
+    };
+  });
+  await page.getByRole('button', { name: 'Copy agent prompt', exact: true }).click();
+  const guide = await fs.readFile(path.join(root, 'skills/switchboard/SKILL.md'), 'utf8');
+  assert.equal(await page.evaluate(() => window.copiedGuide), guide);
+  assert.equal(
+    execFileSync(process.execPath, [path.join(root, 'out/cli.js'), 'guide'], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: { ...process.env, HOME: home },
+    }).trimEnd(),
+    guide.trimEnd(),
+  );
+  await page.locator('#tab-profiles').click();
   for (const vendor of ['claude', 'codex']) {
     for (const answers of [[1], [0, 1], [0, 0, 0]]) {
       await app.evaluate((_, values) => {

@@ -71,7 +71,8 @@
       "build/trayTemplate.png",
       "build/trayTemplate@2x.png",
       "build/icon-1024.png",
-      "package.json"
+      "package.json",
+      "skills/switchboard/SKILL.md"
     ],
     "directories": {
       "output": "dist"

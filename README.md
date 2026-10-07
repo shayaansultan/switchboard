@@ -114,6 +114,18 @@ redemption prompts in a terminal and refuses in noninteractive calls. Check the 
 does not mean quota was reset. Run `switchboard usage PROFILE --refresh` for fresh native usage.
 `bun run test:usage-resets` runs the isolated app and proxy worker integration checks.
 
+### Agent instructions
+
+[`skills/switchboard/SKILL.md`](skills/switchboard/SKILL.md) is the canonical agent guide.
+The CLI tab's **Copy agent prompt** button copies that file, and `switchboard guide`
+prints the same Markdown from the installed app. Packaging includes the guide,
+so instructions and executable commands update together.
+
+Agentfiles and other skill managers can use a short entrypoint that tells the
+agent to run `switchboard guide` before operating Switchboard, rather than
+maintaining a separate copy of the operating instructions. For older installations
+without `guide`, update Switchboard; `switchboard --help` can identify the available commands.
+
 ## Is the app running?
 
 Each profile shows whether its desktop app is running: a green dot in the list,

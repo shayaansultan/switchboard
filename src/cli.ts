@@ -42,6 +42,7 @@ import { resetsCommand } from './cli/resets';
 const help = `Switchboard: run and inspect Claude and Codex accounts from a terminal
 
 Read
+  switchboard guide                         Print the same skill copied by the app
   switchboard list [--vendor claude|codex]    Profiles, with running state and cached account
   switchboard show PROFILE                    One profile in full
   switchboard usage [PROFILE...] [--vendor V] [--max-age 15m | --refresh] [--no-renew]
@@ -128,6 +129,7 @@ const COMMANDS = z.enum([
   'install-cli',
   'worker',
   'help',
+  'guide',
 ]);
 
 // Flags that apply to every command. They may appear anywhere before `--`,
@@ -188,6 +190,11 @@ async function dispatch(rest: string[], out: Output): Promise<number | void> {
   const command = parsed.data;
   if (command === 'help') {
     out.text(help);
+    return;
+  }
+  if (command === 'guide') {
+    if (args.length) throw usageError('guide takes no arguments');
+    out.text(fs.readFileSync(path.join(__dirname, '..', 'skills', 'switchboard', 'SKILL.md'), 'utf8'));
     return;
   }
   if (command === 'worker') return workerCommand(args);
