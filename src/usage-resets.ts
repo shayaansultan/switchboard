@@ -221,7 +221,7 @@ export async function prepareAccountReset(connection: ResetAccount): Promise<Res
           confirmedAccount.account.uuid !== account.account.uuid ||
           confirmedAccount.organization.uuid !== account.organization.uuid
         )
-          throw new Error('The proxy account changed. Reopen Usage resets.');
+          throw new Error('The account changed. Reopen Usage resets.');
         const fresh = await read();
         if (!canUse(fresh, id))
           throw new Error('This reset is no longer usable. Reopen Usage resets to check availability.');
@@ -230,6 +230,7 @@ export async function prepareAccountReset(connection: ResetAccount): Promise<Res
         const grant = fresh.grants.find((g) => g.id === id)!;
         const generation = `${grant.resets_left}:${grant.ends_at ?? ''}`;
         const key = `${account.account.uuid}:${account.organization.uuid}:${id}`;
+        const requestId = pendingAttempt(key, generation, 'send');
         const result = await submitReset(async () =>
           z
             .object({
@@ -239,7 +240,7 @@ export async function prepareAccountReset(connection: ResetAccount): Promise<Res
               await request(`${base}/api/organizations/${account.organization.uuid}/reset_rate_limits`, headers, {
                 program: 'cedar_ember',
                 grant_id: id,
-                request_id: pendingAttempt(key, generation, 'send'),
+                request_id: requestId,
               }),
             ),
         );
@@ -277,11 +278,12 @@ export async function prepareAccountReset(connection: ResetAccount): Promise<Res
       if (!(await read()).credits.some((c) => c.id === id && canUse(c)))
         throw new Error('This reset is no longer usable. Reopen Usage resets to check availability.');
       const key = `${connection.accountId}:${id}`;
+      const requestId = pendingAttempt(key, id, 'send');
       const response = await submitReset(async () =>
         z.object({ code: z.enum(['reset', 'nothing_to_reset', 'no_credit', 'already_redeemed']) }).parse(
           await request(`${url}/consume`, headers, {
             credit_id: id,
-            redeem_request_id: pendingAttempt(key, id, 'send'),
+            redeem_request_id: requestId,
           }),
         ),
       );

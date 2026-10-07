@@ -18,17 +18,22 @@ await fs.writeFile(
 const fs = require('node:fs');
 const config = JSON.parse(fs.readFileSync(process.argv[process.argv.indexOf('-config') + 1], 'utf8'));
 const root = process.env.SWITCHBOARD_ROOT;
-const calls = { one: 0, two: 0 };
-const accounts = ['one', 'two'].map(name => ({ name: name + '.json', auth_index: name, provider: 'codex', account_id: name, weight: 50 }));
+const calls = { one: 0, two: 0, profile: 0 };
+const accounts = ['one', 'two'].map(name => ({ name: name + '.json', auth_index: name, provider: 'claude', account_id: name, weight: 50 }));
 Bun.serve({ hostname: '127.0.0.1', port: config.port, async fetch(req) {
   const url = new URL(req.url);
   if (url.pathname.endsWith('/auth-files')) return Response.json({ files: accounts });
   const body = await req.json();
   if (url.pathname.endsWith('/api-call')) {
+    if (body.url.endsWith('/profile')) {
+      calls.profile++;
+      fs.writeFileSync(root + '/calls.json', JSON.stringify(calls));
+      return Response.json({ status_code: calls.profile === 1 ? 200 : 503, body: JSON.stringify({ organization: { rate_limit_tier: 'default_claude_max_20x' } }) });
+    }
     calls[body.auth_index]++;
     fs.writeFileSync(root + '/calls.json', JSON.stringify(calls));
     const healthy = fs.existsSync(root + '/healthy');
-    return Response.json({ status_code: healthy ? 200 : 429, body: JSON.stringify({ plan_type: 'plus', rate_limit: { primary_window: { used_percent: 0, limit_window_seconds: 18000 } } }) });
+    return Response.json({ status_code: healthy ? 200 : 429, body: JSON.stringify({ five_hour: { utilization: 0, resets_at: null } }) });
   }
   if (url.pathname.endsWith('/auth-files/fields')) {
     accounts.find(account => account.name === body.name).weight = body.weight;
@@ -49,12 +54,27 @@ try {
   assert.ok(before.accounts.every((account) => account.status === 'cooldown'));
   await fs.writeFile(path.join(temporary, 'healthy'), '');
   await proxy.control(bucket.id, 'refresh');
-  assert.deepEqual(JSON.parse(await fs.readFile(path.join(temporary, 'calls.json'), 'utf8')), { one: 1, two: 1 });
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(temporary, 'calls.json'), 'utf8')), {
+    one: 1,
+    two: 1,
+    profile: 0,
+  });
   const after = await proxy.control(bucket.id, 'refresh-account', 'one.json');
   assert.equal(after.accounts.find((account) => account.name === 'one.json').status, 'fresh');
-  assert.equal(after.accounts.find((account) => account.name === 'one.json').weight, 100);
+  assert.equal(after.accounts.find((account) => account.name === 'one.json').weight, 2000);
   assert.equal(after.accounts.find((account) => account.name === 'two.json').status, 'cooldown');
-  assert.deepEqual(JSON.parse(await fs.readFile(path.join(temporary, 'calls.json'), 'utf8')), { one: 2, two: 1 });
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(temporary, 'calls.json'), 'utf8')), {
+    one: 2,
+    two: 1,
+    profile: 1,
+  });
+  const again = await proxy.control(bucket.id, 'refresh-account', 'one.json');
+  assert.equal(again.accounts.find((account) => account.name === 'one.json').weight, 2000);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(temporary, 'calls.json'), 'utf8')), {
+    one: 3,
+    two: 1,
+    profile: 1,
+  });
   console.log(
     'PASS: real worker refreshes the reset account and its routing weight while preserving the other account’s cooldown.',
   );

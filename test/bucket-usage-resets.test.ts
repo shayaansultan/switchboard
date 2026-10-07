@@ -1,4 +1,5 @@
 // Verify the proxy account boundary, including post-reset routing recovery.
+import { run as cli, withoutTty } from './cli-helpers';
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import { create, paths } from '../src/buckets/store';
 import { writeJson } from '../src/storage';
@@ -31,6 +32,7 @@ let account: {
 let requests: { path: string; body?: any }[];
 let outcome: string;
 let failRecovery: boolean;
+let refreshStatus: 'fresh' | 'cooldown';
 const mocks: { mockRestore(): void }[] = [];
 beforeEach(() => {
   bucket = create(`Reset bucket ${crypto.randomUUID()}`);
@@ -59,6 +61,7 @@ beforeEach(() => {
   requests = [];
   outcome = 'reset';
   failRecovery = false;
+  refreshStatus = 'fresh';
   mocks.push(
     spyOn(usage, 'codexAuth').mockImplementation(() => {
       throw new Error('Must not use a native sign-in');
@@ -80,7 +83,9 @@ beforeEach(() => {
       if (route.pathname === '/refresh-account')
         return Response.json({
           ...worker,
-          accounts: [{ name: account.name, provider: account.provider, status: 'fresh', windows: [], weight: 100 }],
+          accounts: [
+            { name: account.name, provider: account.provider, status: refreshStatus, windows: [], weight: 100 },
+          ],
         });
       if (route.pathname.endsWith('/auth-files'))
         return Response.json({
@@ -191,3 +196,30 @@ test('older workers may show grants but cannot redeem until targeted refresh is 
   await expect(session.redeem('credit-one')).rejects.toThrow('Restart this bucket');
   expect(requests.some((r) => r.body?.method === 'POST')).toBe(false);
 });
+
+test('a rate-limited recheck reports the confirmed cooldown clear without implying a failed reset', async () => {
+  refreshStatus = 'cooldown';
+  const session = await prepareBucketUsageReset(bucket.id, account.name);
+  const result = await session.redeem('credit-one');
+  expect(result).toContain('proxy cooldown was cleared');
+  expect(result).toContain('refresh later');
+  expect(result).not.toContain('recovery could not be confirmed');
+  expect(requests.filter((r) => r.body?.method === 'POST')).toHaveLength(1);
+});
+
+for (const vendor of ['claude', 'codex']) {
+  test(vendor + ': bucket reset CLI resolves the account and requires confirmation', async () => {
+    account.provider = vendor;
+    const args = ['bucket', 'resets', bucket.id, account.email];
+    const listed = await cli(...args);
+    expect(listed.code).toBe(0);
+    const { offers } = listed.json<{ offers: { id: string }[] }>();
+    expect(listed.json()).toMatchObject({ target: { kind: 'bucket', accountName: account.name } });
+    const denied = await withoutTty(() => cli(...args, '--redeem', offers[0]!.id));
+    expect(denied.failure().error).toBe('confirmation-required');
+    expect(requests.some((r) => r.body?.method === 'POST')).toBe(false);
+    expect((await cli(...args, '--redeem', offers[0]!.id, '--yes')).code).toBe(0);
+    expect(requests.filter((r) => r.body?.method === 'POST')).toHaveLength(1);
+    expect(requests.some((r) => r.path.startsWith('/refresh-account'))).toBe(true);
+  });
+}

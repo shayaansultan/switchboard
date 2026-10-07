@@ -37,6 +37,7 @@ import {
 } from './cli/profiles';
 import { settingsCommand } from './cli/settings';
 import { pickCommand, usageCommand } from './cli/usage';
+import { resetsCommand } from './cli/resets';
 
 const help = `Switchboard: run and inspect Claude and Codex accounts from a terminal
 
@@ -45,6 +46,8 @@ Read
   switchboard show PROFILE                    One profile in full
   switchboard usage [PROFILE...] [--vendor V] [--max-age 15m | --refresh] [--no-renew]
   switchboard pick VENDOR [--window 5h|7d|LABEL] [--max-age 15m] [--min-headroom N]
+  switchboard resets PROFILE [--redeem GRANT_ID --yes]
+                                            List or spend native-account reset grants
   switchboard running                         Desktop windows and which profile owns each
   switchboard setup-items VENDOR              What add --from and bring-over can carry
   switchboard doctor                          Installed apps, CLIs, proxy, store and cache health
@@ -79,6 +82,8 @@ Buckets
   switchboard bucket list|show|create|start|stop|refresh|enable|disable|login|install-proxy ...
   switchboard bucket remove BUCKET --yes      Delete it (and its OpenCode profile) and unassign its profiles
   switchboard bucket remove-account BUCKET ACCOUNT --yes
+  switchboard bucket resets BUCKET ACCOUNT [--redeem GRANT_ID --yes]
+                                            List or spend proxy-account reset grants
 
 Setup
   switchboard settings set KEY VALUE
@@ -94,6 +99,7 @@ const COMMANDS = z.enum([
   'list',
   'show',
   'usage',
+  'resets',
   'pick',
   'running',
   'setup-items',
@@ -195,6 +201,8 @@ async function dispatch(rest: string[], out: Output): Promise<number | void> {
       return showCommand(args, ctx);
     case 'usage':
       return usageCommand(args, ctx);
+    case 'resets':
+      return resetsCommand(args, ctx);
     case 'pick':
       return pickCommand(args, ctx);
     case 'running':

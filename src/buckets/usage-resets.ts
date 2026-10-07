@@ -68,6 +68,8 @@ export async function prepareBucketUsageReset(id: string, name: string): Promise
       if (result.auth_index !== selected.auth_index) throw new Error('Proxy reset acknowledged a different account.');
       const refreshed = await control(id, 'refresh-account', name);
       const observed = refreshed?.accounts.find((account) => account.name === name);
+      if (observed?.status === 'cooldown')
+        return ' Its proxy cooldown was cleared. The vendor rate-limited the usage recheck, so usage and routing weight will refresh later. Paused accounts remain paused.';
       if (!observed || !['fresh', 'disabled'].includes(observed.status))
         throw new Error('The worker could not refresh the reset account.');
       return ' Its proxy cooldown was cleared and usage and routing weight were refreshed. Paused accounts remain paused.';

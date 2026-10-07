@@ -1,4 +1,5 @@
 // Provider-boundary tests: grant eligibility, account pinning and retry safety.
+import { run as cli, withoutTty } from './cli-helpers';
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -193,3 +194,18 @@ test('Claude discards a completed pending spend when a fresh read sees a lower b
   const posts = requests.filter((r) => r.body);
   expect(posts[1]!.body!.request_id).not.toBe(posts[0]!.body!.request_id);
 });
+
+for (const vendor of ['claude', 'codex']) {
+  test(vendor + ': reset CLI lists IDs and gates redemption without a terminal', async () => {
+    const listed = await cli('resets', vendor);
+    expect(listed.code).toBe(0);
+    const { offers } = listed.json<{ offers: { id: string }[] }>();
+    expect(listed.json()).toMatchObject({ target: { kind: 'native', profileId: vendor + '-default' } });
+    expect((await cli('resets', vendor, '--redeem', 'missing', '--yes')).failure().error).toBe('reset-unavailable');
+    const denied = await withoutTty(() => cli('resets', vendor, '--redeem', offers[0]!.id));
+    expect(denied.failure().error).toBe('confirmation-required');
+    expect(requests.every((r) => !r.body)).toBe(true);
+    expect((await cli('resets', vendor, '--redeem', offers[0]!.id, '--yes')).code).toBe(0);
+    expect(requests.filter((r) => r.body)).toHaveLength(1);
+  });
+}

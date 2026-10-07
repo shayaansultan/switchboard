@@ -96,6 +96,24 @@ the action; failed requests are never retried automatically. Pending request
 IDs are stored locally so an uncertain reply can be retried without spending
 a second reset. Check the vendor’s Usage page if a result is uncertain.
 
+The CLI uses the same checks and confirmation flow. Listing never spends a
+reset; select an exact grant ID from the output to redeem it. `resets PROFILE`
+always targets the native account, even when that profile routes through a bucket.
+Bucket accounts can be selected by their exact name or an unambiguous email.
+
+```sh
+switchboard resets claude
+switchboard resets codex --redeem GRANT_ID --yes
+switchboard bucket resets BUCKET ACCOUNT
+switchboard bucket resets BUCKET ACCOUNT --redeem GRANT_ID --yes
+```
+
+Results are JSON by default; add `--human` for readable output. Without `--yes`,
+redemption prompts in a terminal and refuses in noninteractive calls. A result's
+`message` reports the vendor outcome; an exit of zero alone does not mean quota
+was reset. Run `switchboard usage PROFILE --refresh` for fresh native usage.
+`bun run test:usage-resets` runs the isolated app and proxy worker integration checks.
+
 ## Is the app running?
 
 Each profile shows whether its desktop app is running: a green dot in the list,

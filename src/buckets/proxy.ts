@@ -542,15 +542,17 @@ async function serveWorker(id: string): Promise<void> {
     refreshPromise ??= (async () => {
       const available = await accounts(id, proxyPort);
       const next: AccountUsage[] = [];
-      for (const account of available)
+      for (const account of available) {
+        const previous = currentAccounts.find((item) => item.name === account.name);
         next.push(
           await observe(
             id,
             proxyPort,
             account,
-            account.name === resetAccount ? undefined : currentAccounts.find((item) => item.name === account.name),
+            account.name === resetAccount && previous ? { ...previous, nextProbeAt: undefined } : previous,
           ),
         );
+      }
       currentAccounts = next;
       writeJson(path.join(directory.runtime, 'usage.json'), currentAccounts);
     })().finally(() => {
