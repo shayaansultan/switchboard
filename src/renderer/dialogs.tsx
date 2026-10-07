@@ -4,7 +4,7 @@
 // starts from the current state.
 
 import type { ComponentChildren } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { act, type BringMode, type ProfileView, type Settings, type State, type Vendor } from './lib';
 import { Btn, Icon, Switch } from './ui/primitives';
 
@@ -25,7 +25,9 @@ export function Modal({
   children: ComponentChildren;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
+  // Before paint, so a closing dialog never shows a frame with its content
+  // already gone.
+  useLayoutEffect(() => {
     const d = ref.current;
     if (!d) return;
     if (open && !d.open) d.showModal();
