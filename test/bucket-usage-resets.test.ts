@@ -148,6 +148,7 @@ for (const vendor of ['claude', 'codex']) {
     const session = await prepareBucketUsageReset(bucket.id, account.name);
     expect(requests.some((r) => r.body?.method === 'POST' || r.path.endsWith('reset-quota'))).toBe(false);
     const result = await session.redeem(session.offers[0]!.id);
+    expect(result).toMatchObject({ outcome: 'reset', proxyRecovery: 'refreshed' });
     expect(result.message).toContain('proxy cooldown was cleared');
     const writes = requests.filter(
       (r) => r.body?.method === 'POST' || r.path.endsWith('reset-quota') || r.path.startsWith('/refresh-account'),
@@ -184,7 +185,9 @@ test('no-credit outcome never clears local proxy limits', async () => {
 test('proxy recovery failure reports the vendor success separately and does not redeem again', async () => {
   failRecovery = true;
   const session = await prepareBucketUsageReset(bucket.id, account.name);
-  expect((await session.redeem('credit-one')).message).toContain('vendor reset succeeded, but proxy recovery');
+  const result = await session.redeem('credit-one');
+  expect(result).toMatchObject({ outcome: 'reset', proxyRecovery: 'unconfirmed' });
+  expect(result.message).toContain('vendor reset succeeded, but proxy recovery');
   expect(requests.filter((r) => r.body?.method === 'POST')).toHaveLength(1);
 });
 
@@ -202,6 +205,7 @@ test('a rate-limited recheck reports the confirmed cooldown clear without implyi
   const session = await prepareBucketUsageReset(bucket.id, account.name);
   const result = await session.redeem('credit-one');
   expect(result.message).toContain('proxy cooldown was cleared');
+  expect(result).toMatchObject({ outcome: 'reset', proxyRecovery: 'deferred' });
   expect(result.message).toContain('refresh later');
   expect(result.message).not.toContain('recovery could not be confirmed');
   expect(requests.filter((r) => r.body?.method === 'POST')).toHaveLength(1);
