@@ -42,7 +42,7 @@ import { resetsCommand } from './cli/resets';
 const help = `Switchboard: run and inspect Claude and Codex accounts from a terminal
 
 Read
-  switchboard guide                         Print the same skill copied by the app
+  switchboard guide                           Print the same skill copied by the app
   switchboard list [--vendor claude|codex]    Profiles, with running state and cached account
   switchboard show PROFILE                    One profile in full
   switchboard usage [PROFILE...] [--vendor V] [--max-age 15m | --refresh] [--no-renew]
