@@ -52,10 +52,12 @@ countdown for the 5-hour window, a local day and time for the 7-day one), and
 its pace: "on track" for the 7-day window when less of it is used than of the
 week, or "runs out Fri 14:00" for either window when use so far would empty it
 before the reset. A narrow window gives up the cost, the "on track" note, the
-reset times, the context, the bars and the plan, in that order; a pace warning
-and the name stay. The limits refresh every five minutes from Switchboard's
+7-day reset, the context, the 5-hour reset, the bars and the plan, in that
+order, then whole windows, keeping a window with a pace warning longest; the
+name always stays. The limits refresh every five minutes from Switchboard's
 cache, fetched live when that is over 15 minutes old, and need the
-`switchboard` command installed; context and cost update after every turn.
+`switchboard` command installed; context and cost update after every turn,
+and a compaction hides the context until the next one.
 The Default profile's app has no band. A rename or recolour shows after the
 profile's next launch.
 

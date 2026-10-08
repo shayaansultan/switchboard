@@ -64,8 +64,8 @@ resets. The ring on a profile shows its fullest window.
 The bar in a profile's colour that Switchboard has every Code session of a
 Claude profile's app draw above the prompt: the profile's name, its plan, the
 session's context fill and cost, and for each window how much is left, when it
-resets and whether it will last until then (its pace). The Default profile's app has none. Call it
-the profile band, not a banner or a header.
+resets and whether it will last until then (its pace). The Default profile's
+app has none. Call it the profile band, not a banner or a header.
 
 ## Plan
 

@@ -10,8 +10,10 @@
 // The limits come from `switchboard usage` every five minutes: Switchboard's
 // cache, fetched live when that is over 15 minutes old, and never renewing the
 // sign-in this session is using. Context and cost come from the session itself
-// when it starts and after every turn. A narrow band drops detail in a fixed
-// order (DROPS) and never the name. The Default profile is launched without
+// when it starts and after every turn; a compaction hides the context until
+// the next turn. A narrow band drops
+// detail in a fixed order (DROPS), then whole windows, a window with a pace
+// warning last, and never the name. The Default profile is launched without
 // the variables and draws nothing.
 
 import { atom, read, update } from 'claude-code';
@@ -75,7 +77,7 @@ export function until(resetsAt: string | null, now: number): string | null {
 // "Sat 02:00", or "16:20" without the day: a local time, for the 7-day reset,
 // whose reset is days off and easier to plan around as a date than a count.
 // Rounded to the minute: resets land a moment before the hour (01:59:59.9).
-export function clockTime(at: number, withDay: boolean, timeZone?: string): string {
+function clockTime(at: number, withDay: boolean, timeZone?: string): string {
   return new Date(Math.round(at / 60000) * 60000).toLocaleString('en-GB', {
     ...(withDay ? { weekday: 'short' } : {}),
     hour: '2-digit',
@@ -93,12 +95,13 @@ export function resetsOn(resetsAt: string | null, now: number, timeZone?: string
 // Whether the window lasts to its reset at the rate it has been used so far:
 // 'ok' when it does, the moment it would run out when it does not, null when
 // there is too little of the window behind us to say (its first tenth) or no
-// reset time. The two answers are exact complements: a window runs out early
-// precisely when less of it is left than of the time.
+// reset time, or nothing left, which the bar already says. The two answers are
+// exact complements: a window runs out early precisely when less of it is left
+// than of the time.
 export function pace(w: BandWindow, now: number): 'ok' | { runsOutAt: number } | null {
   const windowMs = WINDOW_MS[w.label];
   const at = w.resetsAt ? Date.parse(w.resetsAt) : NaN;
-  if (!windowMs || Number.isNaN(at) || at <= now) return null;
+  if (!windowMs || Number.isNaN(at) || at <= now || w.remaining <= 0) return null;
   const timeLeft = at - now;
   const elapsed = windowMs - timeLeft;
   if (elapsed < windowMs / 10) return null;
@@ -130,32 +133,21 @@ export type BandFacts = {
   }[];
 };
 
-// What a narrow band gives up, first to last. A pace warning stays as long as
-// its window does.
-export const DROPS = [
-  'cost',
-  'onTrack',
-  'reset7d',
-  'context',
-  'reset5h',
-  'bars',
-  'plan',
-  'window7d',
-  'window5h',
-] as const;
+// What a narrow band gives up, first to last, before it drops whole windows.
+const DROPS = ['cost', 'onTrack', 'reset7d', 'context', 'reset5h', 'bars', 'plan'] as const;
 type Drop = (typeof DROPS)[number];
 
 export type BandLayout = { detail: string; limits: { key: string; text: string; isBold: boolean }[] };
 
-function layout(f: BandFacts, dropped: Set<Drop>): BandLayout {
+function layout(f: BandFacts, dropped: Set<Drop>, hidden: Set<string>): BandLayout {
   const detail = [
     !dropped.has('plan') && f.plan,
     !dropped.has('context') && f.context !== null && `context ${f.context}%`,
-    // Nothing spent yet is not worth the room.
-    !dropped.has('cost') && !!f.costUsd && `$${f.costUsd.toFixed(2)}`,
+    // Less than a cent is not worth the room.
+    !dropped.has('cost') && f.costUsd !== null && f.costUsd >= 0.005 && `$${f.costUsd.toFixed(2)}`,
   ].filter(Boolean);
   const limits = f.limits
-    .filter((l) => !dropped.has(`window${l.label}` as Drop))
+    .filter((l) => !hidden.has(l.label))
     .map((l) => {
       const parts = [
         `${l.label} ${dropped.has('bars') ? '' : `${bar(l.remaining)} `}${l.remaining}%`,
@@ -168,11 +160,18 @@ function layout(f: BandFacts, dropped: Set<Drop>): BandLayout {
 }
 
 // The most of the band that fits in `columns` cells, the padding included.
+// Windows go from the right, those with a pace warning after the rest.
 export function fitBand(f: BandFacts, columns: number): BandLayout {
+  const windows = [...f.limits]
+    .reverse()
+    .sort((a, b) => Number(!!a.pace?.isWarning) - Number(!!b.pace?.isWarning))
+    .map((l) => l.label);
+  const steps = DROPS.length + windows.length;
   for (let n = 0; ; n++) {
-    const shown = layout(f, new Set(DROPS.slice(0, n)));
+    const dropped = new Set(DROPS.slice(0, n));
+    const shown = layout(f, dropped, new Set(windows.slice(0, Math.max(0, n - DROPS.length))));
     const width = 2 + f.name.length + shown.detail.length + shown.limits.reduce((w, l) => w + l.text.length + 4, 0);
-    if (width <= columns || n === DROPS.length) return shown;
+    if (width <= columns || n === steps) return shown;
   }
 }
 
@@ -230,9 +229,7 @@ function loadProfile($: EngineInterface): Promise<Profile | null> {
 async function readSession($: EngineInterface): Promise<void> {
   try {
     const s = await $.session.usage();
-    const context = s.context.percent ?? null;
-    const costUsd = s.cost?.usd ?? null;
-    await update($, session, () => ({ context: context === null ? null : Math.round(context), costUsd }));
+    await update($, session, () => ({ context: s.context.percent ?? null, costUsd: s.cost?.usd ?? null }));
   } catch {
     // The band keeps the last figures.
   }
@@ -265,9 +262,18 @@ export const register: Register = (on) => {
     return started;
   });
 
+  // The main conversation's, not a subagent's: the band shows this session.
   on('turn.complete', async ($, e, next) => {
     const done = await next(e);
-    if (await loadProfile($)) void readSession($);
+    if (!e.agentId && (await loadProfile($))) void readSession($);
+    return done;
+  });
+
+  // The session reports the last response's fill until the next one, which a
+  // compaction makes wrong: show none until the next turn reads it again.
+  on('session.compact', async ($, e, next) => {
+    const done = await next(e);
+    if (!e.agentId) await update($, session, (s) => s && { ...s, context: null });
     return done;
   });
 

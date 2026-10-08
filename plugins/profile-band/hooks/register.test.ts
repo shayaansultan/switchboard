@@ -37,7 +37,7 @@ const USAGE = JSON.stringify({
 });
 
 const RAN = { exitCode: 0, stdout: USAGE, stderr: '', isStdoutTruncated: false, isStderrTruncated: false };
-const SESSION = { startedAt: 0, context: { window: 200000, percent: 37.6 }, rateLimits: [], cost: { usd: 4.123 } };
+const SESSION = { startedAt: 0, context: { window: 200000, percent: 38 }, rateLimits: [], cost: { usd: 4.123 } };
 const WIDE = { ...PROPS, bodyColumns: 200 };
 
 // Stands for the engine's own band, which the mod leaves in place.
@@ -221,9 +221,22 @@ test('a narrow band gives up detail in a fixed order', () => {
   expect(at(12)).toEqual(['']);
 });
 
-test('a session that has spent nothing shows no cost', () => {
-  const facts = bandFacts({ name: 'AnswerThis' }, null, { context: 2, costUsd: 0 }, NOW, 'UTC');
+test('a session that has spent under a cent shows no cost', () => {
+  const facts = bandFacts({ name: 'AnswerThis' }, null, { context: 2, costUsd: 0.004 }, NOW, 'UTC');
   expect(fitBand(facts, 200).detail).toBe('  context 2%');
+});
+
+test('an empty window says so with its bar alone', () => {
+  expect(pace(window7d(0, WEEK / 2), NOW)).toBeNull();
+});
+
+test('a narrow band keeps the window with a pace warning longest', () => {
+  const usage = {
+    plan: 'Max 20x',
+    windows: [{ label: '5h', remaining: 72, resetsAt: null, severity: null }, window7d(18, WEEK / 4)],
+  };
+  const facts = bandFacts({ name: 'AnswerThis' }, usage, null, NOW, 'UTC');
+  expect(fitBand(facts, 45).limits.map((l) => l.text)).toEqual(['7d 18% · runs out Tue 10:40']);
 });
 
 test('a pace warning outlasts the reset time it shares a window with', () => {
