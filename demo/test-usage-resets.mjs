@@ -1,5 +1,5 @@
-// Exercise the built menu, preload and main-process confirmation path. Vendor
-// replies, credentials and native dialogs are simulated; no live reset is spent.
+// Exercise the built menu, the in-window reset dialog, preload and the main
+// process. Vendor replies and credentials are simulated; no live reset is spent.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -107,53 +107,73 @@ try {
     guide.trimEnd(),
   );
   await page.locator('#tab-profiles').click();
-  for (const vendor of ['claude', 'codex']) {
-    for (const answers of [[1], [0, 1], [0, 0, 0]]) {
-      await app.evaluate((_, values) => {
-        global.resetTest.answers = values;
-        global.resetTest.dialogs = [];
-        global.resetTest.posts = [];
-      }, answers);
-      await page
-        .getByRole('button', { name: `More actions for ${vendor === 'claude' ? 'Claude test' : 'Codex test'}` })
-        .click();
-      await page.getByText(vendor === 'codex' ? 'Native account resets…' : 'Usage resets…', { exact: true }).click();
-      for (let attempt = 0; attempt < 50; attempt++) {
-        if (await app.evaluate((_, count) => global.resetTest.dialogs.length === count, answers.length)) break;
-        await page.waitForTimeout(100);
-      }
-      const result = await app.evaluate(() => global.resetTest);
-      assert.equal(result.posts.length, answers.length === 3 ? 1 : 0, 'Only a confirmed reset may reach the vendor');
-      assert.equal(result.dialogs[0].cancelId, 1);
-      assert.match(result.dialogs[0].message, /test@example.com/);
-      if (answers.length > 1) {
-        assert.equal(result.dialogs[1].defaultId, 1, 'Confirmation defaults to Cancel');
-        assert.match(result.dialogs[1].detail, /cannot be undone/);
-      }
-      if (answers.length === 3) assert.match(result.dialogs[2].message, /confirmed/);
-    }
-  }
-  await page.locator('#tab-buckets').click();
-  for (const vendor of ['claude', 'codex']) {
-    await app.evaluate(() => {
-      global.resetTest.answers = [0, 0, 0];
+  const dialog = page.locator('#resets-dialog');
+  const reset = () =>
+    app.evaluate(() => {
       global.resetTest.dialogs = [];
       global.resetTest.posts = [];
       global.resetTest.recovered = [];
     });
-    await page.getByRole('button', { name: 'More actions for ' + vendor + '@bucket.test' }).click();
-    await page.getByText('Usage resets…', { exact: true }).click();
-    for (let attempt = 0; attempt < 50; attempt++) {
-      if (await app.evaluate(() => global.resetTest.dialogs.length === 3)) break;
-      await page.waitForTimeout(100);
-    }
+  const open = async (menu, item) => {
+    await page.getByRole('button', { name: menu }).click();
+    await page.getByText(item, { exact: true }).click();
+    await dialog.getByRole('radio').first().waitFor();
+  };
+  const posts = () => app.evaluate(() => global.resetTest.posts.length);
+  for (const vendor of ['claude', 'codex']) {
+    const menu = `More actions for ${vendor === 'claude' ? 'Claude test' : 'Codex test'}`;
+    const item = vendor === 'codex' ? 'Native account resets…' : 'Usage resets…';
+    // Closing the list spends nothing.
+    await reset();
+    await open(menu, item);
+    assert.match(await dialog.textContent(), /test@example.com/);
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(await posts(), 0, 'Closing the list must not reach the vendor');
+    // Reaching the confirmation and cancelling spends nothing.
+    await open(menu, item);
+    await dialog.getByRole('button', { name: 'Use reset…' }).click();
+    await dialog.getByRole('heading', { name: 'Use this reset?' }).waitFor();
+    assert.match(await dialog.textContent(), /can’t be undone/);
+    assert.equal(
+      await dialog.evaluate((d) => d.ownerDocument.activeElement?.textContent),
+      'Cancel',
+      'Confirmation focuses Cancel',
+    );
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(await posts(), 0, 'Cancelling the confirmation must not reach the vendor');
+    // Confirming spends exactly one.
+    await open(menu, item);
+    await dialog.getByRole('button', { name: 'Use reset…' }).click();
+    await dialog.getByRole('button', { name: 'Use reset', exact: true }).click();
+    await dialog.getByRole('heading', { name: 'Reset confirmed' }).waitFor();
+    assert.match(await dialog.textContent(), /confirmed the/);
+    assert.equal(await posts(), 1, 'Only a confirmed reset may reach the vendor');
+    await dialog.getByRole('button', { name: 'Done' }).click();
+    await dialog.waitFor({ state: 'hidden' });
+  }
+  await page.locator('#tab-buckets').click();
+  for (const vendor of ['claude', 'codex']) {
+    await reset();
+    await open('More actions for ' + vendor + '@bucket.test', 'Usage resets…');
+    await dialog.getByRole('button', { name: 'Use reset…' }).click();
+    await dialog.getByRole('button', { name: 'Use reset', exact: true }).click();
+    await dialog.getByRole('heading', { name: 'Reset confirmed' }).waitFor();
     const result = await app.evaluate(() => global.resetTest);
     assert.equal(result.posts.length, 1);
     assert.deepEqual(result.recovered, [vendor + '.json']);
-    assert.match(result.dialogs[2].message, /proxy cooldown was cleared/);
+    assert.match(await dialog.textContent(), /proxy cooldown was cleared/);
+    await dialog.getByRole('button', { name: 'Done' }).click();
+    await dialog.waitFor({ state: 'hidden' });
   }
+  assert.equal(
+    await app.evaluate(() => global.resetTest.dialogs.length),
+    0,
+    'Resets never fall back to a native alert',
+  );
   console.log(
-    'PASS: native and bucket menus reach real preload/IPC for both providers; cancellation sends no writes; bucket redemption refreshes only the selected account.',
+    'PASS: native and bucket menus open the in-window reset dialog for both providers; closing or cancelling sends no writes; bucket redemption refreshes only the selected account.',
   );
 } finally {
   await app?.close();

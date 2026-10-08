@@ -67,12 +67,16 @@ bun run cli -- list --human     # the CLI straight from source
 - Every colour in `style.css` is a token with a light value in `:root` and a
   dark value in the `prefers-color-scheme: dark` block. Never write a literal
   colour in a rule; add a token to both sets.
-- The renderer only ever receives percentages, reset times, email, plan and
-  the proxy's reason an account is unavailable.
+- The renderer only ever receives percentages, reset times, email, plan,
+  the proxy's reason an account is unavailable, and usage-reset offers (id,
+  title, count, expiry). A reset session stays in the main process; the
+  window holds only the token that names it.
   Tokens and credentials are read in the main process, used once, dropped.
 - Renderer buttons call the main process through `act()` in
   `src/renderer/lib.ts`, which handles the pending state and errors. Do not
-  call `window.sb` from a click handler directly.
+  call `window.sb` from a click handler directly. The one exception is a
+  dialog step that shows its own pending state and puts the error on screen,
+  as the usage-reset dialog does when a reset is spent.
 - Menus, tooltips and dialogs go through `src/renderer/ui/overlays.tsx`; do
   not add another positioning scheme.
 - Files open with a comment saying what the module is for and why it is

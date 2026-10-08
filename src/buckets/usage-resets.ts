@@ -87,7 +87,11 @@ export async function prepareBucketUsageReset(id: string, name: string): Promise
     ...session,
     offers: worker.supportsAccountRefresh
       ? session.offers
-      : session.offers.map((offer) => ({ ...offer, usable: false })),
+      : session.offers.map((offer) => ({
+          ...offer,
+          usable: false,
+          reason: 'Restart this bucket to spend resets.',
+        })),
     note: !worker.supportsAccountRefresh
       ? 'Restart this bucket to enable proxy-aware usage resets. Available grants are shown without spending them.'
       : `${session.note} After a confirmed vendor reset, Switchboard clears this account’s proxy cooldown and refreshes its routing weight. Other bucket accounts are unchanged.`,

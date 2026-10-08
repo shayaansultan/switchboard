@@ -15,6 +15,7 @@ import {
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import * as profiles from './profiles';
 import * as launch from './launch';
 import * as usage from './usage';
@@ -43,6 +44,8 @@ import type {
   LiveCache,
   Profile,
   ProfileView,
+  ResetList,
+  ResetResult,
   Settings,
   SetupItemView,
   State,
@@ -849,75 +852,63 @@ ipcMain.handle('state:measure', async () => {
   }
   return stateSnapshot();
 });
-// One reset flow at a time, including profiles sharing the same account.
-let resetDialogOpen = false;
-async function showUsageResets(name: string, prepare: () => Promise<ResetSession>, refresh: () => Promise<void>) {
-  if (resetDialogOpen) throw new Error('A usage-reset dialog is already open.');
-  resetDialogOpen = true;
-  const show = (options: Electron.MessageBoxOptions) =>
-    win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options);
-  try {
-    const session = await prepare();
-    const usable = session.offers.filter((offer) => offer.usable);
-    const list = session.offers
-      .map(
-        (offer) =>
-          `${offer.usable ? `${usable.indexOf(offer) + 1}. ` : ''}${offer.title}${offer.usable ? '' : ' (not usable now)'}\n${offer.detail}`,
-      )
-      .join('\n\n');
-    const pick = await show({
-      type: 'info',
-      title: 'Usage resets',
-      message: `${name} · ${session.account}`,
-      detail: [list || 'No reset grants are available.', session.note].join('\n\n'),
-      buttons: [...usable.map((_, i) => `Use reset ${i + 1}…`), 'Close'],
-      defaultId: usable.length,
-      cancelId: usable.length,
-    });
-    const offer = usable[pick.response];
-    if (!offer) return;
-    const confirmation = await show({
-      type: 'warning',
-      title: 'Confirm usage reset',
-      message: `Use “${offer.title}” for ${session.account}?`,
-      detail: `${offer.detail}\n\nThis spends one reset and cannot be undone. It applies to this account across apps. It does not buy credits or change your subscription.`,
-      buttons: ['Use reset', 'Cancel'],
-      defaultId: 1,
-      cancelId: 1,
-    });
-    if (confirmation.response !== 0) return;
-    let message: string;
-    try {
-      message = (await session.redeem(offer.id)).message;
-    } finally {
-      await refresh();
-    }
-    await show({ type: 'info', title: 'Usage reset result', message, buttons: ['OK'] });
-  } finally {
-    resetDialogOpen = false;
-  }
-}
-ipcMain.handle('usage:resets', async (event, input: unknown) => {
+// The usage-reset dialog lives in the window; the session it lists from
+// stays here, pinned to its account and grant. One at a time: opening the
+// dialog again replaces it and a redeem spends it, so a stale token can never
+// reach a vendor.
+let resets: { token: string; session: ResetSession; refresh: () => Promise<void>; busy: boolean } | null = null;
+// Each open bumps this; a prepare that finishes after a newer one started is
+// dropped rather than replacing the session the newer dialog will use.
+let resetsOpened = 0;
+const ResetTargetInput = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('profile'), id: z.string() }),
+  z.object({ kind: z.literal('bucket'), id: z.string(), account: z.string().min(1) }),
+]);
+ipcMain.handle('resets:list', async (event, input: unknown): Promise<ResetList> => {
   validateSender(event);
-  const p = byId(z.string().parse(input));
-  await showUsageResets(
-    p.name,
-    () => prepareUsageReset(p),
-    () => refreshAll(p.id, true),
-  );
-});
-ipcMain.handle('buckets:usageResets', async (event, input: unknown, account: unknown) => {
-  validateSender(event);
-  const bucket = buckets.load(z.string().parse(input));
-  const name = z.string().min(1).parse(account);
-  await showUsageResets(
-    bucket.name,
-    () => prepareBucketUsageReset(bucket.id, name),
-    async () => {
+  const target = ResetTargetInput.parse(input);
+  if (resets?.busy) throw new Error('A usage reset is being spent. Wait for its result.');
+  resets = null;
+  const opened = ++resetsOpened;
+  let session: ResetSession;
+  let refresh: () => Promise<void>;
+  if (target.kind === 'profile') {
+    const p = byId(target.id);
+    session = await prepareUsageReset(p);
+    refresh = () => refreshAll(p.id, true);
+  } else {
+    const bucket = buckets.load(target.id);
+    session = await prepareBucketUsageReset(bucket.id, target.account);
+    refresh = async () => {
       await refreshBuckets();
       broadcast();
-    },
-  );
+    };
+  }
+  if (opened !== resetsOpened) throw new Error('Usage resets were reopened. Use the newer dialog.');
+  const token = randomUUID();
+  resets = { token, session, refresh, busy: false };
+  return { token, account: session.account, note: session.note, offers: session.offers };
+});
+ipcMain.handle('resets:redeem', async (event, token: unknown, offerId: unknown): Promise<ResetResult> => {
+  validateSender(event);
+  const current = resets;
+  if (!current || current.token !== z.string().parse(token))
+    throw new Error('This list of resets is out of date. Reopen Usage resets.');
+  if (current.busy) throw new Error('This reset is already being spent.');
+  const offer = current.session.offers.find((o) => o.id === z.string().parse(offerId));
+  if (!offer?.usable) throw new Error('This reset cannot be spent now.');
+  current.busy = true;
+  try {
+    return await current.session.redeem(offer.id);
+  } finally {
+    if (resets === current) resets = null;
+    // A failed usage refresh must not hide what the vendor said.
+    await current.refresh().catch(() => {});
+  }
+});
+ipcMain.handle('resets:close', (event, token: unknown) => {
+  validateSender(event);
+  if (resets?.token === z.string().parse(token) && !resets.busy) resets = null;
 });
 ipcMain.handle('state:refresh', async (_e, id?: string) => {
   noteInteraction();

@@ -1,33 +1,52 @@
 // The three dialogs: a new profile (or bringing things into one), settings,
-// and a new proxy bucket. Each is a native <dialog> shown modally while its
-// `open` prop holds; the form inside is remounted on every open, so it always
+// and a new proxy bucket, plus the Modal that resets.tsx shares. Each is a
+// native <dialog> shown modally while its `open` prop holds; the form inside is remounted on every open, so it always
 // starts from the current state.
 
 import type { ComponentChildren } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { act, type BringMode, type ProfileView, type Settings, type State, type Vendor } from './lib';
 import { Btn, Icon, Switch } from './ui/primitives';
 
-function Modal({
+// `locked` keeps Escape from closing it while something it started is
+// still on its way. Chromium may close a dialog anyway after repeated
+// Escapes, so a locked one that closes is shown again.
+export function Modal({
   id,
   open,
+  locked = false,
   onClose,
   children,
 }: {
   id: string;
   open: boolean;
+  locked?: boolean;
   onClose: () => void;
   children: ComponentChildren;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
+  // Before paint, so a closing dialog never shows a frame with its content
+  // already gone.
+  useLayoutEffect(() => {
     const d = ref.current;
     if (!d) return;
     if (open && !d.open) d.showModal();
     if (!open && d.open) d.close();
   }, [open]);
   return (
-    <dialog id={id} ref={ref} onClose={onClose} onCancel={onClose}>
+    <dialog
+      id={id}
+      ref={ref}
+      onClose={() => {
+        const d = ref.current;
+        if (locked && open && d && !d.open) d.showModal();
+        else onClose();
+      }}
+      onCancel={(e) => {
+        e.preventDefault();
+        if (!locked) onClose();
+      }}
+    >
       {open ? children : null}
     </dialog>
   );

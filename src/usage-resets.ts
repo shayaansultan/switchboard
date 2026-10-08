@@ -9,7 +9,7 @@ import { dirs, withStoreLock } from './store';
 import { root, readJson, writeJson } from './storage';
 import { claudeToken, codexAuth } from './usage';
 import { run } from './launch';
-import type { Profile, Vendor } from './types';
+import type { Profile, ResetOffer, ResetResult, Vendor } from './types';
 
 const date = z.string().refine((s) => Number.isFinite(Date.parse(s)));
 const ClaudeStatus = z.object({
@@ -41,31 +41,12 @@ const CodexCredits = z.object({
   ),
 });
 
-export interface ResetOffer {
-  id: string;
-  title: string;
-  detail: string;
-  usable: boolean;
-}
+export type { ResetOffer, ResetResult };
 export interface ResetSession {
   account: string;
   offers: ResetOffer[];
   note: string;
   redeem(id: string): Promise<ResetResult>;
-}
-export interface ResetResult {
-  outcome:
-    | 'reset'
-    | 'already_used'
-    | 'not_limited'
-    | 'cooldown'
-    | 'ineligible'
-    | 'unavailable'
-    | 'nothing_to_reset'
-    | 'no_credit'
-    | 'already_redeemed';
-  proxyRecovery: 'not-needed' | 'refreshed' | 'deferred' | 'unconfirmed';
-  message: string;
 }
 
 async function json(url: string, headers: Record<string, string>, body?: unknown): Promise<unknown> {
@@ -94,6 +75,8 @@ async function submitReset<T>(send: () => Promise<T>): Promise<T> {
 const fingerprint = (value: string) => createHash('sha256').update(value).digest('hex');
 const expiry = (value?: string | null) =>
   value ? `Expires ${new Date(value).toLocaleString()}.` : 'No expiry reported.';
+const andList = (words: string[]) =>
+  words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : (words[0] ?? '');
 const unexpired = (value?: string | null) => !value || Date.parse(value) > Date.now();
 
 // Persist one pending spend per grant before sending. Fresh provider state
@@ -228,12 +211,32 @@ export async function prepareAccountReset(connection: ResetAccount): Promise<Res
         : `Claude reports this account is not eligible (${status.ineligible_reason ?? 'unavailable'}).`,
       offers: status.grants
         .filter((g) => g.resets_left > 0 && unexpired(g.ends_at))
-        .map((g) => ({
-          id: g.id,
-          title: g.label || 'Usage-limit reset',
-          usable: canUse(status, g.id),
-          detail: `${g.resets_left} remaining. ${expiry(g.ends_at)} Resets: ${g.clears.map((w) => titles[w] ?? w).join(', ')}.`,
-        })),
+        .map((g) => {
+          const usable = canUse(status, g.id);
+          const windows = g.clears.map((w) => titles[w] ?? w);
+          return {
+            id: g.id,
+            title: g.label || 'Usage-limit reset',
+            usable,
+            remaining: g.resets_left,
+            expiresAt: g.ends_at ?? null,
+            clears: windows.length
+              ? `Clears the ${andList(windows)} ${windows.length > 1 ? 'windows' : 'window'}.`
+              : 'Clears this account’s usage limits.',
+            ...(usable
+              ? {}
+              : {
+                  reason: !status.eligible
+                    ? 'Claude reports this account is not eligible.'
+                    : g.paused
+                      ? 'Paused by Claude.'
+                      : g.id !== status.next_grant_id
+                        ? 'Claude uses its grants in order; this one is not next.'
+                        : 'Claude does not allow this reset yet.',
+                }),
+            detail: `${g.resets_left} remaining. ${expiry(g.ends_at)} Resets: ${windows.join(', ')}.`,
+          };
+        }),
       async redeem(id) {
         await connection.validate();
         const confirmedAccount = z
@@ -292,9 +295,15 @@ export async function prepareAccountReset(connection: ResetAccount): Promise<Res
   return {
     account: connection.email,
     note: 'Resets apply to the selected ChatGPT account and its Codex usage across apps.',
-    offers: result.credits
-      .filter(canUse)
-      .map((c) => ({ id: c.id, title: c.title || 'Full reset', detail: expiry(c.expires_at), usable: true })),
+    offers: result.credits.filter(canUse).map((c) => ({
+      id: c.id,
+      title: c.title || 'Full reset',
+      detail: expiry(c.expires_at),
+      usable: true,
+      remaining: null,
+      expiresAt: c.expires_at ?? null,
+      clears: 'Clears this account’s Codex usage limits.',
+    })),
     async redeem(id) {
       await connection.validate();
       if (!(await read()).credits.some((c) => c.id === id && canUse(c)))

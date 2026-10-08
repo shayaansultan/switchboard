@@ -443,6 +443,42 @@ legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
 .mode { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
 .mode label.check { color: var(--text); }
 
+/* --- usage resets: the account and its bars, the saved resets as choices,
+   then a confirmation laid out like settings rows --- */
+.resets { display: grid; gap: 14px; }
+.resets h2 { margin-bottom: 2px; }
+.resets h2.with-mark { display: flex; align-items: center; gap: 12px; }
+.mark-circle { width: 28px; height: 28px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.mark-circle.ok { background: var(--run-bg); color: var(--run-text); }
+.mark-circle .ico-check { display: inline-block; }
+.mark-circle.warn { background: var(--warn-bg); color: var(--warn-text); }
+.resets .lead { margin: 0; font-size: 15px; line-height: 22px; color: var(--text-2); }
+.resets .hint { margin: 0; }
+.resets menu .spacer { flex: 1; }
+.resets menu .ghost { padding: 0 10px; }
+.reset-account { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); min-width: 0; }
+.reset-account .head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.reset-account .sq { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.reset-account .name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reset-account .ident { margin-left: auto; flex: none; max-width: 60%; }
+.reset-account .bars { display: grid; gap: 6px; }
+.bars.compare .bar { grid-template-columns: 118px 1fr 84px; }
+.bar .pct .was { color: var(--muted); font-weight: 400; margin-right: 6px; }
+.offers { display: grid; gap: 10px; }
+.resets .choice .what { gap: 4px; }
+.resets .choice .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.resets .choice .chips .badge { height: 20px; padding: 0 7px; }
+.choice.unusable { cursor: default; }
+.choice.unusable input { cursor: default; }
+.choice.unusable .what b { color: var(--muted); }
+.choice.skel-choice { display: grid; gap: 10px; cursor: default; }
+.choice.skel-choice .skel { height: 10px; }
+.callout { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 10px; font-size: 13px; line-height: 18px; }
+.callout .ico { margin-top: 1px; }
+.callout.warn { background: var(--warn-bg); color: var(--warn-text); }
+.resets .srow { align-items: baseline; padding: 12px 0; }
+.resets .srow .key { width: 120px; flex: none; color: var(--muted); font-size: 12px; }
+
 /* Placeholder blocks while the first refresh is running. */
 .skel { display: inline-block; height: 10px; border-radius: 3px; background: linear-gradient(90deg, var(--skel-a) 0%, var(--skel-b) 50%, var(--skel-a) 100%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; vertical-align: middle; }
 .track.skel { height: 5px; width: 100%; }

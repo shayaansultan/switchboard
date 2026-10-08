@@ -8,7 +8,8 @@ import { KeepAwake } from './awake';
 import { Buckets } from './buckets';
 import { Cli } from './cli';
 import { AddDialog, BucketDialog, SettingsDialog, type SetupRequest } from './dialogs';
-import { act, type ProfilesView, type ProfileView, type State, type Vendor } from './lib';
+import { ResetsDialog } from './resets';
+import { act, type ProfilesView, type ProfileView, type ResetTarget, type State, type Vendor } from './lib';
 import { ActionsCtx } from './ui/actions';
 import { OverlayProvider, useOverlays } from './ui/overlays';
 import { Icon, TipBtn, type IconName } from './ui/primitives';
@@ -39,6 +40,7 @@ function Shell({ state }: { state: State | null }) {
   const [setup, setSetup] = useState<SetupRequest>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [bucketOpen, setBucketOpen] = useState(false);
+  const [resets, setResets] = useState<ResetTarget | null>(null);
   const setTab = (t: Tab) => {
     closeMenu();
     hideTip();
@@ -55,7 +57,7 @@ function Shell({ state }: { state: State | null }) {
   // The title bar holds only what applies to the whole app; a new profile
   // or bucket is made from the tab that lists them.
   return (
-    <ActionsCtx.Provider value={{ openSetup, newBucket }}>
+    <ActionsCtx.Provider value={{ openSetup, newBucket, openResets: setResets }}>
       <header class="titlebar">
         <div class="brand">Switchboard</div>
         <div class="actions">
@@ -116,6 +118,7 @@ function Shell({ state }: { state: State | null }) {
           <AddDialog state={state} request={setup} onClose={() => setSetup(null)} />
           <SettingsDialog state={state} open={settingsOpen} onClose={() => setSettingsOpen(false)} />
           <BucketDialog open={bucketOpen} onClose={() => setBucketOpen(false)} />
+          <ResetsDialog state={state} target={resets} onClose={() => setResets(null)} />
         </>
       ) : null}
     </ActionsCtx.Provider>
