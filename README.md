@@ -45,11 +45,21 @@ Two Claude apps on different profiles look the same, so Switchboard marks every
 Claude profile but the Default one. When it launches that profile's desktop app
 it passes a small Claude Code plugin (`plugins/profile-band`), and each Code
 session shows the profile band: a bar in the profile's colour just above the
-prompt, with its name in bold and its plan on the left, and how much of its
-5-hour and 7-day limits is left on the right. The limits refresh every five
-minutes from Switchboard's cache, fetched live when that is over 15 minutes
-old, and need the `switchboard` command installed. The Default profile's app
-has no band. A rename or recolour shows after the profile's next launch.
+prompt. On the left are its name in bold, its plan, how full this session's
+context window is and what the session has cost. On the right, each of the
+5-hour and 7-day limits shows a bar of what is left, when it resets (a
+countdown for the 5-hour window, a local day and time for the 7-day one), and
+its pace: "on track" for the 7-day window when less of it is used than of the
+week, or "runs out Fri 14:00" for either window when use so far would empty it
+before the reset. A narrow window gives up the cost, the "on track" note, the
+7-day reset, the context, the 5-hour reset, the bars and the plan, in that
+order, then whole windows, keeping a window with a pace warning longest; the
+name always stays. The limits refresh every five minutes from Switchboard's
+cache, fetched live when that is over 15 minutes old, and need the
+`switchboard` command installed; context and cost update after every turn,
+and a compaction hides the context until the next one.
+The Default profile's app has no band. A rename or recolour shows after the
+profile's next launch.
 
 ## Does it work with Claude Code and the Codex CLI?
 
