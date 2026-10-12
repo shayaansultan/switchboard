@@ -353,6 +353,10 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       break;
     }
     case 'effort': {
+      if (profiles.load(required(rest[0], 'Profile')).upstream)
+        throw new Error(
+          'Reasoning effort controls are not supported for API upstream profiles; the upstream catalogue does not establish controllable thinking.',
+        );
       const effort = ReasoningEffort.parse(rest[1]);
       profiles.update(required(rest[0], 'Profile'), (profile) => {
         profile.reasoningEffort = effort;

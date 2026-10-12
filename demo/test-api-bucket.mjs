@@ -12,9 +12,14 @@ const output = path.join(root, 'docs/.work/api-bucket');
 await fs.mkdir(output, { recursive: true });
 const credential = path.join(home, 'fixture.env');
 await fs.writeFile(credential, 'export FIXTURE_KEY=ui-fixture-secret', { mode: 0o600 });
+let responseStatus = 200;
+let emptyAccounting = false;
 const upstream = http.createServer((req, res) => {
   assert.equal(req.headers.authorization, 'Bearer ui-fixture-secret');
   res.setHeader('Content-Type', 'application/json');
+  res.statusCode = responseStatus;
+  if (responseStatus !== 200) return res.end(JSON.stringify({ error: 'fixture failure' }));
+  if (emptyAccounting && !req.url.endsWith('/models')) return res.end(JSON.stringify({ daily_limit: null }));
   res.end(
     JSON.stringify(
       req.url.endsWith('/models')
@@ -77,8 +82,30 @@ try {
   assert.equal(bucket.api.accounting.values['policy.requests_per_minute_limit'], 17);
   assert.equal(bucket.accounts.length, 0);
   assert.ok(state.profiles.every((p) => !p.proxyBucket));
+  const id = await page.evaluate(async () => {
+    const added = await window.sb.addProfile({ vendor: 'codex', name: 'API profile' });
+    await window.sb.setProxyBucket(added.profile.id, 'api-fixture');
+    return added.profile.id;
+  });
+  emptyAccounting = true;
+  await page.evaluate(() => window.sb.bucketAction('api-fixture', 'refresh'));
+  await page.locator('#tab-profiles').click();
+  const card = page.locator('.card').filter({ has: page.getByText('API profile', { exact: true }) });
+  await card.getByText('API key · API fixture bucket', { exact: true }).waitFor();
+  assert.equal(await card.getByText('CLI not signed in for this profile').count(), 0);
+  assert.equal(await card.getByText('Sign in CLI', { exact: true }).count(), 0);
+  assert.equal(await card.locator('.track').count(), 0);
+  assert.match(await card.innerText(), /Quota enforcement unknown/);
+  assert.match(await card.innerText(), /No accounting limits reported/);
+  await card.screenshot({ path: path.join(output, 'api-profile.png') });
+  responseStatus = 401;
+  await page.evaluate(() => window.sb.bucketAction('api-fixture', 'refresh'));
+  await card.getByText('API authentication failed · check the credential', { exact: true }).waitFor();
+  assert.equal(await card.getByText('Sign in CLI', { exact: true }).count(), 0);
+  const finalState = await page.evaluate(() => window.sb.getState());
+  assert.equal(finalState.profiles.find((p) => p.id === id).proxyBucket, 'api-fixture');
   console.log(
-    'API form, authenticated discovery, accounting display, mutable labels, refresh and unchanged profile routing passed',
+    'API profile credential status, unknown limits, no OAuth warnings, auth failure; API form, authenticated discovery, accounting display, mutable labels, refresh and unchanged profile routing passed',
   );
 } finally {
   clearTimeout(deadline);

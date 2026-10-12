@@ -194,7 +194,10 @@ export async function inspectUpstream(config: Upstream): Promise<ApiObservation>
         }
       };
       collect(budget.body);
-      result.accounting = Object.keys(values).length ? { ...budget.state, values } : { status: 'invalid-response' };
+      result.accounting =
+        budget.body && typeof budget.body === 'object' && !Array.isArray(budget.body)
+          ? { ...budget.state, values }
+          : { status: 'invalid-response' };
     }
   }
   return result;

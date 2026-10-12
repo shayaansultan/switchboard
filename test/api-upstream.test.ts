@@ -40,12 +40,14 @@ test('API bucket persists only references; discovery preserves aliases, redacts 
   fs.writeFileSync(file, "export SOCLAAS_API_KEY='fixture-secret'", { mode: 0o600 });
   let status = 200;
   let retired = false;
+  let emptyAccounting = false;
   const server = Bun.serve({
     hostname: '127.0.0.1',
     port: 0,
     fetch(request) {
       expect(request.headers.get('authorization')).toBe('Bearer fixture-secret');
       if (status !== 200) return Response.json({ error: 'fixture-secret' }, { status });
+      if (emptyAccounting && !request.url.endsWith('/models')) return Response.json({ daily_limit: null });
       return Response.json(
         request.url.endsWith('/models')
           ? {
@@ -105,6 +107,8 @@ test('API bucket persists only references; discovery preserves aliases, redacts 
     expect(resultCli.out).not.toContain('fixture-secret');
     const bucket = load('api-fixture');
     const profile = profiles.load(bucket.id);
+    await expect(oc(['effort', bucket.id, 'high'])).rejects.toThrow('not supported');
+    expect(profiles.load(bucket.id).reasoningEffort).toBe(profile.reasoningEffort);
     await expect(oc(['model', bucket.id, 'rolling'])).rejects.toThrow('mutable');
     await expect(oc(['small-model', bucket.id, 'x-test-1'])).rejects.toThrow('mutable');
     expect(profiles.load(bucket.id).model).toBe(profile.model);
@@ -124,6 +128,11 @@ test('API bucket persists only references; discovery preserves aliases, redacts 
     expect(result.accounting.values?.requests_per_minute).toBe(17);
     expect(JSON.stringify(result)).not.toContain('fixture-secret');
     expect(result.enforcement.status).toBe('unknown');
+    emptyAccounting = true;
+    const noLimits = await inspectUpstream(upstream);
+    expect(noLimits.accounting).toEqual({ status: 'ok', httpStatus: 200, values: {} });
+    expect(noLimits.enforcement.status).toBe('unknown');
+    emptyAccounting = false;
     const config = proxyConfig(bucket.id, 12345, result.models);
     expect(fs.statSync(config).mode & 0o777).toBe(0o600);
     expect((readJson(config) as Record<string, unknown>).host).toBe('127.0.0.1');
