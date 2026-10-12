@@ -4,7 +4,7 @@ import { test, expect } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Upstream, readCredential, inspectUpstream } from '../src/buckets/upstream';
-import { create, load, paths, readJson } from '../src/buckets/store';
+import { create, load, paths, readJson, writeJson } from '../src/buckets/store';
 import { proxyConfig } from '../src/buckets/proxy';
 import { run } from './cli-helpers';
 import * as profiles from '../src/opencode/profiles';
@@ -153,10 +153,34 @@ test('API bucket persists only references; discovery preserves aliases, redacts 
       ),
     ).not.toThrow();
     fs.writeFileSync(rotated, 'export ROTATED=fixture-second', { mode: 0o600 });
+    // Credential rotation remains possible after an unclean worker exit, even
+    // when its old credential has disappeared; a living owner still blocks it.
+    const probe = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('occupied') });
+    const port = probe.port!;
+    const receiptFile = path.join(paths(bucket.id).runtime, 'worker.json');
+    const leaseFile = path.join(paths(bucket.id).runtime, 'worker.lock');
+    const exited = Bun.spawn([process.execPath, '-e', ''], { stdout: 'ignore', stderr: 'ignore' });
+    await exited.exited;
+    const receipt = {
+      profileId: bucket.id,
+      instance: 'crashed',
+      pid: exited.pid,
+      controlPort: port,
+      proxyPort: port,
+      startedAt: new Date().toISOString(),
+    };
+    writeJson(receiptFile, { ...receipt, pid: process.pid });
+    expect((await run('bucket', 'credential', bucket.id, rotated, 'ROTATED')).code).not.toBe(0);
+    writeJson(receiptFile, receipt);
+    writeJson(leaseFile, { pid: exited.pid, instance: 'crashed' });
+    expect((await run('bucket', 'credential', bucket.id, rotated, 'ROTATED')).code).not.toBe(0);
+    probe.stop(true);
+    fs.unlinkSync(file);
     expect((await run('bucket', 'credential', bucket.id, rotated, 'ROTATED')).code).toBe(0);
+    expect(fs.existsSync(receiptFile)).toBe(false);
+    expect(fs.existsSync(leaseFile)).toBe(false);
     expect(profiles.load(bucket.id).upstream?.credential.file).toBe(rotated);
     expect(profiles.load(bucket.id).name).toBe('Renamed API');
-    fs.unlinkSync(file);
     expect((await inspectUpstream(upstream)).discovery.status).toBe('missing-credential');
   } finally {
     server.stop(true);

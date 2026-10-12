@@ -62,8 +62,8 @@ export async function setDefaultModel(id: string, model: string): Promise<void> 
 async function stoppedUpdate(id: string, update: () => void | Promise<void>): Promise<void> {
   const release = proxy.holdStartLock(id);
   try {
-    if (proxy.receipt(id) || (await proxy.control(id, 'status')))
-      throw new Error('Stop this bucket before changing its upstream settings');
+    if (await proxy.control(id, 'status')) throw new Error('Stop this bucket before changing its upstream settings');
+    await proxy.recoverDeadWorker(id);
     await update();
   } finally {
     release();

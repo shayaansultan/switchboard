@@ -424,7 +424,7 @@ async function assertWorkerAbsent(id: string): Promise<void> {
 
 // Called only while holding starting.lock. A receipt records an active worker,
 // so its survival after an unclean exit is also the intent to resume it.
-async function recoverDeadWorker(id: string): Promise<void> {
+export async function recoverDeadWorker(id: string): Promise<void> {
   await assertWorkerAbsent(id);
   const directory = paths(id).runtime;
   const current = receipt(id);
