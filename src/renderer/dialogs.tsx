@@ -386,8 +386,12 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
 
 export function BucketDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [name, setName] = useState('');
+  const [api, setApi] = useState(false);
   useEffect(() => {
-    if (open) setName('');
+    if (open) {
+      setName('');
+      setApi(false);
+    }
   }, [open]);
   return (
     <Modal id="bucket-dialog" open={open} onClose={onClose}>
@@ -396,7 +400,24 @@ export function BucketDialog({ open, onClose }: { open: boolean; onClose: () => 
         onSubmit={(e) => {
           e.preventDefault();
           void act(async () => {
-            await window.sb.createBucket(name);
+            const form = new FormData(document.getElementById('bucket-form') as HTMLFormElement);
+            await window.sb.createBucket(
+              name,
+              api
+                ? {
+                    kind: 'api',
+                    baseUrl: String(form.get('baseUrl')),
+                    adapter: form.get('adapter') as 'responses',
+                    credential: {
+                      file: String(form.get('credentialFile')),
+                      variable: String(form.get('credentialVariable')),
+                    },
+                    budgetUrl: String(form.get('budgetUrl')) || undefined,
+                    defaultModel: String(form.get('defaultModel')),
+                    allowMutableDefault: form.get('mutable') === 'on',
+                  }
+                : undefined,
+            );
             onClose();
           }, document.getElementById('bucket-submit'));
         }}
@@ -414,7 +435,48 @@ export function BucketDialog({ open, onClose }: { open: boolean; onClose: () => 
             onInput={(e) => setName((e.currentTarget as HTMLInputElement).value)}
           />
         </label>
-        <p class="hint">Create an empty bucket, then use Add account to sign in through the proxy.</p>
+        <label>
+          <input type="checkbox" checked={api} onChange={(e) => setApi(e.currentTarget.checked)} /> API upstream
+        </label>
+        {api ? (
+          <>
+            <label>
+              Base URL
+              <input name="baseUrl" type="url" required placeholder="https://soclaas-api.comp.nus.edu.sg/v1" />
+            </label>
+            <label>
+              Protocol
+              <select name="adapter">
+                <option value="responses">Responses</option>
+              </select>
+            </label>
+            <label>
+              Credential file (absolute path)
+              <input name="credentialFile" required />
+            </label>
+            <label>
+              Credential variable
+              <input name="credentialVariable" required placeholder="SOCLAAS_API_KEY" />
+            </label>
+            <label>
+              Accounting URL (optional)
+              <input name="budgetUrl" type="url" />
+            </label>
+            <label>
+              Exact default model ID
+              <input name="defaultModel" required />
+            </label>
+            <label>
+              <input name="mutable" type="checkbox" /> Allow an experimental or mutable default
+            </label>
+            <p class="hint">
+              Enter a file reference only. The key stays outside the app window. Discovery checks the model before
+              creation. Use the CLI's --opencode option to also create an isolated OpenCode profile.
+            </p>
+          </>
+        ) : (
+          <p class="hint">Create an empty bucket, then use Add account to sign in through the proxy.</p>
+        )}
         <menu>
           <Btn variant="secondary" id="bucket-cancel" onClick={onClose}>
             Cancel

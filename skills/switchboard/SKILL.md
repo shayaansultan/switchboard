@@ -79,3 +79,52 @@ vendor's Usage page before retrying; Switchboard retains its pending request ID.
   step. Report the profile as `not-signed-in` and stop rather than retrying sign-in yourself.
 - `profiles.json` under `~/.switchboard` is written only through the command, which takes the
   same lock the app takes; the app reloads within a second. Editing it by hand races both.
+
+## API upstream buckets
+
+An API bucket uses one Responses-compatible service and a credential-file reference,
+with its own loopback API key. It has no subscription accounts or provider fallback.
+Use `bucket create-api` with the exact upstream URL, literal credential variable,
+and an advertised model ID; `--opencode` creates the dedicated isolated OpenCode
+profile at the same time. `bucket inspect-api` refreshes the full model catalogue
+and key-specific accounting without starting a worker. The UI can create API
+buckets and refresh their observations, and never asks for the key itself.
+
+Credentials stay outside Git. The credential file must be private (mode 600) and
+contain exactly one literal assignment for the named variable, optionally with
+`export`. It is parsed, never executed. Generated worker configuration is mode
+600 and removed on a clean stop. API workers suppress request/error-body logging.
+
+`bucket credential BUCKET PATH VARIABLE` changes the reference only while the
+bucket is stopped. To rotate the key at the same path, replace the file securely,
+then stop and start only that bucket after approval. Workers hold their key and
+routing catalogue until restart. Refresh updates observations; it does not rotate
+keys or reload routing. A missing key or failed discovery prevents a fresh start.
+Existing clients must relaunch after a restart because the loopback port changes.
+If a bucket's original default model is retired, stop the bucket and use
+`bucket model BUCKET ID` to set an advertised replacement. The OpenCode default
+is selected separately with `oc model PROFILE ID`; neither needs state-file edits.
+
+Model IDs are opaque. Preserve colons, slashes and aliases exactly. Discovery keeps
+all service metadata; coding clients list chat models. Capability metadata is not
+a guarantee of every client's tools, reasoning, vision or context handling.
+Mutable aliases retain their names. `x-test-1` is experimental/mutable, never a
+stable model identity; use an explicit per-run selection instead of a default for
+reproducible experiments. A mutable default requires `--allow-mutable-default`.
+
+For SoCLaaS, configured allowances and equivalent usage are reporting/fair-use
+settings, not subscription headroom or cash credits. The operators reported quotas
+were not enforced on October 11, 2026: https://t.me/c/4345150434/6. Display that date
+and attribution separately from refreshed `/api-key/budget` values. Continue to
+handle HTTP 429 normally. The mutable-model announcement is
+https://t.me/c/4345150434/7.
+
+Codex routing remains explicit: `assign PROFILE BUCKET` affects that profile's next
+desktop launch and `routed PROFILE`; `cli PROFILE` retains the native provider.
+Create a separate profile with `add codex NAME` when isolation is requested;
+it imports no other profile by default.
+Use `unassign PROFILE` to restore native desktop routing. Neither operation replaces
+Codex's auth.json. Check installed Codex profile syntax before writing configuration:
+CLI 0.162.1 uses `--profile NAME` with `$CODEX_HOME/NAME.config.toml`, not the old
+nested `[profiles.NAME]` table. Switchboard's launch overrides need no profile-file
+edit. Preserve education logins and default routing unless explicitly asked.

@@ -1,11 +1,35 @@
 import * as proxy from '../buckets/proxy';
 import { refreshModelCatalog } from './models';
+import { inspect } from '../buckets';
+import { assertDefaultModel } from '../buckets/upstream';
 import { poolId, selectedPoolModel } from './selection';
 import type { Profile } from './types';
 import type { Command } from '../buckets/runtime';
 
-export async function preparePool(profile: Profile, cli: Command): Promise<{ port: number; accounts: number }> {
+export async function preparePool(
+  profile: Profile,
+  cli: Command,
+  perRunModel = false,
+): Promise<{ port: number; accounts: number }> {
   const worker = await proxy.ensureWorker(profile.id, cli);
+  if (profile.upstream) {
+    const observation = await inspect(profile.id);
+    if (observation.discovery.status !== 'ok') throw new Error('API discovery: ' + observation.discovery.status);
+    for (const [index, ref] of [profile.model, profile.smallModel].entries()) {
+      if (!ref) continue;
+      const model = poolId(ref);
+      if (!model) throw new Error('API profiles require an advertised bucket model');
+      assertDefaultModel(
+        {
+          ...profile.upstream,
+          allowMutableDefault: profile.upstream.allowMutableDefault || (index === 0 && perRunModel),
+        },
+        observation.models,
+        model,
+      );
+    }
+    return { port: worker.receipt.proxyPort, accounts: 0 };
+  }
   const accounts = (await proxy.accounts(profile.id, worker.receipt.proxyPort)).filter(
     (account) => (account.provider ?? account.type) === 'codex',
   );

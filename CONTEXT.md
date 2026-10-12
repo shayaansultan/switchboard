@@ -83,3 +83,9 @@ A usage reset can target a native profile account or a proxy bucket account.
 After a confirmed reset of a bucket account, the proxy clears its local
 cooldown and Switchboard refreshes its routing weight. Clearing a proxy
 cooldown alone never restores a vendor's usage allowance.
+
+An **API upstream bucket** holds one external Responses API configuration and a
+credential-file reference instead of OAuth accounts. Its configured accounting
+allowances and equivalent usage are separate from subscription headroom. A
+**mutable model alias** is a service ID whose underlying model may change; it
+retains its exact ID and advertised metadata without claiming a stable identity.

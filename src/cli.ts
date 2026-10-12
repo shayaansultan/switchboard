@@ -81,6 +81,11 @@ Shell
 
 Buckets
   switchboard bucket list|show|create|start|stop|refresh|enable|disable|login|install-proxy ...
+  switchboard bucket create-api NAME --base-url URL --credential-file PATH --credential-env NAME
+       --adapter responses --model ID [--budget-url URL] [--opencode] [--allow-mutable-default]
+  switchboard bucket credential BUCKET PATH VARIABLE  Change a stopped API bucket credential reference
+  switchboard bucket model BUCKET ID          Change a stopped API bucket default model
+  switchboard bucket inspect-api BUCKET       Refresh API catalogue and accounting without starting a worker
   switchboard bucket remove BUCKET --yes      Delete it (and its OpenCode profile) and unassign its profiles
   switchboard bucket remove-account BUCKET ACCOUNT --yes
   switchboard bucket resets BUCKET ACCOUNT [--redeem GRANT_ID --yes]
