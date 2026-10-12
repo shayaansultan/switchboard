@@ -45,7 +45,7 @@ function nativeModelLimits(profileId: string): Map<string, z.infer<typeof ModelL
 }
 
 export function cachedModelInfo(profileId: string, model: ModelId): ModelInfo | undefined {
-  const specific = path.join(paths(profileId).runtime, 'models', `${model}.json`);
+  const specific = path.join(paths(profileId).runtime, 'models', `${encodeURIComponent(model)}.json`);
   const file = fs.existsSync(specific) ? specific : path.join(paths(profileId).runtime, 'model-info.json');
   const info = fs.existsSync(file) ? ModelInfo.parse(readJson(file)) : undefined;
   return info?.model === model ? info : undefined;
@@ -117,7 +117,7 @@ export async function refreshModelCatalog(profileId: string, port: number): Prom
   }
   if (!catalog.length) throw new Error('This pool advertises no compatible text/tool models');
   for (const info of catalog) {
-    writeJson(path.join(paths(profileId).runtime, 'models', `${info.model}.json`), info);
+    writeJson(path.join(paths(profileId).runtime, 'models', `${encodeURIComponent(info.model)}.json`), info);
   }
   writeJson(path.join(paths(profileId).runtime, 'model-catalog.json'), catalog);
   return catalog;

@@ -1,4 +1,5 @@
 import { ModelId, ModelRef, type Profile } from './types';
+import { assertDefaultModel, type ApiModel } from '../buckets/upstream';
 
 export const poolProvider = 'switchboard-chatgpt';
 
@@ -16,8 +17,10 @@ export function selectedPoolModel(profile: Profile): ModelId {
   return poolId(profile.model) ?? profile.poolModel ?? ModelId.parse('gpt-6-astra');
 }
 
-export function saveModel(profile: Profile, value: string): void {
+export function saveModel(profile: Profile, value: string, models: ApiModel[] = []): void {
   const model = modelRef(value);
+  if (profile.upstream && !poolId(model)) throw new Error('API profiles only allow their bucket models');
+  if (profile.upstream) assertDefaultModel(profile.upstream, models, poolId(model));
   profile.poolModel = poolId(model) ?? selectedPoolModel(profile);
   profile.model = model;
 }

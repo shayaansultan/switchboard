@@ -1,10 +1,25 @@
 import * as path from 'node:path';
+import { ApiObservation, inspectUpstream, readCredential, type Upstream } from './upstream';
 import * as store from './store';
 import * as proxy from './proxy';
 import type { BucketView } from '../types';
 
 export { create, load, paths, withOpenCode } from './store';
 
+function cachedUpstream(id: string) {
+  try {
+    return ApiObservation.parse(store.readJson(path.join(store.paths(id).runtime, 'upstream.json')));
+  } catch {
+    return undefined;
+  }
+}
+export async function inspect(id: string) {
+  const upstream = store.load(id).upstream;
+  if (!upstream) throw new Error('This is an OAuth bucket');
+  const result = await inspectUpstream(upstream);
+  store.writeJson(path.join(store.paths(id).runtime, 'upstream.json'), result);
+  return result;
+}
 export async function snapshot(): Promise<BucketView[]> {
   return Promise.all(
     store.list().map(async (bucket): Promise<BucketView> => {
@@ -14,6 +29,7 @@ export async function snapshot(): Promise<BucketView[]> {
           ...bucket,
           status: status?.ready ? 'running' : proxy.receipt(bucket.id) ? 'unreachable' : 'stopped',
           accounts: status?.accounts ?? [],
+          api: bucket.upstream ? (status?.upstream ?? cachedUpstream(bucket.id)) : undefined,
         };
       } catch (error) {
         return {
@@ -27,12 +43,26 @@ export async function snapshot(): Promise<BucketView[]> {
   );
 }
 
+export async function setCredential(id: string, credential: Upstream['credential']): Promise<void> {
+  const release = proxy.holdStartLock(id);
+  try {
+    if (proxy.receipt(id) || (await proxy.control(id, 'status')))
+      throw new Error('Stop this bucket before changing its credential reference');
+    readCredential(credential);
+    store.setCredential(id, credential);
+  } finally {
+    release();
+  }
+}
 export async function start(id: string): Promise<void> {
   await proxy.ensureWorker(id);
   await refresh(id);
 }
 export async function refresh(id: string): Promise<void> {
-  store.load(id);
+  if (store.load(id).upstream && !(await proxy.control(id, 'status'))) {
+    await inspect(id);
+    return;
+  }
   if (!(await proxy.control(id, 'refresh'))) throw new Error('Bucket is stopped. Start it to refresh account usage.');
 }
 export async function stop(id: string): Promise<void> {
@@ -51,6 +81,7 @@ export async function stop(id: string): Promise<void> {
   throw new Error('Bucket shutdown has not completed. Refresh its status before retrying.');
 }
 export async function loginCommand(id: string, provider: 'codex' | 'claude' = 'codex'): Promise<string[]> {
+  if (store.load(id).upstream) throw new Error('API buckets use a credential reference, not OAuth login');
   await proxy.ensureWorker(id);
   return [
     proxy.binary(),

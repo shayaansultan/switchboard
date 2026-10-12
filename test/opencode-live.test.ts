@@ -210,8 +210,11 @@ live(
         expect(config.instructions).not.toContain(path.join(os.homedir(), '.claude/CLAUDE.md'));
       }
 
-      const [first, second] = await Promise.all([ensureWorker(a.id, cli), ensureWorker(a.id, cli)]);
-      const other = await ensureWorker(b.id, cli);
+      const [first, second] = await Promise.all([
+        ensureWorker(a.id, { execPath: process.execPath, script: cli }),
+        ensureWorker(a.id, { execPath: process.execPath, script: cli }),
+      ]);
+      const other = await ensureWorker(b.id, { execPath: process.execPath, script: cli });
       expect(first.receipt.instance).toBe(second.receipt.instance);
       expect(other.receipt.proxyPort).not.toBe(first.receipt.proxyPort);
       expect(first.accounts).toEqual([]);

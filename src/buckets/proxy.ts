@@ -13,6 +13,7 @@ import { describePlan, type Plan } from '../plans';
 import { acquireWorkerLease } from './worker-lease';
 import { workerCommand, type Command } from './runtime';
 
+import { ApiObservation, inspectUpstream, upstreamConfig, readCredential, type ApiModel } from './upstream';
 const execute = promisify(execFile);
 const VERSION = '7.3.2';
 const Receipt = z.object({
@@ -76,6 +77,7 @@ const WorkerStatus = z.object({
   accounts: z.array(AccountUsage),
   ready: z.boolean(),
   supportsAccountRefresh: z.boolean().optional(),
+  upstream: ApiObservation.optional(),
 });
 export type WorkerStatus = z.infer<typeof WorkerStatus>;
 
@@ -136,7 +138,8 @@ async function freePort(): Promise<number> {
   return address.port;
 }
 
-export function proxyConfig(id: string, port: number): string {
+export function proxyConfig(id: string, port: number, models: ApiModel[] = []): string {
+  const upstream = load(id).upstream;
   const directory = paths(id);
   const credentials = secrets(id);
   const file = path.join(directory.proxy, 'config.yaml');
@@ -144,7 +147,7 @@ export function proxyConfig(id: string, port: number): string {
   writeJson(file, {
     host: '127.0.0.1',
     port,
-    'auth-dir': directory.auth,
+    'auth-dir': upstream ? path.join(directory.proxy, 'api-auth') : directory.auth,
     'api-keys': [credentials.apiKey],
     'remote-management': {
       'allow-remote': false,
@@ -167,6 +170,17 @@ export function proxyConfig(id: string, port: number): string {
     'request-log': false,
     'usage-statistics-enabled': false,
     codex: { 'stream-bootstrap-buffering': true },
+    ...(upstream
+      ? {
+          ...upstreamConfig(upstream, models),
+          'quota-exceeded': { 'switch-project': false, 'switch-preview-model': false, 'antigravity-credits': false },
+          'request-retry': 0,
+          'commercial-mode': true,
+          'error-logs-max-files': 0,
+          'save-cooldown-status': false,
+          'usage-statistics-enabled': true,
+        }
+      : {}),
   });
   return file;
 }
@@ -442,6 +456,8 @@ export async function ensureWorker(id: string, worker: Command = workerCommand()
   if (running?.ready) return running;
 
   await assertWorkerAbsent(id);
+  const upstream = load(id).upstream;
+  if (upstream) readCredential(upstream.credential);
 
   if (!fs.existsSync(binary())) throw new Error('Install the routing worker first: oc proxy-install');
   const lock = path.join(paths(id).runtime, 'starting.lock');
@@ -510,10 +526,22 @@ async function serveWorker(id: string): Promise<void> {
   const profile = load(id);
   const directory = paths(id);
   const proxyPort = await freePort();
-  const configFile = proxyConfig(id, proxyPort);
+  let currentUpstream = profile.upstream ? await inspectUpstream(profile.upstream) : undefined;
+  if (currentUpstream) {
+    writeJson(path.join(directory.runtime, 'upstream.json'), currentUpstream);
+    if (currentUpstream.discovery.status !== 'ok') {
+      fs.rmSync(path.join(directory.proxy, 'config.yaml'), { force: true });
+      throw new Error('API upstream discovery: ' + currentUpstream.discovery.status);
+    }
+    const apiAuth = path.join(directory.proxy, 'api-auth');
+    fs.mkdirSync(apiAuth, { recursive: true, mode: 0o700 });
+    if (fs.readdirSync(apiAuth).some((name) => name !== 'logs'))
+      throw new Error('API bucket auth directory contains unexpected files');
+  }
+  const configFile = proxyConfig(id, proxyPort, currentUpstream?.models);
   const child = spawn(binary(), ['-config', configFile], {
     cwd: directory.proxy,
-    stdio: ['ignore', 'inherit', 'inherit'],
+    stdio: profile.upstream ? 'ignore' : ['ignore', 'inherit', 'inherit'],
   });
   let exited = false;
   let stopping = false;
@@ -533,13 +561,19 @@ async function serveWorker(id: string): Promise<void> {
     receipt: worker,
     accounts: currentAccounts,
     ready: !exited && !stopping,
-    supportsAccountRefresh: true,
+    supportsAccountRefresh: !profile.upstream,
+    upstream: currentUpstream,
   });
   const refresh = (resetAccount?: string): Promise<void> => {
     // Wait for an in-flight poll, then force a new observation of just the
     // reset account. Other accounts retain their vendor API backoff.
     if (resetAccount && refreshPromise) return refreshPromise.then(() => refresh(resetAccount));
     refreshPromise ??= (async () => {
+      if (profile.upstream) {
+        currentUpstream = await inspectUpstream(profile.upstream);
+        writeJson(path.join(directory.runtime, 'upstream.json'), currentUpstream);
+        return;
+      }
       const available = await accounts(id, proxyPort);
       const next: AccountUsage[] = [];
       for (const account of available) {
@@ -609,6 +643,7 @@ async function serveWorker(id: string): Promise<void> {
     if (!exited) child.kill('SIGKILL');
     const saved = receipt(id);
     if (saved?.instance === worker.instance) fs.rmSync(path.join(directory.runtime, 'worker.json'), { force: true });
+    if (profile.upstream) fs.rmSync(configFile, { force: true });
     finish();
   }
   child.once('error', () => {

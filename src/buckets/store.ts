@@ -5,7 +5,8 @@ import { z } from 'zod';
 import { ProfileId as BucketId, Secrets, root, readJson, writeJson } from '../storage';
 export { ProfileId as BucketId, root, readJson, writeJson } from '../storage';
 
-const Bucket = z.object({ id: BucketId, name: z.string().min(1) });
+import { Upstream } from './upstream';
+const Bucket = z.object({ id: BucketId, name: z.string().min(1), upstream: Upstream.optional() });
 // Existing pools keep their files and worker leases in place. No token copies,
 // symlink migration, or second controller for an already-running OpenCode pool.
 export function paths(value: string) {
@@ -42,7 +43,8 @@ export function list() {
   }
   return [...ids].sort().map(load);
 }
-export function create(name: string) {
+export function create(name: string, upstream?: Upstream) {
+  if (upstream) upstream = Upstream.parse(upstream);
   const clean = z.string().trim().min(1).max(100).parse(name);
   const id = BucketId.parse(
     clean
@@ -62,7 +64,7 @@ export function create(name: string) {
       apiKey: randomBytes(32).toString('hex'),
       managementKey: randomBytes(32).toString('hex'),
     });
-    writeJson(directory.manifest, { id, name: clean });
+    writeJson(directory.manifest, { id, name: clean, upstream });
     return load(id);
   } catch (error) {
     fs.rmSync(directory.base, { recursive: true, force: true });
@@ -83,4 +85,21 @@ export function remove(id: string): void {
 }
 export function secrets(id: string) {
   return Secrets.parse(readJson(path.join(paths(id).base, 'secrets.json')));
+}
+
+// A stopped API bucket may move its credential reference without becoming an
+// OAuth pool. Preserve OpenCode fields in legacy shared manifests.
+export function setCredential(id: string, credential: Upstream['credential']): void {
+  const bucket = load(id);
+  if (!bucket.upstream) throw new Error('Credential references are only supported by API buckets');
+  const upstream = Upstream.parse({ ...bucket.upstream, credential });
+  const lock = path.join(paths(id).base, 'editing.lock');
+  const fd = fs.openSync(lock, 'wx', 0o600);
+  try {
+    const original = z.record(z.string(), z.unknown()).parse(readJson(paths(id).manifest));
+    writeJson(paths(id).manifest, { ...original, upstream });
+  } finally {
+    fs.closeSync(fd);
+    fs.unlinkSync(lock);
+  }
 }

@@ -716,7 +716,7 @@ export function BucketNotes({ bucket }: { bucket: BucketView }) {
             : 'Worker is unreachable. Check its status before restarting.'}
         </Note>
       ) : null}
-      {bucket.status === 'running' && !bucket.accounts.length ? (
+      {bucket.status === 'running' && !bucket.accounts.length && !bucket.upstream ? (
         <Note>No accounts reported yet. Refresh or add an account.</Note>
       ) : null}
       {bucket.error ? <Note>{bucket.error}</Note> : null}

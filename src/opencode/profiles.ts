@@ -4,6 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { root, readJson, writeJson } from '../storage';
 export { root, readJson, writeJson } from '../storage';
 import { Profile, ProfileId, ModelId, Secrets, Connection, Service, Identity } from './types';
+import { Upstream } from '../buckets/upstream';
 
 export function paths(value: string) {
   const id = ProfileId.parse(value);
@@ -48,7 +49,8 @@ export function update(id: string, change: (profile: Profile) => void): void {
     fs.unlinkSync(lock);
   }
 }
-export function create(name: string): Profile {
+export function create(name: string, upstream?: Upstream): Profile {
+  if (upstream) upstream = Upstream.parse(upstream);
   const id = ProfileId.parse(
     name
       .trim()
@@ -80,7 +82,8 @@ export function create(name: string): Profile {
       id,
       name: name.trim(),
       createdAt: new Date().toISOString(),
-      model: ModelId.parse('gpt-6-astra'),
+      model: upstream ? `switchboard-chatgpt/${upstream.defaultModel}` : ModelId.parse('gpt-6-astra'),
+      upstream,
       reasoningEffort: 'low',
       projectConfig: 'isolated',
       connections: {},

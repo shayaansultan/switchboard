@@ -3,7 +3,7 @@ import type { AddOptions, BringOptions, Settings, State, SwitchboardApi } from '
 
 const api: SwitchboardApi = {
   setProxyBucket: (id, bucket) => ipcRenderer.invoke('buckets:assign', id, bucket),
-  createBucket: (name) => ipcRenderer.invoke('buckets:create', name),
+  createBucket: (name, upstream) => ipcRenderer.invoke('buckets:create', name, upstream),
   bucketAction: (id, action, provider) => ipcRenderer.invoke('buckets:action', id, action, provider),
   setBucketAccount: (id, name, enabled) => ipcRenderer.invoke('buckets:account', id, name, enabled),
   removeBucket: (id) => ipcRenderer.invoke('buckets:remove', id),

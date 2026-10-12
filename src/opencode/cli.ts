@@ -15,6 +15,8 @@ import { bridgeArgs, launchEnv } from './launch';
 import { bindGitHub } from './github';
 import { modelArguments, modelRef, poolId, saveModel, selectedPoolModel } from './selection';
 import { preparePool } from './pool';
+import { inspect } from '../buckets';
+import { assertDefaultModel } from '../buckets/upstream';
 import {
   Access,
   Connection,
@@ -87,10 +89,12 @@ async function choose<T>(message: string, options: readonly T[], label: (option:
 
 async function open(profile: Profile, args: string[]): Promise<number> {
   const selection = modelArguments(args);
+  if (profile.upstream && selection.model && !poolId(selection.model))
+    throw new Error('API profiles only allow their bucket models');
   profile = { ...profile, poolModel: selectedPoolModel(profile), model: selection.model ?? profile.model };
   await verifyPaths(profile);
   const required = Boolean(poolId(profile.model) || (profile.smallModel && poolId(profile.smallModel)));
-  const pool = required ? await preparePool(profile, self) : await optionalPool(profile);
+  const pool = required ? await preparePool(profile, self, Boolean(selection.model)) : await optionalPool(profile);
   const env = await bindGitHub(profile.githubLogin, launchEnv(profile, pool?.port, process.cwd()));
 
   if (process.stdout.isTTY) {
@@ -106,6 +110,7 @@ async function open(profile: Profile, args: string[]): Promise<number> {
 }
 
 async function optionalPool(profile: Profile): Promise<{ port: number; accounts: number } | undefined> {
+  if (profile.upstream) return preparePool(profile, self);
   // The proxy owns credential parsing. Discovery and native-provider launches
   // must work without a proxy installation or a pool login.
   if (
@@ -300,17 +305,26 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     }
     case 'model': {
       const model = ModelRef.parse(required(rest[1], 'Model'));
-      profiles.update(required(rest[0], 'Profile'), (profile) => {
-        saveModel(profile, model);
+      const id = required(rest[0], 'Profile');
+      const models = profiles.load(id).upstream ? (await inspect(id)).models : [];
+      profiles.update(id, (profile) => {
+        saveModel(profile, model, models);
       });
       console.log('Model saved. Restart this profile’s OpenCode windows to apply it.');
       break;
     }
     case 'small-model': {
       const model = required(rest[1], 'Model or default');
-      profiles.update(required(rest[0], 'Profile'), (profile) => {
+      const id = required(rest[0], 'Profile');
+      const models = model !== 'default' && profiles.load(id).upstream ? (await inspect(id)).models : [];
+      profiles.update(id, (profile) => {
+        if (profile.upstream && model !== 'default' && !poolId(model))
+          throw new Error('API profiles only allow their bucket models');
         if (model === 'default') delete profile.smallModel;
-        else profile.smallModel = modelRef(model);
+        else {
+          if (profile.upstream) assertDefaultModel(profile.upstream, models, poolId(model));
+          profile.smallModel = modelRef(model);
+        }
       });
       console.log('Auxiliary model saved. Restart this profile’s OpenCode windows.');
       break;
@@ -492,6 +506,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     }
     case 'login': {
       const id = required(rest[0], 'Profile');
+      if (profiles.load(id).upstream) throw new Error('API profiles use their credential reference, not OAuth login');
       await proxy.ensureWorker(id, self);
       // Native OAuth writes directly into the pool. Never copy rotating tokens
       // from Codex homes, which remain owned by the connector's Codex processes.

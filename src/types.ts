@@ -171,6 +171,8 @@ export interface ProfileView extends Profile, Live {
 }
 
 export interface BucketView {
+  upstream?: import('./buckets/upstream').Upstream;
+  api?: import('./buckets/upstream').ApiObservation;
   id: string;
   name: string;
   status: 'running' | 'stopped' | 'unreachable';
@@ -250,7 +252,7 @@ export interface SwitchboardApi {
   onAwakeState(fn: (s: AwakeState) => void): void;
   getState(): Promise<State>;
   setProxyBucket(id: string, bucket: string | null): Promise<void>;
-  createBucket(name: string): Promise<void>;
+  createBucket(name: string, upstream?: import('./buckets/upstream').Upstream): Promise<void>;
   bucketAction(
     id: string,
     action: 'start' | 'refresh' | 'stop' | 'login',

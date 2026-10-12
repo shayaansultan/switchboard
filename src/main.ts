@@ -738,9 +738,17 @@ ipcMain.handle('buckets:assign', (event, id: string, bucket: unknown) => {
   mutate(() => profiles.setProxyBucket(data, id, target));
   broadcast();
 });
-ipcMain.handle('buckets:create', async (event, name: unknown) => {
+ipcMain.handle('buckets:create', async (event, name: unknown, input: unknown) => {
   validateSender(event);
-  buckets.create(z.string().parse(name));
+  if (input !== undefined) {
+    const { Upstream, inspectUpstream, assertDefaultModel } = await import('./buckets/upstream.js');
+    const upstream = Upstream.parse(input);
+    const observation = await inspectUpstream(upstream);
+    if (observation.discovery.status !== 'ok') throw new Error('API discovery: ' + observation.discovery.status);
+    assertDefaultModel(upstream, observation.models);
+    const bucket = buckets.create(z.string().parse(name), upstream);
+    await buckets.inspect(bucket.id);
+  } else buckets.create(z.string().parse(name));
   await refreshBuckets();
   broadcast();
 });

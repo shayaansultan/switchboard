@@ -4,6 +4,8 @@ import { Service, type Profile, type Connection, type ReasoningEffort } from './
 import { paths, secrets, identitySnapshot } from './profiles';
 import { cachedModelCatalog, cachedModelInfo } from './models';
 import { modelRef, poolId, selectedPoolModel } from './selection';
+import { ApiObservation, isChatModel } from '../buckets/upstream';
+import { readJson } from '../storage';
 
 interface LocalMcp {
   type: 'local';
@@ -17,7 +19,7 @@ interface RuntimeModel {
   reasoning: boolean;
   tool_call: boolean;
   limit?: { context: number; input?: number; output: number };
-  cost: { input: number; output: number };
+  cost?: { input: number; output: number };
   options: { store: false; reasoningEffort?: ReasoningEffort };
   variants?: Record<string, { reasoningEffort: ReasoningEffort }>;
 }
@@ -30,6 +32,7 @@ export interface RuntimeConfig {
   model: string;
   small_model?: string;
   autoupdate: false;
+  enabled_providers?: string[];
   provider: {
     'switchboard-chatgpt'?: {
       npm: '@ai-sdk/openai';
@@ -157,6 +160,40 @@ export function runtimeConfig(profile: Profile, port: number | undefined, cwd: s
               cost: { input: 0, output: 0 },
               options: { store: false, ...(effort ? { reasoningEffort: effort } : {}) },
               variants: Object.fromEntries(efforts.map((level) => [level, { reasoningEffort: level }])),
+            },
+          ];
+        }),
+      );
+    }
+  }
+  if (profile.upstream) {
+    config.enabled_providers = [provider];
+    config.small_model = modelRef(profile.smallModel ?? profile.model);
+    if (!poolId(profile.model) || (profile.smallModel && !poolId(profile.smallModel)))
+      throw new Error('API profiles only allow their dedicated bucket provider');
+    const api = config.provider[provider];
+    if (api) {
+      api.name = profile.name + ' · API upstream';
+      let observation;
+      try {
+        observation = ApiObservation.parse(readJson(path.join(paths(profile.id).runtime, 'upstream.json')));
+      } catch {
+        /* discovery is mandatory at launch */
+      }
+      api.models = Object.fromEntries(
+        (observation?.models ?? []).filter(isChatModel).map((model) => {
+          const metadata = model.metadata;
+          const context = metadata.context_length;
+          const output = metadata.max_completion_tokens;
+          return [
+            model.id,
+            {
+              name:
+                model.id + (model.experimental ? ' (experimental, mutable)' : model.mutable ? ' (mutable alias)' : ''),
+              reasoning: false,
+              tool_call: true,
+              options: { store: false },
+              ...(typeof context === 'number' && typeof output === 'number' ? { limit: { context, output } } : {}),
             },
           ];
         }),
