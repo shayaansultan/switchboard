@@ -19,6 +19,7 @@ import { Upstream, inspectUpstream, assertDefaultModel } from '../buckets/upstre
 import * as opencode from '../opencode/profiles';
 
 const SUBCOMMANDS = z.enum([
+  'model',
   'credential',
   'create-api',
   'inspect-api',
@@ -56,6 +57,12 @@ export async function bucketCommand(rest: string[], ctx: Context): Promise<numbe
   const sub = parsed.data;
   const args = rest.slice(1);
   switch (sub) {
+    case 'model': {
+      const id = loadBucket(required(args[0], 'Bucket')).id;
+      await buckets.setDefaultModel(id, required(args[1], 'Model ID'));
+      ctx.out.result(await view(id));
+      return;
+    }
     case 'credential': {
       const id = loadBucket(required(args[0], 'Bucket')).id;
       await buckets.setCredential(id, {

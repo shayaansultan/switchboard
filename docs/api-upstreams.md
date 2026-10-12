@@ -41,7 +41,10 @@ refreshes observations for an existing bucket, including a stopped API bucket.
 Routing models and credentials are materialized when the worker starts. Restart
 only this bucket after approving an interruption to load key/catalogue changes.
 Changing to a different file uses `bucket credential BUCKET ABSOLUTE_PATH VARIABLE`
-while stopped. Existing clients must relaunch after a worker restart because its
+while stopped. `bucket model BUCKET ID` updates the bucket's default after validating
+current discovery. Use it when the old model is retired; select the OpenCode default
+separately with `oc model PROFILE ID`. Both settings persist without recreating the
+bucket. Existing clients must relaunch after a worker restart because its
 local port changes. A missing credential, failed authentication or unreachable
 model endpoint prevents startup; none redirects to another service.
 

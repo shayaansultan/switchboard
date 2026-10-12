@@ -90,13 +90,17 @@ export function secrets(id: string) {
 // A stopped API bucket may move its credential reference without becoming an
 // OAuth pool. Preserve OpenCode fields in legacy shared manifests.
 export function setCredential(id: string, credential: Upstream['credential']): void {
-  const bucket = load(id);
-  if (!bucket.upstream) throw new Error('Credential references are only supported by API buckets');
-  const upstream = Upstream.parse({ ...bucket.upstream, credential });
+  editUpstream(id, (upstream) => ({ ...upstream, credential }));
+}
+export function setDefaultModel(id: string, defaultModel: string): void {
+  editUpstream(id, (upstream) => ({ ...upstream, defaultModel }));
+}
+function editUpstream(id: string, change: (upstream: Upstream) => Upstream): void {
   const lock = path.join(paths(id).base, 'editing.lock');
   const fd = fs.openSync(lock, 'wx', 0o600);
   try {
     const original = z.record(z.string(), z.unknown()).parse(readJson(paths(id).manifest));
+    const upstream = Upstream.parse(change(Upstream.parse(original.upstream)));
     writeJson(paths(id).manifest, { ...original, upstream });
   } finally {
     fs.closeSync(fd);

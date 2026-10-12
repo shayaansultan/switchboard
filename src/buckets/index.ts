@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { ApiObservation, inspectUpstream, readCredential, type Upstream } from './upstream';
+import { ApiObservation, inspectUpstream, readCredential, assertDefaultModel, type Upstream } from './upstream';
 import * as store from './store';
 import * as proxy from './proxy';
 import type { BucketView } from '../types';
@@ -44,12 +44,27 @@ export async function snapshot(): Promise<BucketView[]> {
 }
 
 export async function setCredential(id: string, credential: Upstream['credential']): Promise<void> {
+  await stoppedUpdate(id, () => {
+    readCredential(credential);
+    store.setCredential(id, credential);
+  });
+}
+export async function setDefaultModel(id: string, model: string): Promise<void> {
+  await stoppedUpdate(id, async () => {
+    const upstream = store.load(id).upstream;
+    if (!upstream) throw new Error('This is an OAuth bucket');
+    const observed = await inspectUpstream(upstream);
+    if (observed.discovery.status !== 'ok') throw new Error('API discovery: ' + observed.discovery.status);
+    assertDefaultModel(upstream, observed.models, model);
+    store.setDefaultModel(id, model);
+  });
+}
+async function stoppedUpdate(id: string, update: () => void | Promise<void>): Promise<void> {
   const release = proxy.holdStartLock(id);
   try {
     if (proxy.receipt(id) || (await proxy.control(id, 'status')))
-      throw new Error('Stop this bucket before changing its credential reference');
-    readCredential(credential);
-    store.setCredential(id, credential);
+      throw new Error('Stop this bucket before changing its upstream settings');
+    await update();
   } finally {
     release();
   }

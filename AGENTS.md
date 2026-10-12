@@ -83,6 +83,11 @@ bun run cli -- list --human     # the CLI straight from source
   shaped as it is. Keep that comment true when you change the module.
 - A change a user can see gets a README or `docs/` update in the same
   change. A new or changed term goes in `CONTEXT.md`.
+- User-facing configuration and lifecycle features must also be available
+  through a supported CLI command. Share the underlying operations between
+  IPC and CLI callers, update CLI help and the app-owned agent guide, and
+  verify the CLI path. Do not require agents to edit generated configuration
+  or internal state files to perform an action the app supports.
 
 ## Testing
 

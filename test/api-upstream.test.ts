@@ -39,6 +39,7 @@ test('API bucket persists only references; discovery preserves aliases, redacts 
   const file = path.join(sandboxHome, 'upstream.env');
   fs.writeFileSync(file, "export SOCLAAS_API_KEY='fixture-secret'", { mode: 0o600 });
   let status = 200;
+  let retired = false;
   const server = Bun.serve({
     hostname: '127.0.0.1',
     port: 0,
@@ -58,7 +59,8 @@ test('API bucket persists only references; discovery preserves aliases, redacts 
                 },
                 { id: 'x-test-1', owned_by: 'test' },
                 { id: 'rolling', soclaas: { alias_of: 'org/model+tools:exact' } },
-              ],
+                { id: 'replacement:1' },
+              ].filter((model) => !retired || model.id !== 'org/model+tools:exact'),
             }
           : {
               requests_per_minute: 17,
@@ -116,7 +118,7 @@ test('API bucket persists only references; discovery preserves aliases, redacts 
     expect(load(bucket.id).upstream).toEqual(upstream);
     expect(JSON.stringify(readJson(paths(bucket.id).manifest))).not.toContain('fixture-secret');
     const result = await inspectUpstream(upstream);
-    expect(result.models.map((m) => m.id)).toEqual(['org/model+tools:exact', 'x-test-1', 'rolling']);
+    expect(result.models.map((m) => m.id)).toEqual(['org/model+tools:exact', 'x-test-1', 'rolling', 'replacement:1']);
     expect(result.models[0].metadata.alias).toBe('latest');
     expect(result.models[1].mutable).toBe(true);
     expect(result.accounting.values?.requests_per_minute).toBe(17);
@@ -138,6 +140,18 @@ test('API bucket persists only references; discovery preserves aliases, redacts 
       expect(JSON.stringify(observation)).not.toContain('fixture-secret');
     }
     const rotated = path.join(sandboxHome, 'rotated.env');
+    status = 200;
+    retired = true;
+    await oc(['model', bucket.id, 'replacement:1']);
+    expect((await run('bucket', 'model', bucket.id, 'replacement:1')).code).toBe(0);
+    expect(load(bucket.id).upstream?.defaultModel).toBe('replacement:1');
+    expect(() =>
+      proxyConfig(
+        bucket.id,
+        12345,
+        [...result.models].filter((m) => m.id !== upstream.defaultModel),
+      ),
+    ).not.toThrow();
     fs.writeFileSync(rotated, 'export ROTATED=fixture-second', { mode: 0o600 });
     expect((await run('bucket', 'credential', bucket.id, rotated, 'ROTATED')).code).toBe(0);
     expect(profiles.load(bucket.id).upstream?.credential.file).toBe(rotated);

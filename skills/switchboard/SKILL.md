@@ -101,6 +101,9 @@ then stop and start only that bucket after approval. Workers hold their key and
 routing catalogue until restart. Refresh updates observations; it does not rotate
 keys or reload routing. A missing key or failed discovery prevents a fresh start.
 Existing clients must relaunch after a restart because the loopback port changes.
+If a bucket's original default model is retired, stop the bucket and use
+`bucket model BUCKET ID` to set an advertised replacement. The OpenCode default
+is selected separately with `oc model PROFILE ID`; neither needs state-file edits.
 
 Model IDs are opaque. Preserve colons, slashes and aliases exactly. Discovery keeps
 all service metadata; coding clients list chat models. Capability metadata is not
