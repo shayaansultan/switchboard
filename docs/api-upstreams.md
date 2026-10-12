@@ -105,3 +105,19 @@ only this bucket. `switchboard bucket remove soclaas --yes` deletes its state an
 its paired OpenCode profile; use only when deletion is requested. The external key
 file is not deleted. Roll back the app separately using the previous reviewed build
 and signing identity; do not restart unrelated workers.
+
+## Thinking controls and absent limits
+
+The current API adapter does not advertise reasoning-effort choices. SoCLaaS's
+live catalogue does not declare supported reasoning levels. Probes on 2026-10-13
+accepted `none`, `high` and even an invalid Responses effort value; successful
+requests therefore do not prove that the setting changes thinking. Codex may
+show its generic “Medium” label even when this catalogue has no effort choices.
+Do not infer a working thinking control or a disabled-thinking guarantee from it.
+`oc effort` rejects API profiles instead of claiming an unused setting was applied.
+
+API-backed profile cards show API credential/discovery health independently of
+the native account's login. They show dated operator-reported enforcement or an
+explicit unknown status instead of empty subscription bars. An empty or null-only
+accounting object is valid missing information, not an API failure or unlimited
+access; malformed responses and 401/429/outages remain separate error states.

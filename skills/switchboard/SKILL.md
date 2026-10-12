@@ -128,3 +128,10 @@ Codex's auth.json. Check installed Codex profile syntax before writing configura
 CLI 0.162.1 uses `--profile NAME` with `$CODEX_HOME/NAME.config.toml`, not the old
 nested `[profiles.NAME]` table. Switchboard's launch overrides need no profile-file
 edit. Preserve education logins and default routing unless explicitly asked.
+
+API profile rows report API health, not the native OAuth login. Missing accounting
+limits mean “not reported”, never zero usage or unlimited access. SoCLaaS's dated
+non-enforcement report stays separate from configured allowances and HTTP 429.
+The API adapter currently advertises no reasoning-effort choices; `oc effort`
+rejects API profiles. A generic Codex “Medium” label is not evidence of upstream
+thinking control. Verify capabilities before adding choices.

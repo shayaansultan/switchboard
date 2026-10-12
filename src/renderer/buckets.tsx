@@ -131,6 +131,9 @@ function BucketPanel({ bucket, state }: { bucket: BucketView; state: State }) {
             {bucket.api?.accounting.status ?? 'not checked'}
           </p>
           <p>Configured accounting allowances and equivalent usage, not subscription headroom or cash credits.</p>
+          {bucket.api?.accounting.status === 'ok' && !Object.keys(bucket.api.accounting.values ?? {}).length ? (
+            <p>No accounting limits or usage reported. This does not establish unlimited access.</p>
+          ) : null}
           {Object.entries(bucket.api?.accounting.values ?? {}).map(([name, value]) => (
             <div key={name}>{accountingLabel(name, value)}</div>
           ))}
