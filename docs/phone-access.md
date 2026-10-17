@@ -32,7 +32,7 @@ Claude and Codex apps ──write──▶ session files in each profile's home
 - **The hub.** It runs inside Switchboard and listens on 127.0.0.1 only. It
   serves the phone app, and, to paired phones only, the profiles with their
   app state and usage, the recent sessions, and transcripts. It is on while
-  the Phone access setting is on and Switchboard is running.
+  Phone access is on and Switchboard is running.
 - **The API.** A tRPC router (`src/remote/api.ts`) under `/api/trpc/`, which
   the phone calls with types shared from the same code. `live` is a
   server-sent-events subscription: it sends the overview when it starts and
@@ -53,34 +53,52 @@ Claude and Codex apps ──write──▶ session files in each profile's home
 
 ## Setting it up
 
-1. In Switchboard, open **Settings**, turn on **Phone access** and save.
-   Or run `switchboard remote on`.
-2. Publish the hub on your tailnet once. Switchboard shows the command:
+Everything is in Switchboard's **Phone** tab, which checks each step for real
+and ticks it off.
+
+1. Turn on **Phone access**, or run `switchboard remote on`.
+2. Connect Tailscale on the Mac, and install it on the phone with the same
+   account.
+3. Publish the hub on your tailnet once. The tab shows the command, with a
+   copy button:
 
    ```bash
    tailscale serve --bg --https=443 http://127.0.0.1:47821
    ```
 
-   If Tailscale asks you to enable HTTPS certificates for your tailnet,
-   follow its link. `tailscale serve --https=443 off` undoes it.
+   If Tailscale asks you to enable Serve or HTTPS certificates for your
+   tailnet, follow its link and run it again. `tailscale serve --https=443 off`
+   undoes it. The tab ticks this off once the hub answers at the tailnet
+   address.
 
-3. Open Settings again and choose **Pair a phone**, or run
-   `switchboard remote pair`. On the phone, with Tailscale on, open the
-   address shown (`https://<this Mac>.<tailnet>.ts.net/`). A link with the
-   code included fills it in for you.
-4. In Safari, **Share → Add to Home Screen** installs it as an app.
+4. Choose **Show pairing code** and scan the QR code with the phone's camera.
+   It opens the phone app with the code filled in. Or run
+   `switchboard remote pair` and open the link it prints.
+5. In Safari, **Share → Add to Home Screen** installs it as an app.
 
 ## What the phone shows
 
-- **Working now:** every session whose latest turn has not ended, across all
-  profiles. A turn with no new output for ten minutes stops counting as
-  working, so a crashed agent does not look busy forever.
-- **Each profile:** its colour, account, whether its desktop app is running,
-  its fullest usage window, and its recent sessions. **Desktop** shows
-  sessions started in the desktop apps; **All** adds terminal, editor and
-  script runs.
-- **A session:** your prompts, the agent's replies and a one-line summary of
-  each tool call, kept up to date while it works.
+The phone app is React with TanStack Query over the hub's tRPC API, styled
+from the same tokens as the window (`src/design/tokens.css`).
+
+- **Sessions:** a summary of what changed since you last opened the app, then
+  everything that needs you (a question waiting on you), what is working (with
+  the agent's own step count when it keeps a task list), and earlier sessions
+  with the PRs they opened. Profile chips narrow the list to one account. A
+  turn with no new output for ten minutes stops counting as working, so a
+  crashed agent does not look busy forever.
+- **A session:** who, where, which branch and model, what it cost, and the
+  transcript. Replies are formatted (lists, tables, code with Copy; raw HTML
+  shows as text). A run of tool calls folds into one row that opens to each
+  command, its output and its diff. Questions, PRs, artifacts, subagents,
+  reviews and widgets get cards. Older parts of a long session load on
+  request, and the screen follows new activity while you read.
+- **Files changed:** every file the session edited, with its diff.
+- **Accounts:** each profile's usage windows, when they reset, and whether
+  they will last until then at the current pace.
+- **Settings:** which sessions the inbox shows, folded or open steps, text
+  size, which profiles to show, and unpairing this phone. These stay on the
+  phone.
 
 ## From a terminal
 

@@ -101,12 +101,11 @@ try {
   await waitForHub();
 
   // Pair from the window, as a person would.
-  await page.getByRole('button', { name: 'Settings' }).click();
-  await page.locator('#phone-access').waitFor();
+  await page.locator('#tab-phone').click();
   await page.locator('#pair-phone').click();
-  const code = await page.locator('.pair-code b').textContent();
+  const code = await page.locator('.pair-code').textContent();
   assert.match(code ?? '', /^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
-  await page.locator('#settings-dialog').screenshot({ path: path.join(output, 'settings.png') });
+  await page.locator('.phone-tab').screenshot({ path: path.join(output, 'phone-tab.png') });
 
   // The phone pairs itself from the link, and keeps the hub's cookie.
   const browser = await chromium.launch();
@@ -147,18 +146,34 @@ try {
       ['message', 'steps', 'message'],
     );
 
-    await phone.locator('a.session').first().click();
-    await phone.locator('.detail-head').waitFor();
-    await phone.locator('.bubble.assistant', { hasText: 'Tests pass.' }).waitFor();
+    await phone
+      .getByRole('link', { name: /Dark mode toggle/ })
+      .first()
+      .click();
+    await phone.getByRole('heading', { name: 'Dark mode toggle' }).waitFor();
+    await phone.getByText('Tests pass. Wiring the toggle into the header next.').waitFor();
+    // Tool steps fold into one row that opens to the command.
+    await phone.getByRole('button', { name: /1 step · 1 shell/ }).click();
+    await phone.getByText('bun test').waitFor();
+    // Accounts and Settings.
+    await phone.goto(`http://localhost:${port}/#/accounts`);
+    await phone.getByRole('heading', { name: 'Accounts' }).waitFor();
+    await phone.screenshot({ path: path.join(output, 'phone-accounts.png') });
+    await phone.goto(`http://localhost:${port}/#/settings`);
+    await phone.getByRole('heading', { name: 'Settings' }).waitFor();
+    await phone.getByText('Test phone').waitFor();
+    await phone.screenshot({ path: path.join(output, 'phone-settings.png') });
+    await phone.goto(`http://localhost:${port}/#/s/codex-demo/thread-1`);
+    await phone.getByText('Tests pass. Wiring the toggle into the header next.').waitFor();
     await phone.screenshot({ path: path.join(output, 'phone-session.png') });
   } finally {
     await browser.close();
   }
 
   // The window lists the phone it just paired.
-  await page.locator('#settings-cancel').click();
-  await page.getByRole('button', { name: 'Settings' }).click();
+  // The Phone tab lists it, and drops the used code.
   await page.locator('.phones li').filter({ hasText: 'Test phone' }).waitFor();
+  await page.locator('.pair-code').waitFor({ state: 'detached' });
   console.log(`phone access: ok (port ${port}); screenshots in ${path.relative(root, output)}`);
 } finally {
   await app?.close();

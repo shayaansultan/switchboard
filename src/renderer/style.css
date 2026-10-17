@@ -1,146 +1,5 @@
-/* Wispr Flow's clothes on a native-Mac utility. Warm sand surfaces, one
-   sans (Figtree) for everything with a serif (EB Garamond) reserved for
-   dialog titles, hairline borders with a whisper of shadow, and colour only
-   where it carries meaning: teal for a healthy usage bar, amber and coral as
-   a window runs out, mint for "running", lilac for the plan badge. Every
-   colour is a token here so the dark set below is the whole of dark mode.
-   Which set applies follows the window's colour scheme, which the main
-   process sets from the Appearance setting (system, light or dark). */
-@font-face {
-  font-family: 'Figtree';
-  src: url('fonts/Figtree-Regular.ttf') format('truetype');
-  font-weight: 300 900;
-  font-display: block;
-}
-@font-face {
-  font-family: 'EB Garamond';
-  src: url('fonts/EBGaramond-Regular.ttf') format('truetype');
-  font-weight: 400 800;
-  font-display: block;
-}
-:root {
-  --bg: #fcfcfb;
-  --panel: #ffffff;
-  --panel-2: #f5f4f0;
-  --field: #ffffff;
-  --line: #eeebe3;
-  --text: #1a1a1a;
-  --text-2: #4d4a42;
-  --muted: #71716e;
-  --ink: #1a1a1a;
-  --on-ink: #fcfcfb;
-  --ink-hover: #333333;
-  --btn-bg: #fcfcfb;
-  --btn-border: #eeebe3;
-  --secondary: #eeebe3;
-  --hover: rgba(197, 192, 179, 0.2);
-  --track: #eeebe3;
-  --fill: #369489;
-  --warn: #efa249;
-  --warn-text: #a05f12;
-  --warn-bg: #fcf0df;
-  --bad: #ee6a6a;
-  --bad-text: #bc3d3d;
-  --run: #4fbf78;
-  --run-bg: #d4f6e1;
-  --run-text: #368855;
-  --dawn: #f0d7ff;
-  --dawn-strong: #a26ec1;
-  --dawn-tint: #faf1ff;
-  --danger-bg: #fdf2f0;
-  --skel-a: #eeebe3;
-  --skel-b: #f5f4f0;
-  --line-2: #eeebe3;
-  --dawn-text: #1a1a1a;
-  --focus: #1a1a1a;
-  --dialog-bg: #fcfcfb;
-  --dialog-border: transparent;
-  --tip-bg: #1a1a1a;
-  --tip-text: #fcfcfb;
-  --tip-border: transparent;
-  --switch-off: #c5c0b3;
-  --switch-on: #1a1a1a;
-  --switch-on-sm: #369489;
-  --knob: #ffffff;
-  --term-bg: #1a1a1a;
-  --term-text: #fcfcfb;
-  --term-line: #30302f;
-  --term-muted: #9d9c98;
-  --term-prompt: #84cdc1;
-  --term-ok: #34d399;
-  --term-hover: rgba(255, 255, 255, 0.08);
-  --term-border: transparent;
-  --shadow-1: 0 1px 2px 0 rgba(26, 26, 26, 0.05);
-  --shadow-2: 0 10px 15px -3px rgba(26, 26, 26, 0.1), 0 4px 6px -4px rgba(26, 26, 26, 0.1);
-  --shadow-3: 0 20px 25px -5px rgba(26, 26, 26, 0.1), 0 8px 10px -6px rgba(26, 26, 26, 0.1);
-  --backdrop: rgba(26, 26, 26, 0.18);
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  /* After hours: the same warm sand, turned down. Raised means lighter, so a
-     panel sits above the canvas and its head above the panel; borders stay
-     visible; ink is warm rather than white; the primary flips to cream; and
-     every colour that carries meaning becomes a pastel that can hold dark
-     text. Purple, the app's one selection hue, marks a switch that is on. */
-  :root {
-    --bg: #181917;
-    --panel: #20211e;
-    --panel-2: #242521;
-    --field: #181917;
-    --line: #34362f;
-    --line-2: #41433b;
-    --text: #eeeae0;
-    --text-2: #c2bfb4;
-    --muted: #aba99e;
-    --ink: #e9e3d7;
-    --on-ink: #272620;
-    --ink-hover: #f5f0e7;
-    --btn-bg: #20221e;
-    --btn-border: #41433b;
-    --secondary: #41423b;
-    --hover: #30322c;
-    --track: #34362f;
-    --fill: #8fc7b5;
-    --warn: #e8b575;
-    --warn-text: #f2c58e;
-    --warn-bg: #4a3a24;
-    --bad: #ed9690;
-    --bad-text: #f7b2aa;
-    --run: #a8e2c4;
-    --run-bg: #244439;
-    --run-text: #a8e2c4;
-    --dawn: #463650;
-    --dawn-text: #e4c8f5;
-    --dawn-strong: #cba2e7;
-    --dawn-tint: #302735;
-    --danger-bg: #482d2d;
-    --skel-a: #34362f;
-    --skel-b: #3d3f38;
-    --focus: #bda4cc;
-    --dialog-bg: #242521;
-    --dialog-border: #41433b;
-    --tip-bg: #3a3b35;
-    --tip-text: #eeeae0;
-    --tip-border: #4a4c44;
-    --switch-off: #41433b;
-    --switch-on: #a26ec1;
-    --switch-on-sm: #a26ec1;
-    --knob: #eeeae0;
-    --term-bg: #111210;
-    --term-text: #eeeae0;
-    --term-line: #34362f;
-    --term-muted: #aba99e;
-    --term-prompt: #8fc7b5;
-    --term-ok: #a8e2c4;
-    --term-hover: rgba(255, 255, 255, 0.06);
-    --term-border: #34362f;
-    --shadow-1: 0 1px 2px 0 rgba(0, 0, 0, 0.25);
-    --shadow-2: 0 10px 15px -3px rgba(0, 0, 0, 0.35), 0 4px 6px -4px rgba(0, 0, 0, 0.35);
-    --shadow-3: 0 20px 25px -5px rgba(0, 0, 0, 0.45), 0 8px 10px -6px rgba(0, 0, 0, 0.45);
-    --backdrop: rgba(0, 0, 0, 0.5);
-    color-scheme: dark;
-  }
-}
+/* The window's components. Its tokens (colours, fonts) live in
+   src/design/tokens.css, which the build puts ahead of this file. */
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body {
@@ -407,14 +266,6 @@ dialog menu button { height: 36px; padding: 0 16px; font-size: 15px; }
 .srow .about span { color: var(--muted); font-size: 12px; line-height: 16px; }
 .srow select { width: 184px; flex: none; }
 .srow input[type='number'] { width: 80px; flex: none; }
-.phone { display: grid; gap: 10px; padding: 0 0 14px; }
-.phone code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--text-2); }
-.phone-pair { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-.pair-code { display: inline-flex; align-items: baseline; gap: 8px; }
-.pair-code b { font-family: ui-monospace, Menlo, monospace; font-size: 18px; letter-spacing: 0.1em; color: var(--text); }
-.phones { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.phones li { display: flex; align-items: center; gap: 12px; }
-.phone-name { flex: 1; min-width: 0; font-size: 13px; color: var(--text); }
 .srow label { display: contents; }
 /* A switch, Wispr's 42 by 25, for the one yes-or-no setting. */
 .switch { position: relative; display: inline-block; width: 42px; height: 25px; flex: none; }
@@ -542,3 +393,25 @@ code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; 
 .badge.ok { background: var(--run-bg); color: var(--run-text); }
 .badge.mute { background: var(--panel-2); color: var(--muted); }
 .badge.warn { background: var(--warn-bg); color: var(--warn-text); }
+
+/* --- the Phone tab --- */
+.phone-tab { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; align-items: start; max-width: 960px; }
+@media (max-width: 720px) { .phone-tab { grid-template-columns: minmax(0, 1fr); } }
+.phone-main { display: grid; gap: 16px; min-width: 0; }
+.phone-body { padding: 14px 0 16px; display: grid; gap: 12px; }
+.phone-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.phone-step { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; align-items: start; }
+.phone-step > div { display: grid; gap: 4px; min-width: 0; }
+.phone-step b { font-weight: 550; font-size: 14px; color: var(--text); }
+.phone-step .mark { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; border: 1.5px dashed var(--line-2); box-sizing: border-box; color: var(--muted); }
+.phone-step.done .mark { border: 0; background: var(--run-bg); color: var(--run-text); }
+.phone-command { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.phone-command code { flex: 1; min-width: 0; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; background: var(--panel-2); border-radius: 6px; padding: 6px 8px; overflow-x: auto; white-space: nowrap; color: var(--text-2); }
+.phones { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.phones li { display: flex; align-items: center; gap: 12px; }
+.phone-name { flex: 1; min-width: 0; display: grid; gap: 1px; font-size: 13px; }
+.phone-name b { font-weight: 550; color: var(--text); }
+.pair-body { justify-items: center; text-align: center; }
+.pair-body button { justify-self: stretch; }
+.qr { width: 200px; height: 200px; border-radius: 8px; border: 1px solid var(--line); }
+.pair-code { font-family: ui-monospace, Menlo, monospace; font-size: 22px; font-weight: 600; letter-spacing: 0.12em; color: var(--text); }

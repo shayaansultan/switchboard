@@ -104,11 +104,12 @@ export function createRouter(deps: ApiDeps) {
         z.object({
           profileId: z.string().min(1).max(200),
           sessionId: z.string().min(1).max(200),
-          before: z.number().int().positive().nullish(),
+          // The `before` of the page after this one; absent for the newest page.
+          cursor: z.number().int().positive().nullish(),
         }),
       )
       .query(({ input }) => {
-        const transcript = deps.transcript(input.profileId, input.sessionId, input.before ?? null);
+        const transcript = deps.transcript(input.profileId, input.sessionId, input.cursor ?? null);
         if (!transcript) throw new TRPCError({ code: 'NOT_FOUND', message: 'no-such-session' });
         return transcript;
       }),

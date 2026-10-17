@@ -169,11 +169,11 @@ profile's window back, as clicking its Dock icon would.
 
 ## Can I check on my agents from my phone?
 
-Yes, read-only for now. Turn on **Phone access** in Settings, publish it on
-your tailnet with the `tailscale serve` command Switchboard shows, and pair
-your phone with a one-time code. The phone app lists what is working right
-now across every profile, each profile's recent sessions with its usage, and
-each session's transcript. It reads the session files the desktop apps
+Yes, read-only for now. Open the **Phone** tab, turn on phone access, publish it on
+your tailnet with the `tailscale serve` command it shows, and scan the
+pairing QR code with your phone. The phone app lists what needs you and what
+is working across every profile, each profile's usage, and each session's
+transcript with its steps, diffs and the PRs it opened. It reads the session files the desktop apps
 already write, so the apps work exactly as before. Read
 [Phone access](docs/phone-access.md) for setup and how it is secured.
 

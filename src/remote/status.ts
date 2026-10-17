@@ -75,6 +75,17 @@ export async function tailnetName(): Promise<string | null> {
   return null;
 }
 
+// Whether the hub answers at https://<name>/, which is only the case once
+// `tailscale serve` forwards that address to it.
+export async function publishedAt(name: string, timeoutMs = 4000): Promise<boolean> {
+  try {
+    const res = await fetch(`https://${name}/api/health`, { signal: AbortSignal.timeout(timeoutMs) });
+    return res.ok && ((await res.json()) as { app?: string }).app === 'switchboard';
+  } catch {
+    return false;
+  }
+}
+
 // The command that publishes the hub on the tailnet, for people to run.
 export const serveCommand = (port: number): string => `tailscale serve --bg --https=443 http://127.0.0.1:${port}`;
 
@@ -88,6 +99,8 @@ export async function phoneStatus(settings: Settings): Promise<PhoneStatus> {
     enabled,
     port,
     listening,
+    tailnet: name,
+    published: listening && name !== null && (await publishedAt(name)),
     error: enabled && !listening ? (readHubStatus()?.error ?? 'Switchboard has not started phone access yet') : null,
     url: name ? `https://${name}/` : null,
     serve: serveCommand(port),

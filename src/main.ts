@@ -34,6 +34,7 @@ import { DesktopWatch } from './desktop-watch';
 import { installShim, launcherScript } from './shim';
 import { INSTALLED_APP } from './buckets/runtime';
 import { HOME } from './store';
+import { resetsIn } from './shared/time';
 import { DEFAULT_PORT, startHub, type Hub, type HubProfile, type HubSource } from './remote/hub';
 import { clearHubStatus, pairing, phoneStatus, writeHubStatus } from './remote/status';
 import { revoke as revokeDevice } from './remote/pairing';
@@ -750,13 +751,7 @@ function applyLoginItem(): void {
 
 // "in 54m", "in 6d", for the tray's window lines.
 function relTime(iso: string): string {
-  const ms = Date.parse(iso) - Date.now();
-  if (Number.isNaN(ms) || ms <= 0) return 'now';
-  const m = Math.round(ms / 60000);
-  if (m < 60) return `in ${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 48) return `in ${h}h ${m % 60}m`;
-  return `in ${Math.round(h / 24)}d`;
+  return resetsIn(iso).replace(/^resets /, '') || 'now';
 }
 
 // ---- IPC ----

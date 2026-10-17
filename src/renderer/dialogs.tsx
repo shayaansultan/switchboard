@@ -5,8 +5,7 @@
 
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { act, ago, clock, type BringMode, type ProfileView, type Settings, type State, type Vendor } from './lib';
-import type { PhonePairing, PhoneStatus } from '../types';
+import { act, type BringMode, type ProfileView, type Settings, type State, type Vendor } from './lib';
 import { Btn, Icon, Switch } from './ui/primitives';
 
 // `locked` keeps Escape from closing it while something it started is
@@ -212,7 +211,6 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
   // that lost it (macOS forgets after each rebuild) opens as off.
   const lostAccess = !!s.noticeClosedWindows && state.desktop.accessibility === 'missing';
   const [noticeClosedWindows, setNoticeClosedWindows] = useState(!!s.noticeClosedWindows && !lostAccess);
-  const [phoneAccess, setPhoneAccess] = useState(!!s.phoneAccess);
   const [awaitingAccess, setAwaitingAccess] = useState(false);
   const turnNoticeClosedWindows = (on: boolean) => {
     if (!on) {
@@ -246,7 +244,6 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
         pollMinutes: Number(pollMinutes) || 5,
         openAtLogin,
         noticeClosedWindows,
-        phoneAccess,
         usageMode,
         appearance,
         menuBar,
@@ -374,12 +371,6 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
             </a>
           </p>
         ) : null}
-        {row(
-          'Phone access',
-          'See what every profile is working on from your phone, over Tailscale.',
-          <Switch name="phoneAccess" checked={phoneAccess} onChange={setPhoneAccess} label="Phone access" />,
-        )}
-        {phoneAccess ? <PhoneAccess saved={!!s.phoneAccess} /> : null}
       </div>
       <menu>
         <Btn variant="secondary" id="settings-cancel" onClick={onClose}>
@@ -390,79 +381,6 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
         </Btn>
       </menu>
     </form>
-  );
-}
-
-// Below the Phone access switch: whether the hub is up, how to publish it on
-// the tailnet, a pairing code on request, and the phones already paired.
-function PhoneAccess({ saved }: { saved: boolean }) {
-  const [status, setStatus] = useState<PhoneStatus | null>(null);
-  const [code, setCode] = useState<PhonePairing | null>(null);
-  const reload = () =>
-    window.sb
-      .phoneStatus()
-      .then(setStatus)
-      .catch(() => {});
-  useEffect(() => {
-    if (saved) void reload();
-  }, [saved]);
-  if (!saved) return <p class="hint phone">Save to turn on phone access, then come back here to pair a phone.</p>;
-  if (!status) return <p class="hint phone">Checking phone access…</p>;
-  return (
-    <div class="phone" id="phone-access">
-      <p class={status.listening ? 'hint' : 'hint warn-hint'}>
-        {status.listening ? `Serving the phone app on port ${status.port}.` : status.error} Publish it on your tailnet
-        once with <code>{status.serve}</code>
-        {status.url ? `, then open ${status.url} on your phone.` : '.'}
-      </p>
-      <div class="phone-pair">
-        <Btn
-          id="pair-phone"
-          disabled={!status.listening}
-          onClick={() =>
-            void act(async () => {
-              setCode(await window.sb.pairPhone());
-            })
-          }
-        >
-          Pair a phone
-        </Btn>
-        {code ? (
-          <span class="pair-code">
-            <b>{code.code}</b>
-            <span class="hint">until {clock(code.expiresAt)}</span>
-          </span>
-        ) : null}
-      </div>
-      {code?.url ? (
-        <p class="hint">
-          Or open <code>{code.url}</code> on the phone and the code is filled in.
-        </p>
-      ) : null}
-      {status.devices.length ? (
-        <ul class="phones">
-          {status.devices.map((d) => (
-            <li key={d.id}>
-              <span class="phone-name">{d.name}</span>
-              <span class="hint">{d.lastSeenAt ? `Seen ${ago(d.lastSeenAt)}` : 'Not seen yet'}</span>
-              <Btn
-                variant="secondary"
-                onClick={() =>
-                  void act(async () => {
-                    await window.sb.unpairPhone(d.id);
-                    await reload();
-                  })
-                }
-              >
-                Unpair
-              </Btn>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p class="hint">No phones paired yet.</p>
-      )}
-    </div>
   );
 }
 

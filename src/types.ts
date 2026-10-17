@@ -302,6 +302,10 @@ export interface PhoneStatus {
   listening: boolean;
   error: string | null;
   url: string | null;
+  // This Mac's tailnet name, when Tailscale is connected.
+  tailnet: string | null;
+  // Whether the hub answers at its tailnet address, i.e. `tailscale serve` is set up.
+  published: boolean;
   serve: string;
   devices: { id: string; name: string; createdAt: string; lastSeenAt: string | null }[];
 }
