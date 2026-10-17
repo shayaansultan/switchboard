@@ -60,8 +60,13 @@ bun run cli -- list --human     # the CLI straight from source
   `claude.ts` and `codex.ts` read each app's session files into it,
   `sessions.ts` lists, pages and watches them, `api.ts` is the tRPC router,
   `hub.ts` serves it and the phone app, `media.ts` signs and serves session
-  pictures and files, `pairing.ts` and `status.ts` hold
+  pictures and files, `control.ts` is the socket the Claude plugin and the
+  Codex tap (`codex-tap.ts`) reply and approve through, `push.ts` and
+  `notify.ts` send notifications, `pairing.ts` and `status.ts` hold
   paired phones and what the CLI reports.
+- `plugins/`: Claude Code plugins Switchboard loads into the Claude profiles
+  it launches: `profile-band` (the coloured band) and `switchboard-remote`
+  (replies and approvals from the phone).
 - `src/phone/`: the phone app, React with TanStack Query, tRPC and Tailwind;
   `components/ui/` are shadcn components on Switchboard's tokens.
 - `src/design/`: `tokens.css` (every colour and font, light and dark) and the

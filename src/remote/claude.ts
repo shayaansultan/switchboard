@@ -91,9 +91,14 @@ const INTERRUPTED = '[Request interrupted';
 // Who a user record is from: the person, or something the app delivered as
 // a user message (a background task finishing, another agent's message).
 const originOf = (r: Rec): string | null => str(obj(r.origin).kind);
+// A reply typed on the phone comes in through Switchboard's plugin as the
+// person's own words (plugins/switchboard-remote).
 const fromPerson = (r: Rec): boolean => {
   const kind = originOf(r);
-  return kind === null || kind === 'human';
+  const o = obj(r.origin);
+  return (
+    kind === null || kind === 'human' || (kind === 'plugin' && o.name === 'switchboard-remote' && o.asUser === true)
+  );
 };
 
 const tag = (text: string, name: string): string | null =>

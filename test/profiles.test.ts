@@ -426,6 +426,35 @@ test('the Default profile, a Codex profile and a build without the plugin get no
   expect(launch.profileBandEnvironment(claude, null)).toEqual({});
 });
 
+// ---- replying from the phone ----
+// With phone access on, every profile Switchboard launches, the Default ones
+// included, carries the control socket: Claude with the remote plugin beside
+// the band, Codex through the wrapper with the tap unless a bucket's has it.
+
+test('with phone access on, launches carry what the phone replies through; off, nothing', () => {
+  const data = profiles.load();
+  const claude = profiles.add(data, { vendor: 'claude', name: 'Remote' }).profile;
+  const codex = profiles.add(data, { vendor: 'codex', name: 'Remote Codex' }).profile;
+  expect(launch.remoteEnvironment(claude, false, false, '/plugins/remote')).toEqual({});
+
+  const env = launch.withPlugins(
+    launch.profileBandEnvironment(claude, '/plugins/profile-band', null),
+    launch.remoteEnvironment(claude, true, false, '/plugins/remote'),
+  );
+  expect(env.CLAUDE_CODE_PLUGIN_DIRS).toBe(`/plugins/profile-band${path.delimiter}/plugins/remote`);
+  expect(env.SWITCHBOARD_CONTROL_SOCKET).toEndWith(path.join('remote', 'control.sock'));
+  expect(launch.remoteEnvironment(claudeSource(), true, false, '/plugins/remote')).toMatchObject({
+    CLAUDE_CODE_PLUGIN_DIRS: '/plugins/remote',
+    SWITCHBOARD_PROFILE: 'claude-default',
+  });
+
+  const plain = launch.remoteEnvironment(codex, true, false);
+  expect(fs.readFileSync(plain.CODEX_CLI_PATH, 'utf8')).toContain('desktop-remote');
+  expect(fs.statSync(plain.CODEX_CLI_PATH).mode & 0o777).toBe(0o700);
+  // A bucket's wrapper already taps the connection; only the socket is added.
+  expect(launch.remoteEnvironment(codex, true, true)).not.toHaveProperty('CODEX_CLI_PATH');
+});
+
 test("the band runs only Switchboard's own launcher, never a foreign one", () => {
   const file = path.join(process.env.HOME, '.local', 'bin', 'switchboard');
   // Never the real launcher: this test writes and deletes the file.

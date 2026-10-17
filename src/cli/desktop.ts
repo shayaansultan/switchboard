@@ -56,7 +56,7 @@ export async function launchCommand(rest: string[], ctx: Context): Promise<void>
   const { values, positionals } = parse(rest, { 'no-wait': { type: 'boolean' } });
   const profile = resolveProfile(ctx.data, required(positionals[0], 'Profile'));
   ctx.out.narrate(`Launching ${profile.name}…`);
-  await launch.launchDesktop(profile);
+  await launch.launchDesktop(profile, !!ctx.data.settings.phoneAccess);
   const pid = values['no-wait'] ? null : await waitFor(profile, true, 5_000);
   const port = profile.proxyBucket ? receipt(profile.proxyBucket)?.proxyPort : undefined;
   ctx.out.result({

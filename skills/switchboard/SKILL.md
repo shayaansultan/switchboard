@@ -60,7 +60,9 @@ and takes effect on its next launch.
 read session files and need no running app. `remote on|off`, `pair`, `devices` and `unpair`
 manage what paired phones can see. Pairing codes and unpairing are the user's to ask for; do not
 hand a code to anyone else. Publishing on the tailnet is the user's `tailscale serve` command,
-which `remote status` prints; do not run it for them.
+which `remote status` prints; do not run it for them. Replying and approving happen on the
+phone itself; with phone access on, launch desktop profiles from Switchboard (`switchboard launch`)
+so the phone can reach their sessions.
 
 ## Usage reset grants
 

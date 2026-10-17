@@ -23,7 +23,10 @@ import { Settings } from './screens/Settings';
 function Paired() {
   const route = useRoute();
   const { overview, link } = useOverview();
-  const needs = overview?.sessions.filter((s) => s.state === 'needs-you').length ?? 0;
+  const asking = new Set(overview?.pending.map((p) => `${p.profileId}/${p.sessionId}`));
+  const needs =
+    (overview?.pending.length ?? 0) +
+    (overview?.sessions.filter((s) => s.state === 'needs-you' && !asking.has(`${s.profileId}/${s.id}`)).length ?? 0);
   useEffect(() => {
     scrollTo(0, 0);
   }, [route.name]);
@@ -88,7 +91,13 @@ function Root() {
 
 // Before the first paint, so a pinned theme never flashes the other one.
 applyTheme(getPrefs().theme);
-if ('serviceWorker' in navigator) void navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator) {
+  void navigator.serviceWorker.register('sw.js').catch(() => {});
+  // A tapped notification, while the app was already open.
+  navigator.serviceWorker.addEventListener('message', (event: MessageEvent<{ navigate?: string }>) => {
+    if (event.data?.navigate?.startsWith('#')) location.hash = event.data.navigate;
+  });
+}
 createRoot(document.getElementById('app') as HTMLElement).render(
   <StrictMode>
     <Root />

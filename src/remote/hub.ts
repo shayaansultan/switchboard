@@ -12,7 +12,11 @@
 // the app shell, which holds no data, and decides when the overview may have
 // changed: on file events in any profile's session folders, and on a timer
 // for what is not a file (an app starting, new usage numbers), but only while
-// a phone is listening.
+// a phone is listening or one wants notifications.
+//
+// It also runs the control socket (control.ts) the Claude plugin and the
+// Codex wrapper reply and approve through, and sends notifications
+// (notify.ts, push.ts) when the overview changes in a way a phone asked about.
 
 import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
@@ -24,7 +28,10 @@ import { createHTTPHandler } from '@trpc/server/adapters/standalone';
 import type { AppState, Vendor } from '../types';
 import { createContext, createRouter, tokenFrom } from './api';
 import { HTML_POLICY, readMedia, resolveMedia } from './media';
+import { Control, type Pending } from './control';
+import { changes as noteChanges, emptyWatch, type Watch } from './notify';
 import { authenticate } from './pairing';
+import { anySubscribed, push } from './push';
 import { SessionReader, watch, type ProfileHome, type SessionSummary } from './sessions';
 
 export const DEFAULT_PORT = 47821;
@@ -52,12 +59,18 @@ export interface Overview {
   generatedAt: string;
   profiles: HubProfile[];
   sessions: SessionSummary[];
+  // Requests waiting on the person that the phone can answer (control.ts).
+  pending: Pending[];
+  // `${profileId}/${sessionId}` of each session a reply from the phone reaches.
+  reachable: string[];
 }
 
 // What the hub reads from whoever hosts it: the app, or a test.
 export interface HubSource {
   profiles(): Omit<HubProfile, 'label'>[];
   homes(): ProfileHome[];
+  // Whether nobody is at the Mac (locked or idle). Without it, never.
+  away?(): boolean;
 }
 
 export interface Hub {
@@ -122,12 +135,63 @@ export function labelled(profiles: Omit<HubProfile, 'label'>[]): HubProfile[] {
   }));
 }
 
-export function overview(source: HubSource, reader: SessionReader, now = Date.now()): Overview {
+export function overview(source: HubSource, reader: SessionReader, control?: Control, now = Date.now()): Overview {
+  const sessions = reader.list(source.homes(), now);
+  const live = control?.reachable() ?? { claude: [], codex: [] };
+  const claude = new Set(live.claude);
+  const codex = new Set(live.codex);
   return {
     host: computerName(),
     generatedAt: new Date(now).toISOString(),
     profiles: labelled(source.profiles()),
-    sessions: reader.list(source.homes(), now),
+    sessions,
+    pending: control?.pending() ?? [],
+    reachable: sessions
+      .filter((s) => (s.vendor === 'claude' ? claude.has(`${s.profileId}/${s.id}`) : codex.has(s.profileId)))
+      .map((s) => `${s.profileId}/${s.id}`),
+  };
+}
+
+// Watches the overview for what phones asked to be told about, while any
+// phone wants notifications. The first look only seeds what is known.
+function notifier(look: () => Overview, changes: EventEmitter, away: () => boolean): { sync(): void; stop(): void } {
+  let watch: Watch | null = null;
+  let busy = false;
+  const check = () => {
+    if (busy) return;
+    busy = true;
+    try {
+      const o = look();
+      // A Codex approval also shows on the desktop; buzz the phone for it only
+      // while nobody is at the Mac. Claude's only reach the phone then anyway.
+      const asking = away() ? o.pending.map((p) => ({ ...p, title: `${p.title}: ${p.detail}`.slice(0, 120) })) : [];
+      const result = noteChanges(watch ?? emptyWatch(), o, asking, Date.now(), watch === null);
+      watch = result.watch;
+      for (const note of result.notes) void push(note).catch(() => {});
+    } catch {
+      // A file vanished mid-read; the next change looks again.
+    } finally {
+      busy = false;
+    }
+  };
+  let on = false;
+  return {
+    sync() {
+      const want = anySubscribed();
+      if (want === on) return;
+      on = want;
+      if (want) {
+        changes.on('change', check);
+        check();
+      } else {
+        changes.off('change', check);
+        watch = null;
+      }
+    },
+    stop() {
+      changes.off('change', check);
+      on = false;
+    },
   };
 }
 
@@ -175,12 +239,23 @@ export function startHub(options: {
   staticDir: string;
   port?: number;
   host?: string;
+  // The control socket; tests that do not need it pass false.
+  control?: false;
 }): Promise<Hub> {
   const { source, staticDir } = options;
   const reader = new SessionReader();
   const signal = changeSignal(source);
+  const away = () => source.away?.() ?? false;
+  const control =
+    options.control === false ? undefined : new Control({ away, onChange: () => signal.changes.emit('change') });
+  const look = () => overview(source, reader, control);
+  const notes = notifier(look, signal.changes, away);
+  notes.sync();
   const router = createRouter({
-    overview: () => overview(source, reader),
+    overview: look,
+    control,
+    notificationsChanged: () => notes.sync(),
+    vendorOf: (profileId) => source.profiles().find((p) => p.id === profileId)?.vendor ?? null,
     transcript: (profileId, sessionId, before) => reader.transcript(source.homes(), profileId, sessionId, before),
     changes: signal.changes,
   });
@@ -269,13 +344,17 @@ export function startHub(options: {
 
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(options.port ?? DEFAULT_PORT, options.host ?? '127.0.0.1', () => {
+    server.listen(options.port ?? DEFAULT_PORT, options.host ?? '127.0.0.1', async () => {
       server.off('error', reject);
+      // Without the socket the phone still reads everything; it cannot reply.
+      await control?.listen().catch(() => {});
       const address = server.address();
       resolve({
         port: typeof address === 'object' && address ? address.port : (options.port ?? DEFAULT_PORT),
         close: () =>
           new Promise<void>((done) => {
+            notes.stop();
+            void control?.close();
             signal.stop();
             server.close(() => done());
             server.closeAllConnections?.();

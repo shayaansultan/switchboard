@@ -273,17 +273,20 @@ test('a Claude session whose turn ended is still working while what it started i
   expect(session(launch, Date.now() - 4 * hour).summary).toMatchObject({ state: 'finished', background: 0 });
 });
 
-test('skill text, the compaction summary and wrapper tags never show as what the person typed', () => {
+test('skill text, the compaction summary and wrapper tags never show as what the person typed; a reply from the phone does', () => {
   const { transcript } = session([
     prompt(
       '<artifact-view-context artifact="x">{"page":1}</artifact-view-context>Tighten <pasted_content id="1">this line</pasted_content>',
     ),
     prompt('Base directory for this skill: /skills/catch-up', { isMeta: true }),
+    prompt('And the docs', { origin: { kind: 'plugin', name: 'switchboard-remote', asUser: true } }),
+    prompt('A plugin talking', { origin: { kind: 'plugin', name: 'other' } }),
     prompt('This session is being continued from a previous conversation.', { isCompactSummary: true }),
     reply([{ type: 'text', text: 'Done.' }], 'end_turn'),
   ]);
   expect(transcript.entries.filter((e) => e.kind === 'message').map((e) => (e as { text: string }).text)).toEqual([
     'Tighten this line',
+    'And the docs',
     'Done.',
   ]);
 });

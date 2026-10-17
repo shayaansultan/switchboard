@@ -60,6 +60,19 @@ export function wrapperScript(
   return `#!/bin/sh\nexec ${command} "$@" ${overrides.map((value) => `-c ${shellQuote(value)}`).join(' ')}\n`;
 }
 
+// The wrapper a Codex profile without a bucket launches its engine through
+// while phone access is on: the engine untouched, with the phone's tap on
+// its connection (desktop-remote.ts). Rewritten at each launch; its content
+// only changes when Switchboard or ChatGPT moves.
+export function remoteWrapper(profile: Profile): string {
+  const binary = codexBinary();
+  const adapter = runtime();
+  const file = desktopRouting(profile.id).wrapper;
+  const command = `env ELECTRON_RUN_AS_NODE=1 ${[adapter.execPath, adapter.script('desktop-remote'), binary].map(shellQuote).join(' ')}`;
+  writeFileAtomic(file, `#!/bin/sh\nexec ${command} "$@"\n`, 0o700);
+  return file;
+}
+
 export async function desktopEnvironment(profile: Profile, codexHome: string): Promise<Record<string, string>> {
   if (profile.vendor !== 'codex') return {};
   if (!profile.proxyBucket) return {};

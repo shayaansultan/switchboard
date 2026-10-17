@@ -395,9 +395,7 @@ export function EntryView({ entry }: { entry: Entry }) {
             </div>
           ))}
           <span className="text-[13px] text-subtle">
-            {entry.answers
-              ? `You answered: ${entry.answers.join(', ')}`
-              : 'Answer on your Mac for now. Answering from the phone comes next.'}
+            {entry.answers ? `You answered: ${entry.answers.join(', ')}` : 'Waiting for your answer'}
           </span>
         </div>
       );
