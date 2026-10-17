@@ -31,9 +31,14 @@ export function Accounts({ overview }: { overview: Overview | undefined }) {
               )}
               <span className="flex max-w-full items-center gap-1.5 truncate text-[13px] font-semibold">
                 <Dot color={p.color} />
-                {p.label}
+                {p.name}
               </span>
-              <span className="text-[11px] text-muted-foreground">{w ? `${w.label} left` : VENDOR[p.vendor]}</span>
+              {/* The tile is too narrow for the label; a repeated name gets its app here. */}
+              <span className="text-[11px] text-muted-foreground">
+                {[p.label !== p.name ? VENDOR[p.vendor] : null, w ? `${w.label} left` : VENDOR[p.vendor]]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
             </div>
           );
         })}
