@@ -28,7 +28,7 @@ export interface ApiContext {
   setCookie(value: string | null): void;
 }
 
-function tokenFrom(req: http.IncomingMessage): string | null {
+export function tokenFrom(req: http.IncomingMessage): string | null {
   const bearer = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? '')?.[1];
   if (bearer) return bearer;
   for (const part of (req.headers.cookie ?? '').split(';')) {

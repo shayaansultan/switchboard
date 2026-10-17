@@ -12,7 +12,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Vendor } from '../types';
 import { claudeFiles, claudePage, summarizeClaude, STALE_MS } from './claude';
-import { codexPage, codexThreads, summarizeCodex, type CodexThread } from './codex';
+import { codexFiles, codexPage, codexThreads, summarizeCodex, type CodexThread } from './codex';
 import { stat, type FileInfo } from './jsonl';
 import type { SessionSummary, Transcript } from './model';
 
@@ -105,7 +105,9 @@ export class SessionReader {
       : summarizeClaude(profileId, info, now);
     if (!session) return null;
     const page = known.thread ? codexPage(info, before) : claudePage(info, before);
-    return { session, entries: page.entries, before: page.before };
+    const home = profiles.find((p) => p.id === profileId)?.home;
+    const files = known.thread && home && before === null ? codexFiles(home, sessionId) : [];
+    return { session, entries: page.entries, before: page.before, files };
   }
 }
 

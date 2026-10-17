@@ -11,6 +11,7 @@
 
 import * as path from 'node:path';
 import type { Entry, EntryOf, FileChange, Pr, SessionState, SessionSummary, ToolCall } from './model';
+import { kindOf, mediaId } from './media';
 import {
   arr,
   clip,
@@ -19,6 +20,7 @@ import {
   head,
   listDir,
   mcpName,
+  offsetOf,
   num,
   obj,
   oneLine,
@@ -169,7 +171,7 @@ interface Pending {
 
 // Records into entries, in order. Consecutive tool calls share one `steps`
 // entry; a prompt, a reply or a special entry closes it.
-export function claudeEntries(records: Rec[]): Entry[] {
+export function claudeEntries(records: Rec[], file = ''): Entry[] {
   const entries: Entry[] = [];
   const byId = new Map<string, Pending>();
   const frames = new Map<string, { url: string; title: string }>();
@@ -219,11 +221,24 @@ export function claudeEntries(records: Rec[]): Entry[] {
 
     if (r.type === 'user') {
       const result = obj(r.toolUseResult);
-      for (const b of arr(content).map(obj)) {
+      // Where this record's line starts, for media ids of images stored in it.
+      const offset = offsetOf(r);
+      const image = (b: number[]) => (file && offset !== undefined ? mediaId({ f: file, o: offset, b }) : null);
+      const pasted: string[] = [];
+      arr(content).forEach((raw, i) => {
+        if (obj(raw).type !== 'image') return;
+        const id = image([i]);
+        if (id) pasted.push(id);
+      });
+      for (const [i, b] of arr(content).map(obj).entries()) {
         if (b.type !== 'tool_result') continue;
         const pending = byId.get(str(b.tool_use_id) ?? '');
         if (!pending) continue;
         if (pending.call) {
+          for (const [j, inner] of arr(b.content).map(obj).entries()) {
+            const id = inner.type === 'image' ? image([i, j]) : null;
+            if (id) pending.call.images.push(id);
+          }
           pending.call.output = outputOf(b, result);
           pending.call.failed = b.is_error === true || result.interrupted === true;
           pending.call.change = change(pending.name, pending.input, result);
@@ -239,6 +254,7 @@ export function claudeEntries(records: Rec[]): Entry[] {
       const text = prompt(r);
       if (text.startsWith(INTERRUPTED)) push({ kind: 'notice', tone: 'info', text: 'Stopped by you', at });
       else if (text) push({ kind: 'message', role: 'user', text: clip(text, TEXT_LIMIT), queued: false, at });
+      for (const id of pasted) push({ kind: 'image', from: 'you', mediaId: id, at });
       continue;
     }
 
@@ -288,7 +304,8 @@ export function claudeEntries(records: Rec[]): Entry[] {
               kind: 'file',
               path: f,
               name: path.basename(f),
-              image: /\.(png|jpe?g|gif|webp|heic)$/i.test(f),
+              type: kindOf(f),
+              mediaId: mediaId({ p: f }),
               caption: str(input.caption),
               at,
             });
@@ -309,6 +326,7 @@ export function claudeEntries(records: Rec[]): Entry[] {
         output: null,
         failed: false,
         change: null,
+        images: [],
         at,
       };
       if (!steps) {
@@ -403,7 +421,7 @@ export function summarizeClaude(profileId: string, info: FileInfo, now = Date.no
   for (const r of all)
     if (r.type === 'pr-link' && str(r.prUrl))
       prs.set(str(r.prUrl)!, { url: str(r.prUrl)!, number: num(r.prNumber) ?? 0, repo: str(r.prRepository) ?? '' });
-  const entries = claudeEntries(end);
+  const entries = claudeEntries(end, info.file);
   const lastMessage = [...entries].reverse().find((e): e is EntryOf<'message'> => e.kind === 'message' && !e.queued);
   const { state, needs } = stateOf(end, info, now);
   return {
@@ -428,5 +446,5 @@ export function summarizeClaude(profileId: string, info: FileInfo, now = Date.no
 // A page of entries ending at byte `before` (the end of the file when null).
 export function claudePage(info: FileInfo, before: number | null): { entries: Entry[]; before: number | null } {
   const { records, start } = window(info, before ?? info.size, PAGE_BYTES);
-  return { entries: claudeEntries(records), before: start > 0 ? start : null };
+  return { entries: claudeEntries(records, info.file), before: start > 0 ? start : null };
 }

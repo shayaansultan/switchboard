@@ -5,9 +5,18 @@
 // card of its own. Widgets render static in a sealed frame: no scripts, no
 // network, no access to the page.
 
-import { ChevronDown, ChevronRight, ExternalLink, FileText, GitPullRequest, Image, Search } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  FileCode,
+  FileText,
+  GitPullRequest,
+  Image,
+  Search,
+} from 'lucide-react';
 import { useState } from 'react';
-import type { Entry, EntryOf, FileChange, ToolCall } from '../../remote/model';
+import type { Entry, EntryOf, FileChange, ToolCall, Transcript } from '../../remote/model';
 import { cn } from '@/lib/cn';
 import { usePrefs } from '../prefs';
 import { Markdown } from './Markdown';
@@ -15,6 +24,82 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collap
 
 const LONG_REPLY = 1400;
 const OUTPUT_LINES = 12;
+
+export const mediaUrl = (id: string): string => `/api/media/${encodeURIComponent(id)}`;
+
+// A picture from the session: a thumbnail that opens full size, where the
+// phone's own viewer can zoom it.
+export function Picture({ id, label, className }: { id: string; label: string; className?: string }) {
+  return (
+    <a
+      href={mediaUrl(id)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn('block overflow-hidden rounded-xl border border-border bg-muted', className)}
+    >
+      <img src={mediaUrl(id)} alt={label} loading="lazy" className="block max-h-72 w-full object-contain" />
+    </a>
+  );
+}
+
+const FILE_SUB: Record<string, string> = {
+  image: 'Image',
+  html: 'Page · opens in its own sandbox',
+  pdf: 'PDF',
+  text: 'Text',
+  other: 'File · downloads',
+};
+
+// A file the session made or sent, opened in the phone's browser.
+export function FileLink({
+  id,
+  name,
+  type,
+  caption,
+}: {
+  id: string;
+  name: string;
+  type: string;
+  caption?: string | null;
+}) {
+  if (type === 'image')
+    return (
+      <div className="flex flex-col gap-1.5">
+        <Picture id={id} label={name} />
+        <span className="text-[12.5px] text-muted-foreground">{caption ?? name}</span>
+      </div>
+    );
+  return (
+    <a
+      href={mediaUrl(id)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3 text-inherit no-underline"
+    >
+      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-subtle">
+        {type === 'html' ? <FileCode size={16} aria-hidden /> : <FileText size={16} aria-hidden />}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate font-semibold">{name}</span>
+        <span className="text-[12.5px] text-muted-foreground">{caption ?? FILE_SUB[type] ?? 'File'}</span>
+      </span>
+      <ExternalLink size={16} className="shrink-0 text-muted-foreground" aria-hidden />
+    </a>
+  );
+}
+
+// What a Codex thread made outside the conversation, such as visualizations.
+export function MadeFiles({ files }: { files: Transcript['files'] }) {
+  if (!files.length) return null;
+  return (
+    <section className="flex flex-col gap-2">
+      <span className="text-sm font-semibold text-muted-foreground">Made in this thread</span>
+      {files.map((f) => (
+        <FileLink key={f.mediaId} id={f.mediaId} name={f.name} type={f.type} />
+      ))}
+    </section>
+  );
+}
 
 export function DiffLines({ change, limit }: { change: FileChange; limit?: number }) {
   const lines = limit ? change.lines.slice(0, limit) : change.lines;
@@ -65,13 +150,20 @@ function Output({ text }: { text: string }) {
 
 function Call({ call }: { call: ToolCall }) {
   const [open, setOpen] = useState(call.failed);
-  const more = !!(call.output || call.change);
+  const more = !!(call.output || call.change || call.images.length);
   const head = (
     <span className="flex min-w-0 items-baseline gap-2 text-[12.5px]">
       <span className={cn('shrink-0 font-semibold', call.failed ? 'text-bad-text' : 'text-subtle')}>
         {call.service ? `${call.service} · ${call.name}` : call.name}
       </span>
       <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{call.detail}</span>
+      {call.images.length ? (
+        <Image
+          size={13}
+          className="shrink-0 text-muted-foreground"
+          aria-label={`${call.images.length} picture${call.images.length === 1 ? '' : 's'}`}
+        />
+      ) : null}
       {call.change ? (
         <span className="ml-auto shrink-0 text-xs">
           <span className="text-add-text">+{call.change.adds}</span>{' '}
@@ -97,6 +189,9 @@ function Call({ call }: { call: ToolCall }) {
             <DiffLines change={call.change} limit={60} />
           </div>
         ) : null}
+        {call.images.map((id, i) => (
+          <Picture key={id} id={id} label={`Picture ${i + 1} from ${call.name}`} className="mt-1.5" />
+        ))}
         {call.output ? <Output text={call.output} /> : null}
       </CollapsibleContent>
     </Collapsible>
@@ -110,7 +205,9 @@ function summary(calls: ToolCall[]): string {
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   const parts = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`);
-  return `${calls.length} ${calls.length === 1 ? 'step' : 'steps'} · ${parts.slice(0, 3).join(', ')}${parts.length > 3 ? ', …' : ''}`;
+  const pictures = calls.reduce((n, c) => n + c.images.length, 0);
+  const shown = `${calls.length} ${calls.length === 1 ? 'step' : 'steps'} · ${parts.slice(0, 3).join(', ')}${parts.length > 3 ? ', …' : ''}`;
+  return pictures ? `${shown} · ${pictures} ${pictures === 1 ? 'picture' : 'pictures'}` : shown;
 }
 
 function Steps({ entry }: { entry: EntryOf<'steps'> }) {
@@ -238,12 +335,15 @@ export function EntryView({ entry }: { entry: Entry }) {
         />
       );
     case 'file':
+      return <FileLink id={entry.mediaId} name={entry.name} type={entry.type} caption={entry.caption} />;
+    case 'image':
       return (
-        <Card
-          icon={entry.image ? <Image size={16} aria-hidden /> : <FileText size={16} aria-hidden />}
-          title={entry.name}
-          sub={entry.caption ?? (entry.image ? 'Image on your Mac' : 'File on your Mac')}
-        />
+        <div className={cn('flex max-w-[86%] flex-col gap-1', entry.from === 'you' ? 'self-end' : 'self-start')}>
+          <Picture
+            id={entry.mediaId}
+            label={entry.from === 'you' ? 'A picture you sent' : 'A picture from the agent'}
+          />
+        </div>
       );
     case 'widget':
       return (

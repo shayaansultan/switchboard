@@ -14,7 +14,7 @@ import type { Overview } from '../../remote/hub';
 import type { Entry, FileChange } from '../../remote/model';
 import { ago } from '../../shared/time';
 import { PulseDot, ProfileTag, StateText, project } from '../components/bits';
-import { EntryView } from '../components/Entries';
+import { EntryView, MadeFiles } from '../components/Entries';
 import { Button } from '../components/ui/button';
 import { sessionHref, useNow, useTRPC } from '../data';
 import { cn } from '@/lib/cn';
@@ -219,6 +219,8 @@ export function Session({
             ) : null}
           </div>
         ) : null}
+
+        <MadeFiles files={pages[0]?.files ?? []} />
 
         {query.hasNextPage ? (
           <Button

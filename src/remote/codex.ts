@@ -13,7 +13,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { Entry, EntryOf, FileChange, SessionState, SessionSummary, ToolCall } from './model';
+import type { Entry, EntryOf, FileChange, SessionState, SessionSummary, ToolCall, Transcript } from './model';
 import {
   arr,
   clip,
@@ -32,6 +32,7 @@ import {
   type Rec,
 } from './jsonl';
 import { PAGE_BYTES, STALE_MS } from './claude';
+import { kindOf, mediaId } from './media';
 
 const HEAD_BYTES = 64 * 1024;
 // Codex puts its instructions ahead of the first prompt; they can pass 64 KB.
@@ -284,6 +285,7 @@ export function codexEntries(records: Rec[]): Entry[] {
           output: out.trim() ? clip(out, OUTPUT_LIMIT) : null,
           failed: exit !== null && exit !== 0,
           change: null,
+          images: [],
           at,
         });
         break;
@@ -298,6 +300,7 @@ export function codexEntries(records: Rec[]): Entry[] {
             output: null,
             failed: it.status === 'failed',
             change: c,
+            images: [],
             at,
           });
         break;
@@ -316,6 +319,7 @@ export function codexEntries(records: Rec[]): Entry[] {
           output: out.trim() ? clip(out, OUTPUT_LIMIT) : null,
           failed: result.isError === true || it.status === 'failed',
           change: null,
+          images: [],
           at,
         });
         break;
@@ -330,12 +334,24 @@ export function codexEntries(records: Rec[]): Entry[] {
             output: null,
             failed: false,
             change: null,
+            images: [],
             at,
           });
         break;
       case 'ImageView': {
         const file = str(it.path);
-        if (file) push({ kind: 'file', path: file, name: path.basename(file), image: true, caption: null, at });
+        if (file)
+          step({
+            id: str(it.id) ?? file,
+            name: 'View image',
+            service: null,
+            detail: file,
+            output: null,
+            failed: false,
+            change: null,
+            images: [mediaId({ p: file })],
+            at,
+          });
         break;
       }
       case 'ContextCompaction':
@@ -450,4 +466,32 @@ export function summarizeCodex(profileId: string, thread: CodexThread, now = Dat
 export function codexPage(info: FileInfo, before: number | null): { entries: Entry[]; before: number | null } {
   const { records, start } = window(info, before ?? info.size, PAGE_BYTES);
   return { entries: codexEntries(records), before: start > 0 ? start : null };
+}
+
+// Files Codex made for a thread outside the conversation: its
+// visualizations, under <home>/visualizations/YYYY/MM/DD/<thread id>/.
+export function codexFiles(home: string, threadId: string): Transcript['files'] {
+  const root = path.join(home, 'visualizations');
+  const files: Transcript['files'] = [];
+  for (const y of listDir(root))
+    for (const m of listDir(path.join(root, y)))
+      for (const d of listDir(path.join(root, y, m))) {
+        const dir = path.join(root, y, m, d, threadId);
+        const walk = (at: string, depth: number) => {
+          for (const name of listDir(at)) {
+            const full = path.join(at, name);
+            const info = stat(full);
+            if (info)
+              files.push({
+                name: path.relative(dir, full),
+                type: kindOf(name),
+                mediaId: mediaId({ p: full }),
+                size: info.size,
+              });
+            else if (depth < 2) walk(full, depth + 1);
+          }
+        };
+        walk(dir, 0);
+      }
+  return files.slice(0, 50);
 }

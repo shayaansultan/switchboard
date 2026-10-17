@@ -93,6 +93,13 @@ from the same tokens as the window (`src/design/tokens.css`).
   command, its output and its diff. Questions, PRs, artifacts, subagents,
   reviews and widgets get cards. Older parts of a long session load on
   request, and the screen follows new activity while you read.
+- **Pictures and files:** pictures you pasted, screenshots a tool returned
+  (inside its step), files the agent sent you, and the visualizations a Codex
+  thread made. The phone fetches each from `/api/media/<id>`, where the id is
+  signed by the hub for that transcript (`src/remote/media.ts`), so a phone
+  can open what a session refers to and nothing else on the disk. Images
+  stored inside session files are read back from their line. HTML runs in a
+  sandbox of its own, without the device cookie or the network.
 - **Files changed:** every file the session edited, with its diff.
 - **Accounts:** each profile's usage windows, when they reset, and whether
   they will last until then at the current pace.

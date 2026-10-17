@@ -59,7 +59,8 @@ bun run cli -- list --human     # the CLI straight from source
 - `src/remote/`: phone access. `model.ts` is the shared session model,
   `claude.ts` and `codex.ts` read each app's session files into it,
   `sessions.ts` lists, pages and watches them, `api.ts` is the tRPC router,
-  `hub.ts` serves it and the phone app, `pairing.ts` and `status.ts` hold
+  `hub.ts` serves it and the phone app, `media.ts` signs and serves session
+  pictures and files, `pairing.ts` and `status.ts` hold
   paired phones and what the CLI reports.
 - `src/phone/`: the phone app, React with TanStack Query, tRPC and Tailwind;
   `components/ui/` are shadcn components on Switchboard's tokens.

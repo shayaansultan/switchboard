@@ -39,23 +39,38 @@ export function listDir(dir: string): string[] {
   }
 }
 
-function readSlice(file: string, start: number, length: number): string {
+function readBytes(file: string, start: number, length: number): Buffer {
   const fd = fs.openSync(file, 'r');
   try {
     const buffer = Buffer.alloc(length);
     const n = fs.readSync(fd, buffer, 0, length, start);
-    return buffer.subarray(0, n).toString('utf8');
+    return buffer.subarray(0, n);
   } finally {
     fs.closeSync(fd);
   }
 }
 
-export function parseLines(lines: string[]): Rec[] {
+function readSlice(file: string, start: number, length: number): string {
+  return readBytes(file, start, length).toString('utf8');
+}
+
+// Where in its file each record parsed from a known position starts, so an
+// image stored inline can be found again by its line (see media.ts).
+const offsets = new WeakMap<Rec, number>();
+export const offsetOf = (r: Rec): number | undefined => offsets.get(r);
+
+// `base` is the byte position of the first line, when known.
+export function parseLines(lines: string[], base?: number): Rec[] {
   const out: Rec[] = [];
+  let at = base ?? 0;
   for (const line of lines) {
+    const start = at;
+    if (base !== undefined) at += Buffer.byteLength(line) + 1;
     if (!line || line.charCodeAt(0) !== 123 /* { */) continue;
     try {
-      out.push(obj(JSON.parse(line)));
+      const r = obj(JSON.parse(line));
+      if (base !== undefined) offsets.set(r, start);
+      out.push(r);
     } catch {
       // Half-written, or not a record.
     }
@@ -68,7 +83,7 @@ export function head(info: FileInfo, bytes: number): Rec[] {
   const length = Math.min(bytes, info.size);
   const lines = readSlice(info.file, 0, length).split('\n');
   if (info.size > length) lines.pop();
-  return parseLines(lines);
+  return parseLines(lines, 0);
 }
 
 // Records that end at or before `end`, starting no earlier than `end - bytes`.
@@ -77,17 +92,16 @@ export function head(info: FileInfo, bytes: number): Rec[] {
 export function window(info: FileInfo, end: number, bytes: number): { records: Rec[]; start: number } {
   const stop = Math.min(end, info.size);
   const from = Math.max(0, stop - bytes);
-  const text = readSlice(info.file, from, stop - from);
+  // Find the first whole line in bytes: the slice may start inside a character.
+  const bytes_ = readBytes(info.file, from, stop - from);
   let offset = 0;
   if (from > 0) {
-    const first = text.indexOf('\n');
+    const first = bytes_.indexOf(10);
     if (first < 0) return { records: [], start: from };
     offset = first + 1;
   }
-  return {
-    records: parseLines(text.slice(offset).split('\n')),
-    start: from + Buffer.byteLength(text.slice(0, offset)),
-  };
+  const start = from + offset;
+  return { records: parseLines(bytes_.subarray(offset).toString('utf8').split('\n'), start), start };
 }
 
 export function tail(info: FileInfo, bytes: number): Rec[] {

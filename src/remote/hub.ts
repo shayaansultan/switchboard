@@ -22,7 +22,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { createHTTPHandler } from '@trpc/server/adapters/standalone';
 import type { AppState, Vendor } from '../types';
-import { createContext, createRouter } from './api';
+import { createContext, createRouter, tokenFrom } from './api';
+import { HTML_POLICY, readMedia, resolveMedia } from './media';
+import { authenticate } from './pairing';
 import { SessionReader, watch, type ProfileHome, type SessionSummary } from './sessions';
 
 export const DEFAULT_PORT = 47821;
@@ -193,6 +195,34 @@ export function startHub(options: {
     else fs.createReadStream(file).pipe(res);
   }
 
+  // A picture or file a session refers to, by the signed id its transcript
+  // gave (media.ts). Paired phones only, like the API.
+  function serveMedia(req: http.IncomingMessage, res: http.ServerResponse, id: string): void {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'method' });
+    if (!authenticate(tokenFrom(req))) return send(res, 401, { error: 'not-paired' });
+    const ref = resolveMedia(decodeURIComponent(id));
+    const media = ref && readMedia(ref);
+    if (!media) return send(res, 404, { error: 'no-such-media' });
+    const active = media.type.startsWith('text/html') || media.type === 'image/svg+xml';
+    res.writeHead(200, {
+      ...SECURITY_HEADERS,
+      'content-type': media.type,
+      'content-length': String(media.size),
+      'cache-control': 'private, max-age=3600',
+      'content-disposition': `${media.type.startsWith('image/') || media.type === 'application/pdf' || active ? 'inline' : 'attachment'}; filename="${media.name.replace(/[^\w.-]/g, '_')}"`,
+      // HTML and SVG run sandboxed, without the device cookie or the network;
+      // anything else is never run at all.
+      'content-security-policy': active ? HTML_POLICY : "default-src 'none'; sandbox",
+      ...(active ? { 'x-frame-options': 'SAMEORIGIN' } : {}),
+    });
+    if (req.method === 'HEAD') {
+      if ('destroy' in media.body) media.body.destroy();
+      return void res.end();
+    }
+    if (Buffer.isBuffer(media.body)) res.end(media.body);
+    else media.body.pipe(res);
+  }
+
   function handle(req: http.IncomingMessage, res: http.ServerResponse): void {
     const host = req.headers.host ?? '';
     if (!ALLOWED_HOST.test(host)) return send(res, 421, { error: 'wrong-host' });
@@ -205,6 +235,7 @@ export function startHub(options: {
     const origin = req.headers.origin;
     if (origin && new URL(origin).host !== host) return send(res, 403, { error: 'cross-origin' });
     if (url.pathname === '/api/health') return send(res, 200, { app: 'switchboard' });
+    if (url.pathname.startsWith('/api/media/')) return serveMedia(req, res, url.pathname.slice('/api/media/'.length));
     if (url.pathname.startsWith(API_BASE)) {
       res.setHeader('cache-control', 'no-store');
       for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);

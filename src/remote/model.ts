@@ -55,11 +55,17 @@ export const ToolCall = z.object({
   output: z.string().nullable(),
   failed: z.boolean(),
   change: FileChange.nullable(),
+  // Pictures the tool returned (a screenshot), as media ids for /api/media/.
+  images: z.array(z.string()),
   at: z.string().nullable(),
 });
 export type ToolCall = z.infer<typeof ToolCall>;
 
 const at = z.string().nullable();
+
+// What a file is, for how the phone shows it: inline, in a sandboxed page, or
+// as a download. See media.ts.
+export const MediaKind = z.enum(['image', 'html', 'pdf', 'text', 'other']);
 
 export const Entry = z.discriminatedUnion('kind', [
   z.object({
@@ -87,13 +93,18 @@ export const Entry = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('widget'), title: z.string(), html: z.string(), at }),
   z.object({ kind: z.literal('pr'), url: z.string(), number: z.number(), repo: z.string(), at }),
   z.object({
+    // A file the agent sent you or looked at, servable by its media id.
     kind: z.literal('file'),
     path: z.string(),
     name: z.string(),
-    image: z.boolean(),
+    type: MediaKind,
+    mediaId: z.string(),
     caption: z.string().nullable(),
     at,
   }),
+  // A picture in the conversation itself: one you pasted, or one the agent
+  // attached to its reply.
+  z.object({ kind: z.literal('image'), from: z.enum(['you', 'agent']), mediaId: z.string(), at }),
   z.object({
     kind: z.literal('review'),
     verdict: z.string(),
@@ -135,5 +146,7 @@ export const Transcript = z.object({
   entries: z.array(Entry),
   // Byte position to pass back for the page before this one; null at the start.
   before: z.number().nullable(),
+  // Files the session made outside the conversation (Codex visualizations).
+  files: z.array(z.object({ name: z.string(), type: MediaKind, mediaId: z.string(), size: z.number() })),
 });
 export type Transcript = z.infer<typeof Transcript>;
