@@ -9,7 +9,7 @@
 
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { ArrowDown, ChevronLeft, GitBranch } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Overview } from '../../remote/hub';
 import type { Entry, FileChange } from '../../remote/model';
 import { ago } from '../../shared/time';
@@ -54,6 +54,12 @@ export function changedFiles(entries: Entry[]): FileChange[] {
   return [...byPath.values()];
 }
 
+// "claude-opus-5-5" as "Opus 5.5"; other ids as they are.
+function modelName(id: string): string {
+  const m = /^claude-(opus|sonnet|haiku|fable)-(\d+)-(\d+)/.exec(id);
+  return m ? `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}.${m[3]}` : id;
+}
+
 export function Session({
   profileId,
   sessionId,
@@ -80,7 +86,8 @@ export function Session({
   const [atBottom, setAtBottom] = useState(true);
   const [fresh, setFresh] = useState(false);
   const seen = useRef<string | undefined>(undefined);
-  const scrolled = useRef(false);
+  // Whether the reader was at the end before the last change: if so, stay there.
+  const pinned = useRef(true);
 
   // Follow the session: re-read the newest page when it changes.
   useEffect(() => {
@@ -92,26 +99,37 @@ export function Session({
     seen.current = summary.updatedAt;
   }, [summary?.updatedAt]);
 
-  useEffect(() => {
-    if (pages.length && !scrolled.current) {
-      scrolled.current = true;
-      bottom.current?.scrollIntoView();
-    }
-  }, [pages.length]);
+  // Open at the end, and stay at the end as entries arrive and render, unless
+  // the reader has scrolled up.
+  useLayoutEffect(() => {
+    if (pinned.current) bottom.current?.scrollIntoView();
+  }, [entries]);
 
   useEffect(() => {
     const el = bottom.current;
     if (!el) return;
-    const io = new IntersectionObserver(([e]) => setAtBottom(e.isIntersecting));
+    const io = new IntersectionObserver(([e]) => {
+      setAtBottom(e.isIntersecting);
+      pinned.current = e.isIntersecting;
+    });
     io.observe(el);
-    return () => io.disconnect();
+    // Late layout (fonts, code blocks) can push the end down after the first
+    // scroll; follow it while still pinned.
+    const ro = new ResizeObserver(() => {
+      if (pinned.current) el.scrollIntoView();
+    });
+    ro.observe(document.body);
+    return () => {
+      io.disconnect();
+      ro.disconnect();
+    };
   }, []);
 
   const files = changedFiles(entries);
   const artifacts = entries.filter((e) => e.kind === 'artifact').length;
   const subagents = entries.filter((e) => e.kind === 'subagent').length;
   const facts = [
-    summary?.model,
+    summary?.model ? modelName(summary.model) : null,
     summary?.costUsd != null ? `$${summary.costUsd.toFixed(2)}` : null,
     summary ? `updated ${ago(summary.updatedAt, now)}` : null,
   ].filter(Boolean);
