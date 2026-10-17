@@ -37,6 +37,9 @@ const api: SwitchboardApi = {
   reveal: (id: string) => ipcRenderer.invoke('profile:reveal', id),
   copyCommand: (id: string) => ipcRenderer.invoke('cli:copy', id),
   installCli: () => ipcRenderer.invoke('cli:install'),
+  phoneStatus: () => ipcRenderer.invoke('remote:status'),
+  pairPhone: () => ipcRenderer.invoke('remote:pair'),
+  unpairPhone: (id: string) => ipcRenderer.invoke('remote:unpair', id),
   onState: (fn: (s: State) => void) => {
     ipcRenderer.on('state', (_e, s: State) => fn(s));
   },

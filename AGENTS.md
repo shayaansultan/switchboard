@@ -56,6 +56,18 @@ bun run cli -- list --human     # the CLI straight from source
   default, `--human` for prose; `src/cli/output.ts` is the contract.
 - `src/buckets/`: proxy buckets, the local proxy and its worker.
 - `src/opencode/`: the `oc` CLI for OpenCode profiles; runs without Electron.
+- `src/remote/`: phone access. `model.ts` is the shared session model,
+  `claude.ts` and `codex.ts` read each app's session files into it,
+  `sessions.ts` lists, pages and watches them, `api.ts` is the tRPC router,
+  `hub.ts` serves it and the phone app, `media.ts` signs and serves session
+  pictures and files, `pairing.ts` and `status.ts` hold
+  paired phones and what the CLI reports.
+- `src/phone/`: the phone app, React with TanStack Query, tRPC and Tailwind;
+  `components/ui/` are shadcn components on Switchboard's tokens.
+- `src/design/`: `tokens.css` (every colour and font, light and dark) and the
+  font files, shared by the window and the phone app.
+- `src/shared/`: time words and usage arithmetic shared by the window, the
+  menu bar and the phone; the profile band keeps a tested copy of `pace`.
 - `src/renderer/`: `app.tsx` (the window), `profiles.tsx`, `buckets.tsx`,
   `dialogs.tsx`, `ui/` (primitives, overlays, menus), one `style.css`.
 - `test/`: Bun tests, one file per module. `demo/`: the fixture, the
@@ -64,9 +76,9 @@ bun run cli -- list --human     # the CLI straight from source
 
 ## Conventions the tools do not enforce
 
-- Every colour in `style.css` is a token with a light value in `:root` and a
-  dark value in the `prefers-color-scheme: dark` block. Never write a literal
-  colour in a rule; add a token to both sets.
+- Every colour is a token in `src/design/tokens.css`, shared by the window
+  and the phone app, written `light-dark(light, dark)` so both values sit
+  on one line. Never write a literal colour in a rule; add a token.
 - The renderer only ever receives percentages, reset times, email, plan,
   the proxy's reason an account is unavailable, and usage-reset offers (id,
   title, count, expiry). A reset session stays in the main process; the

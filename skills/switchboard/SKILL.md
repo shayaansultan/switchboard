@@ -53,6 +53,15 @@ whichever window it picks. Buckets are pools of accounts behind a local proxy th
 profile can route through: `bucket list` shows each account's headroom, `assign` routes a profile
 and takes effect on its next launch.
 
+## Phone access
+
+`switchboard remote sessions --working` lists the sessions in progress across every profile
+(desktop sessions only unless `--all`); `remote session PROFILE ID` returns one transcript. Both
+read session files and need no running app. `remote on|off`, `pair`, `devices` and `unpair`
+manage what paired phones can see. Pairing codes and unpairing are the user's to ask for; do not
+hand a code to anyone else. Publishing on the tailnet is the user's `tailscale serve` command,
+which `remote status` prints; do not run it for them.
+
 ## Usage reset grants
 
 `switchboard resets PROFILE` lists vendor-issued reset grants for the native account,

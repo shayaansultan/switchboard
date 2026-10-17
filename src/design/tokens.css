@@ -1,0 +1,108 @@
+/* Switchboard's design tokens: the one palette, type and font files both
+   the window (src/renderer) and the phone app (src/phone) are drawn from.
+   The build puts this file ahead of each app's own stylesheet, so a colour
+   changed here changes everywhere. Every colour is a token with a light value
+   and a dark value; components use the tokens, never literal colours.
+
+   Wispr Flow's clothes on a native-Mac utility. Warm sand surfaces, one
+   sans (Figtree) for everything with a serif (EB Garamond) reserved for
+   dialog titles, hairline borders with a whisper of shadow, and colour only
+   where it carries meaning: teal for a healthy usage bar, amber and coral as
+   a window runs out, mint for "running", lilac for the plan badge. Every
+   colour is a token here, written light-dark(light, dark), so this file is
+   the whole of dark mode. Which value applies follows the page's colour
+   scheme: the system's, unless the window's Appearance setting (through
+   Electron's theme) or the phone's (through data-theme) pins one. */
+@font-face {
+  font-family: 'Figtree';
+  src: url('fonts/Figtree-Regular.ttf') format('truetype');
+  font-weight: 300 900;
+  font-display: block;
+}
+@font-face {
+  font-family: 'EB Garamond';
+  src: url('fonts/EBGaramond-Regular.ttf') format('truetype');
+  font-weight: 400 800;
+  font-display: block;
+}
+:root {
+  --bg: light-dark(#fcfcfb, #181917);
+  --panel: light-dark(#ffffff, #20211e);
+  --panel-2: light-dark(#f5f4f0, #242521);
+  --field: light-dark(#ffffff, #181917);
+  --line: light-dark(#eeebe3, #34362f);
+  --text: light-dark(#1a1a1a, #eeeae0);
+  --text-2: light-dark(#4d4a42, #c2bfb4);
+  --muted: light-dark(#71716e, #aba99e);
+  --ink: light-dark(#1a1a1a, #e9e3d7);
+  --on-ink: light-dark(#fcfcfb, #272620);
+  --ink-hover: light-dark(#333333, #f5f0e7);
+  --btn-bg: light-dark(#fcfcfb, #20221e);
+  --btn-border: light-dark(#eeebe3, #41433b);
+  --secondary: light-dark(#eeebe3, #41423b);
+  --hover: light-dark(rgba(197, 192, 179, 0.2), #30322c);
+  --track: light-dark(#eeebe3, #34362f);
+  --fill: light-dark(#369489, #8fc7b5);
+  --warn: light-dark(#efa249, #e8b575);
+  --warn-text: light-dark(#a05f12, #f2c58e);
+  --warn-bg: light-dark(#fcf0df, #4a3a24);
+  --bad: light-dark(#ee6a6a, #ed9690);
+  --bad-text: light-dark(#bc3d3d, #f7b2aa);
+  --run: light-dark(#4fbf78, #a8e2c4);
+  --run-bg: light-dark(#d4f6e1, #244439);
+  --run-text: light-dark(#368855, #a8e2c4);
+  --dawn: light-dark(#f0d7ff, #463650);
+  --dawn-strong: light-dark(#a26ec1, #cba2e7);
+  --dawn-tint: light-dark(#faf1ff, #302735);
+  --danger-bg: light-dark(#fdf2f0, #482d2d);
+  --skel-a: light-dark(#eeebe3, #34362f);
+  --skel-b: light-dark(#f5f4f0, #3d3f38);
+  --line-2: light-dark(#eeebe3, #41433b);
+  --dawn-text: light-dark(#1a1a1a, #e4c8f5);
+  --focus: light-dark(#1a1a1a, #bda4cc);
+  --dialog-bg: light-dark(#fcfcfb, #242521);
+  --dialog-border: light-dark(transparent, #41433b);
+  --tip-bg: light-dark(#1a1a1a, #3a3b35);
+  --tip-text: light-dark(#fcfcfb, #eeeae0);
+  --tip-border: light-dark(transparent, #4a4c44);
+  /* Diffs and code, for session transcripts on the phone. */
+  --add-bg: light-dark(#eaf6ee, #1f3a2b);
+  --add-text: light-dark(#2e6e46, #a8e2c4);
+  --del-bg: light-dark(#fbeceb, #43282a);
+  --del-text: light-dark(#9b3232, #f7b2aa);
+  --code-bg: light-dark(#1d1f1c, #121311);
+  --code-text: #eeeae0;
+  /* A QR code scans best dark on white, in either theme. */
+  --qr-dark: #000000;
+  --qr-light: #ffffff;
+  --switch-off: light-dark(#c5c0b3, #41433b);
+  --switch-on: light-dark(#1a1a1a, #a26ec1);
+  --switch-on-sm: light-dark(#369489, #a26ec1);
+  --knob: light-dark(#ffffff, #eeeae0);
+  --term-bg: light-dark(#1a1a1a, #111210);
+  --term-text: light-dark(#fcfcfb, #eeeae0);
+  --term-line: light-dark(#30302f, #34362f);
+  --term-muted: light-dark(#9d9c98, #aba99e);
+  --term-prompt: light-dark(#84cdc1, #8fc7b5);
+  --term-ok: light-dark(#34d399, #a8e2c4);
+  --term-hover: light-dark(rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.06));
+  --term-border: light-dark(transparent, #34362f);
+  --shadow-1: 0 1px 2px 0 light-dark(rgba(26, 26, 26, 0.05), rgba(0, 0, 0, 0.25));
+  --shadow-2: 0 10px 15px -3px light-dark(rgba(26, 26, 26, 0.1), rgba(0, 0, 0, 0.35)), 0 4px 6px -4px light-dark(rgba(26, 26, 26, 0.1), rgba(0, 0, 0, 0.35));
+  --shadow-3: 0 20px 25px -5px light-dark(rgba(26, 26, 26, 0.1), rgba(0, 0, 0, 0.45)), 0 8px 10px -6px light-dark(rgba(26, 26, 26, 0.1), rgba(0, 0, 0, 0.45));
+  --backdrop: light-dark(rgba(26, 26, 26, 0.18), rgba(0, 0, 0, 0.5));
+  color-scheme: light dark;
+}
+/* Dark, after hours: the same warm sand, turned down. Raised means lighter,
+   so a panel sits above the canvas and its head above the panel; borders
+   stay visible; ink is warm rather than white; the primary flips to cream;
+   and every colour that carries meaning becomes a pastel that can hold dark
+   text. Purple, the app's one selection hue, marks a switch that is on.
+
+   A page pins one scheme with data-theme: the phone's Appearance setting. */
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}

@@ -1,0 +1,97 @@
+/* The phone app's stylesheet. Switchboard's tokens (src/design/tokens.css)
+   are the only source of colour and type: the theme below maps them onto the
+   names Tailwind utilities and shadcn components use (background, primary,
+   muted, border, ring...), so every component added later is in the house
+   look without restyling. The tokens switch themselves for dark mode, so
+   nothing here needs a dark variant. No all-caps labels anywhere. */
+@import 'tailwindcss' source('.');
+@import '../design/tokens.css';
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-card: var(--panel);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--dialog-bg);
+  --color-popover-foreground: var(--text);
+  --color-primary: var(--ink);
+  --color-primary-foreground: var(--on-ink);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--panel-2);
+  --color-muted-foreground: var(--muted);
+  --color-accent: var(--hover);
+  --color-accent-foreground: var(--text);
+  --color-destructive: var(--bad-text);
+  --color-border: var(--line);
+  --color-input: var(--line-2);
+  --color-ring: var(--focus);
+
+  --color-subtle: var(--text-2);
+  --color-track: var(--track);
+  --color-fill: var(--fill);
+  --color-warn: var(--warn);
+  --color-warn-text: var(--warn-text);
+  --color-warn-bg: var(--warn-bg);
+  --color-bad: var(--bad);
+  --color-bad-text: var(--bad-text);
+  --color-danger-bg: var(--danger-bg);
+  --color-run: var(--run);
+  --color-run-bg: var(--run-bg);
+  --color-run-text: var(--run-text);
+  --color-add-bg: var(--add-bg);
+  --color-add-text: var(--add-text);
+  --color-del-bg: var(--del-bg);
+  --color-del-text: var(--del-text);
+  --color-code-bg: var(--code-bg);
+  --color-code-text: var(--code-text);
+
+  --font-sans: 'Figtree', -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font-serif: 'EB Garamond', Georgia, 'Times New Roman', serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--line);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    line-height: 1.45;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+}
+
+/* Safe areas: content clears the notch, the home indicator and side bars. */
+@utility pt-safe {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 1rem);
+}
+@utility pb-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+}
+@utility px-gutter {
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+}
+
+@keyframes pulse-dot {
+  50% {
+    opacity: 0.35;
+  }
+}
+@utility animate-pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
