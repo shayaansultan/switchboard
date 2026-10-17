@@ -18,6 +18,7 @@ import {
   StateMark,
   plain,
   project,
+  backgroundText,
 } from '../components/bits';
 import { Button } from '../components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
@@ -70,6 +71,7 @@ function WorkingCard({ s, profile, now }: { s: SessionSummary; profile?: HubProf
         </span>
       </span>
       <Meta s={s} profile={profile} />
+      {s.background ? <span className="text-xs text-run-text">{backgroundText(s.background)}</span> : null}
       {s.plan ? (
         <span className="flex items-center gap-2">
           <span className="h-1 flex-1 overflow-hidden rounded-full bg-track">
@@ -214,7 +216,7 @@ export function Inbox({ overview, link }: { overview: Overview | undefined; link
         {chips.map((p) => (
           <ToggleGroupItem key={p.id} value={p.id} className="shrink-0">
             <Dot color={p.color} />
-            {p.name}
+            {p.label}
           </ToggleGroupItem>
         ))}
       </ToggleGroup>

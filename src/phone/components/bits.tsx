@@ -68,8 +68,8 @@ export function ProfileTag({ profile, withVendor = false }: { profile: HubProfil
   return (
     <span className="inline-flex items-center gap-1.5">
       <Dot color={profile.color} />
-      {profile.name}
-      {withVendor ? ` · ${VENDOR[profile.vendor]}` : ''}
+      {profile.label}
+      {withVendor && profile.label === profile.name ? ` · ${VENDOR[profile.vendor]}` : ''}
     </span>
   );
 }
@@ -82,6 +82,10 @@ const STATE_TEXT: Record<SessionSummary['state'], string> = {
   stopped: 'text-muted-foreground',
   errored: 'text-bad-text',
 };
+
+// What a session left running after its turn: agents, commands, monitors.
+export const backgroundText = (n: number): string =>
+  n === 1 ? '1 task in the background' : `${n} tasks in the background`;
 
 export function StateText({ state, className }: { state: SessionSummary['state']; className?: string }) {
   return <span className={cn('font-semibold', STATE_TEXT[state], className)}>{STATE_LABEL[state]}</span>;

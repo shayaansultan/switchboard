@@ -11,7 +11,15 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Vendor } from '../types';
-import { claudeFiles, claudePage, summarizeClaude, STALE_MS } from './claude';
+import {
+  backgroundCount,
+  claudeFiles,
+  claudePage,
+  scanBackground,
+  summarizeClaude,
+  STALE_MS,
+  type Background,
+} from './claude';
 import { codexFiles, codexPage, codexThreads, summarizeCodex, type CodexThread } from './codex';
 import { stat, type FileInfo } from './jsonl';
 import type { SessionSummary, Transcript } from './model';
@@ -33,6 +41,8 @@ interface Cached {
   mtimeMs: number;
   size: number;
   summary: SessionSummary | null;
+  // Claude: background work this file has started, read up to `offset`.
+  background?: Background;
 }
 
 export class SessionReader {
@@ -55,20 +65,35 @@ export class SessionReader {
         if (count >= PER_PROFILE) break;
         seen.add(c.info.file);
         let cached = this.cache.get(c.info.file);
-        if (!cached || cached.mtimeMs !== c.info.mtimeMs || cached.size !== c.info.size) {
+        const changed = !cached || cached.mtimeMs !== c.info.mtimeMs || cached.size !== c.info.size;
+        let bg = cached?.background;
+        let running = 0;
+        if (!c.thread) {
+          try {
+            if (changed || !bg) bg = scanBackground(c.info, bg);
+            running = backgroundCount(c.info, bg, now);
+          } catch {
+            bg = undefined;
+          }
+        }
+        // Background work can finish or go quiet without the file changing.
+        if (changed || !cached || (cached.summary && cached.summary.background !== running)) {
           let summary: SessionSummary | null = null;
           try {
-            summary = c.thread ? summarizeCodex(profile.id, c.thread, now) : summarizeClaude(profile.id, c.info, now);
+            summary = c.thread
+              ? summarizeCodex(profile.id, c.thread, now)
+              : summarizeClaude(profile.id, c.info, now, running);
           } catch {
             summary = null;
           }
-          cached = { mtimeMs: c.info.mtimeMs, size: c.info.size, summary };
+          cached = { mtimeMs: c.info.mtimeMs, size: c.info.size, summary, background: bg };
           this.cache.set(c.info.file, cached);
         } else if (cached.summary) {
           // Unchanged file, but time has passed: a stale turn stops working,
           // and a Codex rename lands without touching the rollout.
           let s = cached.summary;
-          if (s.state === 'working' && now - c.info.mtimeMs >= STALE_MS) s = { ...s, state: 'finished' };
+          if (s.state === 'working' && !s.background && now - c.info.mtimeMs >= STALE_MS)
+            s = { ...s, state: 'finished' };
           if (c.thread?.title && c.thread.title !== s.title) s = { ...s, title: c.thread.title };
           cached.summary = s;
         }
@@ -100,9 +125,10 @@ export class SessionReader {
     const known = this.files.get(key);
     const info = known && stat(known.info.file);
     if (!known || !info) return null;
+    const running = this.cache.get(info.file)?.summary?.background ?? 0;
     const session = known.thread
       ? summarizeCodex(profileId, { ...known.thread, info }, now)
-      : summarizeClaude(profileId, info, now);
+      : summarizeClaude(profileId, info, now, running);
     if (!session) return null;
     const page = known.thread ? codexPage(info, before) : claudePage(info, before);
     const home = profiles.find((p) => p.id === profileId)?.home;

@@ -10,7 +10,7 @@ import * as net from 'node:net';
 import * as path from 'node:path';
 import { createTRPCClient, httpLink, TRPCClientError } from '@trpc/client';
 import { sandboxHome } from './setup';
-import { startHub, type Hub, type HubSource } from '../src/remote/hub';
+import { labelled, startHub, type Hub, type HubSource } from '../src/remote/hub';
 import type { ApiRouter } from '../src/remote/api';
 import { authenticate, CODE_TTL_MS, newCode, pair, remoteDir, revoke } from '../src/remote/pairing';
 
@@ -201,4 +201,21 @@ test('the live stream sends the overview, then again when a session file changes
   const [second] = await overviews(1, 7000);
   controller.abort();
   expect(second.sessions.map((s) => s.title)).toEqual(['Ship the stream']);
+});
+
+test('profiles that share a name are told apart by their app, and others keep their name', () => {
+  const p = (id: string, name: string, vendor: 'claude' | 'codex') => ({
+    id,
+    name,
+    vendor,
+    color: '#000',
+    isDefault: false,
+    email: null,
+    plan: null,
+    app: null,
+    windows: [],
+  });
+  expect(
+    labelled([p('a', 'Default', 'claude'), p('b', 'default', 'codex'), p('c', 'Work', 'claude')]).map((x) => x.label),
+  ).toEqual(['Default · Claude', 'default · Codex', 'Work']);
 });

@@ -119,10 +119,16 @@ export function oneLine(text: string, limit: number): string {
 
 // Text the person typed, without what the app or a hook attached to it.
 export function cleanPrompt(text: string): string {
-  return text
-    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
-    .replace(/<(command-[a-z-]+|local-command-[a-z-]+)>[\s\S]*?<\/\1>/g, '')
-    .trim();
+  return (
+    text
+      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+      .replace(/<(command-[a-z-]+|local-command-[a-z-]+)>[\s\S]*?<\/\1>/g, '')
+      // What the person was looking at in an artifact, for the model only.
+      .replace(/<artifact-view-context[^>]*>[\s\S]*?<\/artifact-view-context>/g, '')
+      // Pasted text keeps its words, without the wrapper.
+      .replace(/<\/?pasted_content[^>]*>/g, '')
+      .trim()
+  );
 }
 
 // Unified-diff lines counted the way a reviewer would.

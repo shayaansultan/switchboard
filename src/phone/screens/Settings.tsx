@@ -1,6 +1,6 @@
-// Settings on the phone: the Mac it is paired with, how to show sessions
-// (kept on this phone only), and unpairing. Notifications join this screen
-// when the Mac can send them.
+// Settings on the phone: the Mac it is paired with, its appearance and how
+// to show sessions (kept on this phone only), and unpairing. Notifications
+// join this screen when the Mac can send them.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type * as React from 'react';
@@ -21,7 +21,7 @@ function Row({ children }: { children: React.ReactNode }) {
   return <div className="flex flex-col gap-2 border-b border-border px-3.5 py-3 last:border-b-0">{children}</div>;
 }
 
-function Choice<K extends 'inbox' | 'steps' | 'text'>({
+function Choice<K extends 'inbox' | 'steps' | 'text' | 'theme'>({
   name,
   label,
   options,
@@ -92,6 +92,15 @@ export function Settings({ overview, link }: { overview: Overview | undefined; l
         <SectionTitle>Show</SectionTitle>
         <Group>
           <Choice
+            name="theme"
+            label="Appearance"
+            options={[
+              ['system', 'System'],
+              ['light', 'Light'],
+              ['dark', 'Dark'],
+            ]}
+          />
+          <Choice
             name="inbox"
             label="Inbox shows"
             options={[
@@ -122,14 +131,14 @@ export function Settings({ overview, link }: { overview: Overview | undefined; l
               <label key={p.id} className="flex items-center justify-between gap-3">
                 <span className="flex items-center gap-2">
                   <Dot color={p.color} />
-                  {p.name}
+                  {p.label}
                 </span>
                 <Switch
                   checked={!prefs.hidden.includes(p.id)}
                   onCheckedChange={(on) =>
                     setPrefs({ hidden: on ? prefs.hidden.filter((id) => id !== p.id) : [...prefs.hidden, p.id] })
                   }
-                  aria-label={`Show ${p.name}`}
+                  aria-label={`Show ${p.label}`}
                 />
               </label>
             ))}

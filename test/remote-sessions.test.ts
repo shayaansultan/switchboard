@@ -213,6 +213,81 @@ test('a Claude title set in the app wins over the first prompt, and subagent fil
   expect(new SessionReader().list([claude]).map((s) => s.title)).toEqual(['Login bug']);
 });
 
+test('a Claude session whose turn ended is still working while what it started in the background runs', () => {
+  const hour = 3600_000;
+  const launch = [
+    prompt('Catch me up'),
+    tool('a1', 'Agent', { description: 'Read the PRs', prompt: '…', run_in_background: true }),
+    result('a1', 'Async agent launched', {
+      isAsync: true,
+      status: 'async_launched',
+      agentId: 'ag1',
+      description: 'Read the PRs',
+    }),
+    tool('b1', 'Bash', { command: 'bun test', run_in_background: true }),
+    result('b1', 'Command running in background with ID: bx1.', { backgroundTaskId: 'bx1' }),
+    reply([{ type: 'text', text: 'Both are running; I will report back.' }], 'end_turn'),
+  ];
+  // Long after the last write, but within the background window.
+  const busy = session(launch, Date.now() - hour).summary;
+  expect(busy).toMatchObject({ state: 'working', background: 2 });
+
+  // The command reports mid-turn as a queued attachment; the agent hands back as a peer message.
+  const notice =
+    '<task-notification>\n<task-id>bx1</task-id>\n<status>completed</status>\n<summary>Background command "bun test" completed</summary>\n</task-notification>';
+  const report =
+    '<agent-message from="ag1">\n[Subagent hand-back] The text below is the final report. The report follows:\n  Found **two** PRs.\n  Both pass.\n</agent-message>';
+  const done = session(
+    [
+      ...launch,
+      { ...base, type: 'queue-operation', operation: 'enqueue', content: notice },
+      { ...base, type: 'attachment', timestamp: 't', attachment: { type: 'queued_command', prompt: notice } },
+      { ...base, type: 'queue-operation', operation: 'remove', content: notice },
+      prompt(report, { origin: { kind: 'peer', from: 'ag1', name: 'general-purpose', body: report } }),
+      prompt(
+        '<task-notification>\n<task-id>ag1</task-id>\n<status>completed</status>\n<summary>Agent "Read the PRs" finished</summary>\n<result>This agent\'s report was delivered to you as a message.</result>\n</task-notification>',
+        { origin: { kind: 'task-notification' } },
+      ),
+      reply([{ type: 'text', text: 'Both PRs pass.' }], 'end_turn'),
+    ],
+    Date.now() - hour,
+  );
+  expect(done.summary).toMatchObject({ state: 'finished', background: 0 });
+  const entries = done.transcript.entries;
+  // Nothing the app delivered shows as something the person said, or as queued.
+  expect(
+    entries.filter((e) => e.kind === 'message' && e.role === 'user').map((e) => (e as { text: string }).text),
+  ).toEqual(['Catch me up']);
+  expect(entries.find((e) => e.kind === 'subagent')).toMatchObject({
+    title: 'Read the PRs',
+    status: 'done',
+    summary: 'Found **two** PRs.\nBoth pass.',
+  });
+  const events = entries.filter((e) => e.kind === 'event');
+  expect(events.map((e) => [e.source, e.title])).toEqual([
+    ['task', 'Background command "bun test" completed'],
+    ['peer', 'Report from Read the PRs'],
+  ]);
+
+  // Work that went quiet for hours no longer counts.
+  expect(session(launch, Date.now() - 4 * hour).summary).toMatchObject({ state: 'finished', background: 0 });
+});
+
+test('skill text, the compaction summary and wrapper tags never show as what the person typed', () => {
+  const { transcript } = session([
+    prompt(
+      '<artifact-view-context artifact="x">{"page":1}</artifact-view-context>Tighten <pasted_content id="1">this line</pasted_content>',
+    ),
+    prompt('Base directory for this skill: /skills/catch-up', { isMeta: true }),
+    prompt('This session is being continued from a previous conversation.', { isCompactSummary: true }),
+    reply([{ type: 'text', text: 'Done.' }], 'end_turn'),
+  ]);
+  expect(transcript.entries.filter((e) => e.kind === 'message').map((e) => (e as { text: string }).text)).toEqual([
+    'Tighten this line',
+    'Done.',
+  ]);
+});
+
 test('a long session is read a page at a time, from the end back to the start', () => {
   const records: unknown[] = [prompt('Start')];
   for (let i = 0; i < 4000; i++)

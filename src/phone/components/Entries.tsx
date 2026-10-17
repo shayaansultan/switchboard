@@ -2,10 +2,14 @@
 // what each kind holds). Prompts are bubbles, replies are formatted text, a
 // run of tool calls folds into one "steps" row whose calls open to their
 // command, output and diff, and what a session asked for or produced gets a
-// card of its own. Widgets render static in a sealed frame: no scripts, no
+// card of its own. What background work sent back (a task's notice, a
+// subagent's report) is an event row that opens to its text, never a bubble
+// from the person. Widgets render static in a sealed frame: no scripts, no
 // network, no access to the page.
 
 import {
+  Bell,
+  Bot,
   ChevronDown,
   ChevronRight,
   ExternalLink,
@@ -13,12 +17,13 @@ import {
   FileText,
   GitPullRequest,
   Image,
-  Search,
+  MessageSquareText,
 } from 'lucide-react';
 import { useState } from 'react';
 import type { Entry, EntryOf, FileChange, ToolCall, Transcript } from '../../remote/model';
 import { cn } from '@/lib/cn';
 import { usePrefs } from '../prefs';
+import { plain, PulseDot } from './bits';
 import { Markdown } from './Markdown';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 
@@ -270,6 +275,94 @@ function Card({ icon, title, sub, href }: { icon: React.ReactNode; title: string
   );
 }
 
+const SUBAGENT_STATUS = {
+  running: 'Running in the background',
+  done: 'Done',
+  stopped: 'Stopped',
+  failed: 'Failed',
+} as const;
+
+// A report's opening paragraph, for a preview: tables and lists after it
+// read as noise on one line.
+const opening = (text: string): string =>
+  text
+    .split(/\n\s*\n/)
+    .find((p) => p.trim() && !p.trimStart().startsWith('|'))
+    ?.trim() ?? text;
+
+function Subagent({ entry }: { entry: EntryOf<'subagent'> }) {
+  const running = entry.status === 'running';
+  return (
+    <div className="flex items-start gap-3 rounded-2xl border border-border bg-card p-3">
+      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-subtle">
+        <Bot size={16} aria-hidden />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate font-semibold">{entry.title}</span>
+        <span
+          className={cn(
+            'flex items-center gap-1.5 text-[12.5px]',
+            entry.status === 'failed' ? 'text-bad-text' : 'text-muted-foreground',
+          )}
+        >
+          {running ? <PulseDot /> : null}
+          {entry.status ? `Subagent · ${SUBAGENT_STATUS[entry.status]}` : 'Subagent'}
+        </span>
+        {entry.summary && !running ? (
+          <span className="line-clamp-2 text-[13px] text-subtle">{plain(opening(entry.summary))}</span>
+        ) : null}
+      </span>
+    </div>
+  );
+}
+
+// A task's status as the app wrote it, in the words the phone uses.
+const TASK_STATUS: Record<string, string> = {
+  completed: 'Finished',
+  stopped: 'Stopped',
+  killed: 'Stopped',
+  failed: 'Failed',
+};
+
+function Event({ entry }: { entry: EntryOf<'event'> }) {
+  const [open, setOpen] = useState(false);
+  const failed = entry.status === 'failed';
+  const head = (
+    <>
+      {entry.source === 'peer' ? (
+        <MessageSquareText size={14} className="mt-0.5 shrink-0" aria-hidden />
+      ) : (
+        <Bell size={14} className="mt-0.5 shrink-0" aria-hidden />
+      )}
+      <span className="min-w-0 flex-1">
+        {entry.title}
+        {entry.status && TASK_STATUS[entry.status] && !entry.title.toLowerCase().includes(entry.status) ? (
+          <span className={failed ? 'text-bad-text' : undefined}> · {TASK_STATUS[entry.status]}</span>
+        ) : null}
+      </span>
+    </>
+  );
+  const cls = cn('flex items-start gap-2 text-left text-[13px]', failed ? 'text-bad-text' : 'text-muted-foreground');
+  if (!entry.body) return <div className={cls}>{head}</div>;
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="flex flex-col">
+      <CollapsibleTrigger className={cn(cls, 'min-h-8')}>
+        {head}
+        {open ? (
+          <ChevronDown size={14} className="mt-0.5" aria-hidden />
+        ) : (
+          <ChevronRight size={14} className="mt-0.5" aria-hidden />
+        )}
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mt-1 rounded-2xl border border-border bg-card px-3.5 py-3 text-[14px]">
+          <Markdown text={entry.body} />
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 export function EntryView({ entry }: { entry: Entry }) {
   switch (entry.kind) {
     case 'message':
@@ -309,13 +402,9 @@ export function EntryView({ entry }: { entry: Entry }) {
         </div>
       );
     case 'subagent':
-      return (
-        <Card
-          icon={<Search size={16} aria-hidden />}
-          title={`Subagent · ${entry.title}`}
-          sub={entry.summary ?? 'Working on its own'}
-        />
-      );
+      return <Subagent entry={entry} />;
+    case 'event':
+      return <Event entry={entry} />;
     case 'artifact':
       return (
         <Card

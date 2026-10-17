@@ -77,9 +77,8 @@ bun run cli -- list --human     # the CLI straight from source
 ## Conventions the tools do not enforce
 
 - Every colour is a token in `src/design/tokens.css`, shared by the window
-  and the phone app, with a light value in `:root` and a
-  dark value in the `prefers-color-scheme: dark` block. Never write a literal
-  colour in a rule; add a token to both sets.
+  and the phone app, written `light-dark(light, dark)` so both values sit
+  on one line. Never write a literal colour in a rule; add a token.
 - The renderer only ever receives percentages, reset times, email, plan,
   the proxy's reason an account is unavailable, and usage-reset offers (id,
   title, count, expiry). A reset session stays in the main process; the

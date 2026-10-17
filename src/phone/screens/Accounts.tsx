@@ -25,13 +25,13 @@ export function Accounts({ overview }: { overview: Overview | undefined }) {
               className="flex flex-col items-center gap-1 rounded-2xl border border-border bg-card px-1.5 py-2.5"
             >
               {w && w.pct !== null ? (
-                <Ring pct={w.pct} label={`${100 - Math.round(w.pct)} percent of ${p.name}'s ${w.label} window left`} />
+                <Ring pct={w.pct} label={`${100 - Math.round(w.pct)} percent of ${p.label}'s ${w.label} window left`} />
               ) : (
                 <span className="grid size-[58px] place-items-center text-xs text-muted-foreground">No data</span>
               )}
               <span className="flex max-w-full items-center gap-1.5 truncate text-[13px] font-semibold">
                 <Dot color={p.color} />
-                {p.name}
+                {p.label}
               </span>
               <span className="text-[11px] text-muted-foreground">{w ? `${w.label} left` : VENDOR[p.vendor]}</span>
             </div>

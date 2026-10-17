@@ -13,7 +13,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Overview } from '../../remote/hub';
 import type { Entry, FileChange } from '../../remote/model';
 import { ago } from '../../shared/time';
-import { PulseDot, ProfileTag, StateText, project } from '../components/bits';
+import { backgroundText, PulseDot, ProfileTag, StateText, project } from '../components/bits';
 import { EntryView, MadeFiles } from '../components/Entries';
 import { Button } from '../components/ui/button';
 import { sessionHref, useNow, useTRPC } from '../data';
@@ -154,6 +154,7 @@ export function Session({
             </span>
           ) : null}
           {summary ? <StateText state={summary.state} /> : null}
+          {summary?.background ? <span className="text-run-text">{backgroundText(summary.background)}</span> : null}
         </div>
         {facts.length ? <div className="text-xs text-subtle tabular-nums">{facts.join(' · ')}</div> : null}
       </header>

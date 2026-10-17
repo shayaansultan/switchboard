@@ -84,14 +84,20 @@ from the same tokens as the window (`src/design/tokens.css`).
 - **Sessions:** a summary of what changed since you last opened the app, then
   everything that needs you (a question waiting on you), what is working (with
   the agent's own step count when it keeps a task list), and earlier sessions
-  with the PRs they opened. Profile chips narrow the list to one account. A
-  turn with no new output for ten minutes stops counting as working, so a
-  crashed agent does not look busy forever.
+  with the PRs they opened. Profile chips narrow the list to one account;
+  two profiles with the same name are told apart by their app. A turn with
+  no new output for ten minutes stops counting as working, so a crashed
+  agent does not look busy forever. A Claude session whose turn ended while
+  agents, commands or monitors it started still run keeps counting as
+  working, with how many are left, until each reports back or three hours
+  pass with no write from the session or its agents.
 - **A session:** who, where, which branch and model, what it cost, and the
   transcript. Replies are formatted (lists, tables, code with Copy; raw HTML
   shows as text). A run of tool calls folds into one row that opens to each
-  command, its output and its diff. Questions, PRs, artifacts, subagents,
-  reviews and widgets get cards. Older parts of a long session load on
+  command, its output and its diff. Questions, PRs, artifacts, subagents
+  (running, done, stopped or failed), reviews and widgets get cards. What
+  background work sends back, a task's notice or a subagent's report, is a
+  row that opens to its text, not a message from you. Older parts of a long session load on
   request, and the screen follows new activity while you read.
 - **Pictures and files:** pictures you pasted, screenshots a tool returned
   (inside its step), files the agent sent you, and the visualizations a Codex
@@ -103,8 +109,8 @@ from the same tokens as the window (`src/design/tokens.css`).
 - **Files changed:** every file the session edited, with its diff.
 - **Accounts:** each profile's usage windows, when they reset, and whether
   they will last until then at the current pace.
-- **Settings:** which sessions the inbox shows, folded or open steps, text
-  size, which profiles to show, and unpairing this phone. These stay on the
+- **Settings:** light, dark or the phone's own appearance, which sessions
+  the inbox shows, folded or open steps, text size, which profiles to show, and unpairing this phone. These stay on the
   phone.
 
 ## From a terminal

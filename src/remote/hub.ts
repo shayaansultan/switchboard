@@ -35,6 +35,9 @@ const CHECK_MS = 5000;
 export interface HubProfile {
   id: string;
   name: string;
+  // The name the phone shows: the profile's name, with its app added when
+  // another profile has the same name (Default · Claude, Default · Codex).
+  label: string;
   vendor: Vendor;
   color: string;
   isDefault: boolean;
@@ -53,7 +56,7 @@ export interface Overview {
 
 // What the hub reads from whoever hosts it: the app, or a test.
 export interface HubSource {
-  profiles(): HubProfile[];
+  profiles(): Omit<HubProfile, 'label'>[];
   homes(): ProfileHome[];
 }
 
@@ -108,11 +111,22 @@ function computerName(): string {
   return computer;
 }
 
+const APP_NAME: Record<Vendor, string> = { claude: 'Claude', codex: 'Codex' };
+
+export function labelled(profiles: Omit<HubProfile, 'label'>[]): HubProfile[] {
+  const count = new Map<string, number>();
+  for (const p of profiles) count.set(p.name.toLowerCase(), (count.get(p.name.toLowerCase()) ?? 0) + 1);
+  return profiles.map((p) => ({
+    ...p,
+    label: (count.get(p.name.toLowerCase()) ?? 0) > 1 ? `${p.name} · ${APP_NAME[p.vendor]}` : p.name,
+  }));
+}
+
 export function overview(source: HubSource, reader: SessionReader, now = Date.now()): Overview {
   return {
     host: computerName(),
     generatedAt: new Date(now).toISOString(),
-    profiles: source.profiles(),
+    profiles: labelled(source.profiles()),
     sessions: reader.list(source.homes(), now),
   };
 }

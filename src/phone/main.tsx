@@ -12,7 +12,7 @@ import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { TabBar } from './components/bits';
 import { isUnpaired, makeClients, TRPCProvider, useOverview, useRoute, useTRPC } from './data';
-import { setPrefs, TEXT_SIZE, usePrefs } from './prefs';
+import { applyTheme, getPrefs, setPrefs, TEXT_SIZE, usePrefs } from './prefs';
 import { Accounts } from './screens/Accounts';
 import { Files } from './screens/Files';
 import { Inbox } from './screens/Inbox';
@@ -54,6 +54,7 @@ function App() {
   useEffect(() => {
     document.documentElement.style.fontSize = TEXT_SIZE[prefs.text];
   }, [prefs.text]);
+  useEffect(() => applyTheme(prefs.theme), [prefs.theme]);
   // Remember when the app was put away, for "since you left".
   useEffect(() => {
     const away = () => {
@@ -85,6 +86,8 @@ function Root() {
   );
 }
 
+// Before the first paint, so a pinned theme never flashes the other one.
+applyTheme(getPrefs().theme);
 if ('serviceWorker' in navigator) void navigator.serviceWorker.register('sw.js').catch(() => {});
 createRoot(document.getElementById('app') as HTMLElement).render(
   <StrictMode>

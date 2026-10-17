@@ -9,6 +9,7 @@
 // PR links, queued prompts, cost, compactions, API errors. This turns both
 // into the shared model (model.ts).
 
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Entry, EntryOf, FileChange, Pr, SessionState, SessionSummary, ToolCall } from './model';
 import { kindOf, mediaId } from './media';
@@ -79,10 +80,178 @@ function isToolResult(r: Rec): boolean {
 }
 
 function prompt(r: Rec): string {
+  // Skill text, image-path notes and the summary a compacted session restarts
+  // from are the app's, flagged as such; the compaction itself is a notice.
+  if (!fromPerson(r) || r.isMeta === true || r.isCompactSummary === true) return '';
   return isToolResult(r) ? '' : cleanPrompt(textOf(obj(r.message).content));
 }
 
 const INTERRUPTED = '[Request interrupted';
+
+// Who a user record is from: the person, or something the app delivered as
+// a user message (a background task finishing, another agent's message).
+const originOf = (r: Rec): string | null => str(obj(r.origin).kind);
+const fromPerson = (r: Rec): boolean => {
+  const kind = originOf(r);
+  return kind === null || kind === 'human';
+};
+
+const tag = (text: string, name: string): string | null =>
+  new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim() ?? null;
+
+// A subagent's report without the hand-back frame around it.
+function report(body: string): string {
+  const marker = body.indexOf('The report follows:');
+  const text = marker >= 0 ? body.slice(marker + 'The report follows:'.length) : body;
+  return text
+    .replace(/^\n+/, '')
+    .split('\n')
+    .map((l) => l.replace(/^ {2}/, ''))
+    .join('\n')
+    .replace(/<\/?(agent-message|cross-session-message)[^>]*>/g, '')
+    .trim();
+}
+
+// What the app delivered to a session from its background work: a task's
+// notification, or a message from a subagent or another session. It arrives
+// as a user record when the session is idle, or as a queued-command
+// attachment when it lands mid-turn.
+type Arrival =
+  | { type: 'task'; id: string | null; status: string | null; summary: string | null; result: string | null }
+  | { type: 'peer'; from: string | null; name: string | null; handBack: boolean; body: string };
+
+function arrival(r: Rec): Arrival | null {
+  let text: string | null = null;
+  const o = obj(r.origin);
+  if (r.type === 'user' && !fromPerson(r)) text = str(o.body) ?? textOf(obj(r.message).content);
+  else if (r.type === 'user' && arr(obj(r.message).content).every((b) => obj(b).type !== 'tool_result'))
+    text = textOf(obj(r.message).content);
+  else if (r.type === 'attachment' && obj(r.attachment).type === 'queued_command') text = str(obj(r.attachment).prompt);
+  if (!text) return null;
+  const start = text.trimStart();
+  if (originOf(r) === 'task-notification' || start.startsWith('<task-notification>'))
+    return {
+      type: 'task',
+      id: tag(text, 'task-id'),
+      status: tag(text, 'status'),
+      summary: tag(text, 'summary'),
+      result: tag(text, 'result'),
+    };
+  const from = /<agent-message from="([^"]+)"/.exec(text)?.[1] ?? str(o.from);
+  if (originOf(r) === 'peer' || start.startsWith('<agent-message') || start.startsWith('Another Claude session sent'))
+    return {
+      type: 'peer',
+      from,
+      name: str(o.name),
+      handBack: text.includes('[Subagent hand-back]'),
+      body: report(text),
+    };
+  return null;
+}
+
+const TASK_DONE: Record<string, 'done' | 'stopped' | 'failed'> = {
+  completed: 'done',
+  stopped: 'stopped',
+  killed: 'stopped',
+  failed: 'failed',
+};
+
+// ---- background work ----
+// Agents, commands and monitors a session starts in the background keep
+// running after its turn ends, and the desktop app counts the session busy
+// until each reports back. Their launches can be many megabytes back in a
+// long file, so this follows a file from where it last read, keeping what is
+// still running.
+
+export interface Background {
+  offset: number;
+  running: Map<string, string>;
+}
+
+const MARKERS = [
+  'async_launched',
+  'backgroundTaskId',
+  'task-notification',
+  'Subagent hand-back',
+  '"TaskStop"',
+  '"persistent"',
+];
+const SCAN_CHUNK = 4 * 1024 * 1024;
+
+function readChunk(file: string, start: number, length: number): Buffer {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buffer = Buffer.alloc(length);
+    const n = fs.readSync(fd, buffer, 0, length, start);
+    return buffer.subarray(0, n);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function track(r: Rec, running: Map<string, string>): void {
+  const result = obj(r.toolUseResult);
+  const agent = str(result.agentId);
+  if (result.isAsync === true && agent) running.set(agent, str(result.description) ?? 'Background agent');
+  const shell = str(result.backgroundTaskId);
+  if (shell) running.set(shell, 'Background command');
+  const monitor = str(result.taskId);
+  if (monitor && result.persistent !== undefined) running.set(monitor, 'Monitor');
+  const got = arrival(r);
+  if (got?.type === 'task' && got.id) running.delete(got.id);
+  if (got?.type === 'peer' && got.handBack && got.from) running.delete(got.from);
+  for (const b of arr(obj(r.message).content).map(obj))
+    if (b.type === 'tool_use' && b.name === 'TaskStop') {
+      const id = str(obj(b.input).task_id) ?? str(obj(b.input).taskId);
+      if (id) running.delete(id);
+    }
+}
+
+export function scanBackground(info: FileInfo, before?: Background): Background {
+  const state: Background =
+    before && before.offset <= info.size
+      ? { offset: before.offset, running: new Map(before.running) }
+      : { offset: 0, running: new Map() };
+  while (state.offset < info.size) {
+    const chunk = readChunk(info.file, state.offset, Math.min(SCAN_CHUNK, info.size - state.offset));
+    const last = chunk.lastIndexOf(10);
+    if (last < 0) {
+      // One line longer than a chunk: skip past it rather than stall.
+      if (chunk.length < SCAN_CHUNK) break;
+      state.offset += chunk.length;
+      continue;
+    }
+    for (const line of chunk.subarray(0, last).toString('utf8').split('\n')) {
+      if (!MARKERS.some((m) => line.includes(m))) continue;
+      try {
+        track(obj(JSON.parse(line)), state.running);
+      } catch {
+        // Not a record.
+      }
+    }
+    state.offset += last + 1;
+  }
+  return state;
+}
+
+// Background work stops counting after this long without a write to the
+// session or a running subagent's own file, in case it ended without a record
+// (the app was quit, or the machine slept).
+export const BACKGROUND_STALE_MS = 3 * 3600_000;
+
+// How many of a session's background tasks are still running now. A
+// background subagent writes to <session>/subagents/agent-<id>.jsonl rather
+// than the session file, so its file counts as the session being active.
+export function backgroundCount(info: FileInfo, bg: Background, now = Date.now()): number {
+  if (bg.running.size === 0) return 0;
+  const folder = path.join(path.dirname(info.file), path.basename(info.file, '.jsonl'), 'subagents');
+  let active = info.mtimeMs;
+  for (const id of bg.running.keys()) {
+    const agent = stat(path.join(folder, `agent-${id}.jsonl`));
+    if (agent && agent.mtimeMs > active) active = agent.mtimeMs;
+  }
+  return now - active < BACKGROUND_STALE_MS ? bg.running.size : 0;
+}
 
 // ---- tool calls ----
 
@@ -184,6 +353,10 @@ export function claudeEntries(records: Rec[], file = ''): Entry[] {
     entries.push(e);
   };
   const queue: string[] = [];
+  // Background subagents by id, for their notifications and reports.
+  const agents = new Map<string, EntryOf<'subagent'>>();
+  const delivered = new Set<string>();
+  const reported = new Set<EntryOf<'subagent'>>();
   // Claude records a session's PR again on later turns; show it once.
   const prsShown = new Set<string>();
 
@@ -191,7 +364,9 @@ export function claudeEntries(records: Rec[], file = ''): Entry[] {
     const at = str(r.timestamp);
     if (r.type === 'queue-operation') {
       const content = str(r.content);
-      if (r.operation === 'enqueue' && content) queue.push(content);
+      // A notification waiting in the queue shows once it is delivered.
+      const waiting = content?.trimStart().startsWith('<task-notification>') || content?.includes('<agent-message');
+      if (r.operation === 'enqueue' && content && !waiting) queue.push(content);
       else if (r.operation === 'dequeue') queue.shift();
       else if (r.operation === 'remove') {
         const i = content ? queue.indexOf(content) : -1;
@@ -214,6 +389,51 @@ export function claudeEntries(records: Rec[], file = ''): Entry[] {
           text: oneLine(str(r.content) ?? str(obj(r.error).message) ?? 'API error', 300),
           at,
         });
+      continue;
+    }
+    const got = arrival(r);
+    if (got) {
+      const key = got.type === 'task' ? `${got.id}:${got.status}` : got.body.slice(0, 300);
+      if (delivered.has(key)) continue;
+      delivered.add(key);
+      if (got.type === 'task') {
+        const sub = got.id ? agents.get(got.id) : undefined;
+        // An agent that sent its report already has it on the page; its
+        // notification only says so.
+        const pointer = got.result?.startsWith("This agent's report was delivered") ?? false;
+        if (sub) {
+          sub.status = TASK_DONE[got.status ?? ''] ?? 'done';
+          if (got.result && !pointer) sub.summary = clip(got.result, 600);
+        }
+        if (pointer || (sub && reported.has(sub))) continue;
+        push({
+          kind: 'event',
+          source: 'task',
+          title: got.summary ?? 'A background task finished',
+          status: got.status,
+          body: got.result ? clip(got.result, TEXT_LIMIT) : null,
+          at,
+        });
+      } else {
+        const sub = got.from ? agents.get(got.from) : undefined;
+        if (sub && got.handBack) {
+          sub.status = 'done';
+          sub.summary = clip(got.body, 600);
+          reported.add(sub);
+        }
+        push({
+          kind: 'event',
+          source: 'peer',
+          title: got.handBack
+            ? sub
+              ? `Report from ${sub.title}`
+              : 'Report from a subagent'
+            : `Message from ${got.name ?? 'another session'}`,
+          status: null,
+          body: clip(got.body, TEXT_LIMIT),
+          at,
+        });
+      }
       continue;
     }
     if (!isTurn(r)) continue;
@@ -245,6 +465,10 @@ export function claudeEntries(records: Rec[], file = ''): Entry[] {
         } else if (pending.entry?.kind === 'question') {
           const answers = Object.values(obj(result.answers)).filter((v): v is string => typeof v === 'string');
           pending.entry.answers = answers.length ? answers : [oneLine(textOf(b.content), 300)];
+        } else if (pending.entry?.kind === 'subagent' && result.isAsync === true) {
+          pending.entry.status = 'running';
+          pending.entry.summary = 'Working in the background';
+          if (str(result.agentId)) agents.set(str(result.agentId)!, pending.entry);
         } else if (pending.entry?.kind === 'subagent') {
           pending.entry.summary = clip(textOf(b.content), 600) || null;
         } else if (pending.entry?.kind === 'artifact' && !pending.entry.url) {
@@ -286,7 +510,7 @@ export function claudeEntries(records: Rec[], file = ''): Entry[] {
             at,
           };
         } else if (name === 'Agent' || name === 'Task') {
-          entry = { kind: 'subagent', title: str(input.description) ?? 'Subagent', summary: null, at };
+          entry = { kind: 'subagent', title: str(input.description) ?? 'Subagent', summary: null, status: null, at };
         } else if (name === 'Artifact') {
           const file = str(input.file_path);
           const frame = file ? frames.get(file) : undefined;
@@ -363,7 +587,12 @@ function plan(records: Rec[]): SessionSummary['plan'] {
   return null;
 }
 
-function stateOf(records: Rec[], info: FileInfo, now: number): { state: SessionState; needs: string | null } {
+function stateOf(
+  records: Rec[],
+  info: FileInfo,
+  now: number,
+  background: number,
+): { state: SessionState; needs: string | null } {
   const turns = records.filter((r) => isTurn(r) || (r.type === 'system' && r.subtype === 'api_error'));
   const answered = new Set<string>();
   for (const r of turns)
@@ -390,6 +619,7 @@ function stateOf(records: Rec[], info: FileInfo, now: number): { state: SessionS
   const stop = last.type === 'assistant' ? str(obj(last.message).stop_reason) : null;
   const ended = stop === 'end_turn' || stop === 'stop_sequence' || stop === 'max_tokens';
   if (!ended && now - info.mtimeMs < STALE_MS) return { state: 'working', needs: null };
+  if (background > 0) return { state: 'working', needs: null };
   // A turn that scheduled its own return is waiting, not finished.
   for (let i = records.length - 1; i >= 0; i--) {
     const at = num(obj(records[i].toolUseResult).scheduledFor);
@@ -398,7 +628,13 @@ function stateOf(records: Rec[], info: FileInfo, now: number): { state: SessionS
   return { state: 'finished', needs: null };
 }
 
-export function summarizeClaude(profileId: string, info: FileInfo, now = Date.now()): SessionSummary | null {
+// `background` is backgroundCount for this file: work still running after the turn.
+export function summarizeClaude(
+  profileId: string,
+  info: FileInfo,
+  now = Date.now(),
+  background = 0,
+): SessionSummary | null {
   const top = head(info, HEAD_BYTES);
   const end = info.size > HEAD_BYTES ? tail(info, TAIL_BYTES) : top;
   const first = top.find((r) => typeof r.sessionId === 'string');
@@ -423,7 +659,7 @@ export function summarizeClaude(profileId: string, info: FileInfo, now = Date.no
       prs.set(str(r.prUrl)!, { url: str(r.prUrl)!, number: num(r.prNumber) ?? 0, repo: str(r.prRepository) ?? '' });
   const entries = claudeEntries(end, info.file);
   const lastMessage = [...entries].reverse().find((e): e is EntryOf<'message'> => e.kind === 'message' && !e.queued);
-  const { state, needs } = stateOf(end, info, now);
+  const { state, needs } = stateOf(end, info, now, background);
   return {
     id: str(first.sessionId)!,
     profileId,
@@ -437,6 +673,7 @@ export function summarizeClaude(profileId: string, info: FileInfo, now = Date.no
     lastMessage: lastMessage ? { role: lastMessage.role, text: oneLine(lastMessage.text, 280) } : null,
     plan: plan(end),
     needs,
+    background,
     prs: [...prs.values()],
     model: model && model !== '<synthetic>' ? model : null,
     costUsd: cost,

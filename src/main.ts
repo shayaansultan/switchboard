@@ -280,7 +280,7 @@ let phoneAccessChange: Promise<void> = Promise.resolve();
 
 const hubSource: HubSource = {
   profiles: () =>
-    data.profiles.map((p): HubProfile => {
+    data.profiles.map((p): Omit<HubProfile, 'label'> => {
       const l = live.get(p.id) ?? {};
       return {
         id: p.id,
@@ -515,7 +515,7 @@ function windowBackground(): string {
 }
 
 // The Appearance setting drives Electron's theme source, which in turn
-// drives the prefers-color-scheme media query the stylesheet keys on.
+// sets the colour scheme the stylesheet's light-dark() tokens follow.
 function applyAppearance(): void {
   nativeTheme.themeSource = data.settings.appearance ?? 'system';
 }

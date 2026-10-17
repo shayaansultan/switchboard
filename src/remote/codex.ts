@@ -254,7 +254,13 @@ export function codexEntries(records: Rec[]): Entry[] {
         };
         push(openQuestion);
       } else if (p.name === 'spawn_agent') {
-        push({ kind: 'subagent', title: (str(a.task_name) ?? 'Subagent').replace(/_/g, ' '), summary: null, at });
+        push({
+          kind: 'subagent',
+          title: (str(a.task_name) ?? 'Subagent').replace(/_/g, ' '),
+          summary: null,
+          status: null,
+          at,
+        });
       }
       continue;
     }
@@ -457,6 +463,7 @@ export function summarizeCodex(profileId: string, thread: CodexThread, now = Dat
     lastMessage: last ? { role: last.role, text: oneLine(last.text, 280) } : null,
     plan: null,
     needs,
+    background: 0,
     prs: [...prs.values()],
     model: thread.model ?? str(obj(context?.payload).model),
     costUsd: null,

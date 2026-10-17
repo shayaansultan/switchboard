@@ -23,7 +23,8 @@ export const Origin = z.enum(['desktop', 'cli', 'ide', 'exec', 'other']);
 export type Origin = z.infer<typeof Origin>;
 
 // What a session is doing now, as far as its files tell.
-//   working   a turn is in progress and the file changed recently
+//   working   a turn is in progress and the file changed recently, or
+//             work the session started in the background is still running
 //   needs-you the agent asked a question and nobody has answered
 //   waiting   the turn ended but the agent scheduled itself to come back
 //   finished  the last turn ended on its own
@@ -88,7 +89,24 @@ export const Entry = z.discriminatedUnion('kind', [
     answers: z.array(z.string()).nullable(),
     at,
   }),
-  z.object({ kind: z.literal('subagent'), title: z.string(), summary: z.string().nullable(), at }),
+  z.object({
+    kind: z.literal('subagent'),
+    title: z.string(),
+    summary: z.string().nullable(),
+    // For one started in the background, how it is going.
+    status: z.enum(['running', 'done', 'stopped', 'failed']).nullable(),
+    at,
+  }),
+  // Something that arrived in the conversation without being typed: a
+  // background task finishing, or a message from a subagent or another session.
+  z.object({
+    kind: z.literal('event'),
+    source: z.enum(['task', 'peer']),
+    title: z.string(),
+    status: z.string().nullable(),
+    body: z.string().nullable(),
+    at,
+  }),
   z.object({ kind: z.literal('artifact'), url: z.string(), title: z.string(), at }),
   z.object({ kind: z.literal('widget'), title: z.string(), html: z.string(), at }),
   z.object({ kind: z.literal('pr'), url: z.string(), number: z.number(), repo: z.string(), at }),
@@ -135,6 +153,8 @@ export const SessionSummary = z.object({
   plan: z.object({ done: z.number(), total: z.number(), current: z.string().nullable() }).nullable(),
   // What it asked, while state is needs-you.
   needs: z.string().nullable(),
+  // Background agents, commands and monitors still running.
+  background: z.number(),
   prs: z.array(Pr),
   model: z.string().nullable(),
   costUsd: z.number().nullable(),
