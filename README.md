@@ -167,6 +167,16 @@ still counts as open. Whether or not the setting is on, **Show window** (a
 button on a No window row, and in each running profile's menu) brings that
 profile's window back, as clicking its Dock icon would.
 
+## Can I check on my agents from my phone?
+
+Yes, read-only for now. Turn on **Phone access** in Settings, publish it on
+your tailnet with the `tailscale serve` command Switchboard shows, and pair
+your phone with a one-time code. The phone app lists what is working right
+now across every profile, each profile's recent sessions with its usage, and
+each session's transcript. It reads the session files the desktop apps
+already write, so the apps work exactly as before. Read
+[Phone access](docs/phone-access.md) for setup and how it is secured.
+
 ## Keep the Mac awake
 
 Use **Keep awake** beside Refresh to turn macOS's system sleep setting on or

@@ -38,6 +38,7 @@ import {
 import { settingsCommand } from './cli/settings';
 import { pickCommand, usageCommand } from './cli/usage';
 import { resetsCommand } from './cli/resets';
+import { remoteCommand } from './cli/remote';
 
 const help = `Switchboard: run and inspect Claude and Codex accounts from a terminal
 
@@ -91,6 +92,16 @@ Buckets
   switchboard bucket resets BUCKET ACCOUNT [--redeem GRANT_ID --yes]
                                             List or spend proxy-account reset grants
 
+Phone access
+  switchboard remote status                   Whether the hub is listening, and the phone's address
+  switchboard remote on [--port N] | off      Serve the phone app (the app runs the hub)
+  switchboard remote pair                     A one-time code for pairing a phone
+  switchboard remote devices                  Paired phones
+  switchboard remote unpair DEVICE_ID | --all --yes
+  switchboard remote sessions [PROFILE...] [--all] [--working]
+                                            Recent sessions as the phone sees them (desktop only unless --all)
+  switchboard remote session PROFILE SESSION_ID
+
 Setup
   switchboard settings set KEY VALUE
   switchboard install-cli [--dev]             ~/.local/bin/switchboard on the installed app
@@ -131,6 +142,7 @@ const COMMANDS = z.enum([
   'terminal',
   'login',
   'bucket',
+  'remote',
   'install-cli',
   'worker',
   'help',
@@ -265,6 +277,8 @@ async function dispatch(rest: string[], out: Output): Promise<number | void> {
       return loginCommand(args, ctx);
     case 'bucket':
       return bucketCommand(args, ctx);
+    case 'remote':
+      return remoteCommand(args, ctx);
     case 'install-cli':
       return installCli(args, ctx);
   }

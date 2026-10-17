@@ -407,6 +407,14 @@ dialog menu button { height: 36px; padding: 0 16px; font-size: 15px; }
 .srow .about span { color: var(--muted); font-size: 12px; line-height: 16px; }
 .srow select { width: 184px; flex: none; }
 .srow input[type='number'] { width: 80px; flex: none; }
+.phone { display: grid; gap: 10px; padding: 0 0 14px; }
+.phone code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--text-2); }
+.phone-pair { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.pair-code { display: inline-flex; align-items: baseline; gap: 8px; }
+.pair-code b { font-family: ui-monospace, Menlo, monospace; font-size: 18px; letter-spacing: 0.1em; color: var(--text); }
+.phones { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.phones li { display: flex; align-items: center; gap: 12px; }
+.phone-name { flex: 1; min-width: 0; font-size: 13px; color: var(--text); }
 .srow label { display: contents; }
 /* A switch, Wispr's 42 by 25, for the one yes-or-no setting. */
 .switch { position: relative; display: inline-block; width: 42px; height: 25px; flex: none; }

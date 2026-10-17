@@ -46,6 +46,10 @@ export interface Settings {
   // Tell an app running with its window closed from one in use. Needs
   // Accessibility permission; see src/native/app-events.swift.
   noticeClosedWindows?: boolean;
+  // Serve the phone app to paired phones on 127.0.0.1:phonePort, for
+  // `tailscale serve` to publish on the tailnet. See src/remote/hub.ts.
+  phoneAccess?: boolean;
+  phonePort?: number;
 }
 
 export interface Store {
@@ -285,5 +289,25 @@ export interface SwitchboardApi {
   reveal(id: string): Promise<void>;
   copyCommand(id: string): Promise<void>;
   installCli(): Promise<CliStatus>;
+  phoneStatus(): Promise<PhoneStatus>;
+  pairPhone(): Promise<PhonePairing>;
+  unpairPhone(id: string): Promise<void>;
   onState(fn: (s: State) => void): void;
+}
+
+// Phone access as the Settings dialog and `switchboard remote status` show it.
+export interface PhoneStatus {
+  enabled: boolean;
+  port: number;
+  listening: boolean;
+  error: string | null;
+  url: string | null;
+  serve: string;
+  devices: { id: string; name: string; createdAt: string; lastSeenAt: string | null }[];
+}
+
+export interface PhonePairing {
+  code: string;
+  expiresAt: string;
+  url: string | null;
 }
