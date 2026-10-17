@@ -5,28 +5,30 @@
 // serve`, which terminates HTTPS on the tailnet and forwards to this port, so
 // nothing is exposed beyond the person's own devices and the app needs no
 // certificate of its own. Requests must name localhost or a *.ts.net host,
-// which shuts out a web page that rebinds its own name to 127.0.0.1.
+// which shuts out a web page that rebinds its own name to 127.0.0.1, and API
+// calls must come from the same origin.
 //
-// Read-only for now: sessions come from the files the apps write (see
-// sessions.ts), and profiles from the app's own state. Every data route needs
-// a device token from pairing.ts; the app shell itself holds no data.
+// The API is the tRPC router in api.ts, under /api/trpc/. This module serves
+// the app shell, which holds no data, and decides when the overview may have
+// changed: on file events in any profile's session folders, and on a timer
+// for what is not a file (an app starting, new usage numbers), but only while
+// a phone is listening.
 
 import { execFileSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { z } from 'zod';
+import { createHTTPHandler } from '@trpc/server/adapters/standalone';
 import type { AppState, Vendor } from '../types';
-import { authenticate, pair } from './pairing';
+import { createContext, createRouter } from './api';
 import { SessionReader, watch, type ProfileHome, type SessionSummary } from './sessions';
 
 export const DEFAULT_PORT = 47821;
-// Session files are watched; this catches what is not a file, such as an
-// app starting or new usage numbers.
-const STREAM_CHECK_MS = 5000;
-const HEARTBEAT_MS = 25_000;
-const MAX_BODY = 4096;
+export const API_BASE = '/api/trpc/';
+// Session files are watched; this catches what is not a file.
+const CHECK_MS = 5000;
 
 export interface HubProfile {
   id: string;
@@ -67,6 +69,7 @@ const TYPES: Record<string, string> = {
   '.webmanifest': 'application/manifest+json',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
+  '.ttf': 'font/ttf',
   '.woff2': 'font/woff2',
 };
 
@@ -88,30 +91,6 @@ function send(res: http.ServerResponse, status: number, body: unknown): void {
   });
   res.end(JSON.stringify(body));
 }
-
-function bearer(req: http.IncomingMessage): string | null {
-  const header = req.headers.authorization;
-  const m = header && /^Bearer\s+(\S+)$/i.exec(header);
-  return m ? m[1] : null;
-}
-
-function readBody(req: http.IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > MAX_BODY) {
-        reject(new Error('too large'));
-        req.destroy();
-      } else chunks.push(chunk);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
-  });
-}
-
-const PairBody = z.object({ code: z.string().min(1).max(32), name: z.string().max(200).optional() });
 
 // The name people gave this Mac ("Shayaan's MacBook Pro"). The network host
 // name can be an address, which tells a phone nothing.
@@ -136,8 +115,44 @@ export function overview(source: HubSource, reader: SessionReader, now = Date.no
   };
 }
 
-// What changes the phone should hear about; generatedAt always differs.
-const fingerprint = (o: Overview): string => JSON.stringify({ p: o.profiles, s: o.sessions });
+// Emits 'change' while anyone listens: on file events in the profiles'
+// session folders, and every CHECK_MS. Watching starts with the first
+// listener and stops with the last.
+function changeSignal(source: HubSource): { changes: EventEmitter; stop(): void } {
+  const changes = new EventEmitter();
+  changes.setMaxListeners(50);
+  let watching = '';
+  let stopWatching: (() => void) | null = null;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  const emit = () => changes.emit('change');
+  const follow = () => {
+    const homes = source.homes();
+    const key = JSON.stringify(homes);
+    if (key === watching) return;
+    stopWatching?.();
+    watching = key;
+    stopWatching = watch(homes, emit);
+  };
+  const stop = () => {
+    stopWatching?.();
+    stopWatching = null;
+    watching = '';
+    if (timer) clearInterval(timer);
+    timer = null;
+  };
+  changes.on('newListener', (event) => {
+    if (event !== 'change' || timer) return;
+    follow();
+    timer = setInterval(() => {
+      follow();
+      emit();
+    }, CHECK_MS);
+  });
+  changes.on('removeListener', (event) => {
+    if (event === 'change' && changes.listenerCount('change') === 0) stop();
+  });
+  return { changes, stop };
+}
 
 export function startHub(options: {
   source: HubSource;
@@ -147,21 +162,13 @@ export function startHub(options: {
 }): Promise<Hub> {
   const { source, staticDir } = options;
   const reader = new SessionReader();
-  const streams = new Map<http.ServerResponse, () => void>();
-  // One watcher over every profile's session folders, rebuilt when the set
-  // of profiles changes, telling each open stream to look again.
-  let watching = '';
-  let stopWatching: (() => void) | null = null;
-  const ensureWatching = () => {
-    const homes = source.homes();
-    const key = JSON.stringify(homes);
-    if (key === watching) return;
-    stopWatching?.();
-    watching = key;
-    stopWatching = watch(homes, () => {
-      for (const push of streams.values()) push();
-    });
-  };
+  const signal = changeSignal(source);
+  const router = createRouter({
+    overview: () => overview(source, reader),
+    transcript: (profileId, sessionId, before) => reader.transcript(source.homes(), profileId, sessionId, before),
+    changes: signal.changes,
+  });
+  const api = createHTTPHandler({ router, createContext, basePath: API_BASE });
 
   function serveStatic(req: http.IncomingMessage, res: http.ServerResponse, pathname: string): void {
     const rel = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.slice(1));
@@ -186,55 +193,9 @@ export function startHub(options: {
     else fs.createReadStream(file).pipe(res);
   }
 
-  function stream(res: http.ServerResponse): void {
-    res.writeHead(200, {
-      ...SECURITY_HEADERS,
-      'content-type': 'text/event-stream; charset=utf-8',
-      'cache-control': 'no-store',
-      connection: 'keep-alive',
-    });
-    let last = '';
-    let lastWrite = Date.now();
-    const push = () => {
-      try {
-        const o = overview(source, reader);
-        const print = fingerprint(o);
-        if (print !== last) {
-          last = print;
-          res.write(`data: ${JSON.stringify(o)}\n\n`);
-          lastWrite = Date.now();
-        } else if (Date.now() - lastWrite > HEARTBEAT_MS) {
-          res.write(': keep-alive\n\n');
-          lastWrite = Date.now();
-        }
-      } catch {
-        // A file vanished between list and read; the next tick sees the new state.
-      }
-    };
-    streams.set(res, push);
-    ensureWatching();
-    push();
-    const timer = setInterval(() => {
-      ensureWatching();
-      push();
-    }, STREAM_CHECK_MS);
-    res.on('close', () => {
-      clearInterval(timer);
-      streams.delete(res);
-      if (!streams.size) {
-        stopWatching?.();
-        stopWatching = null;
-        watching = '';
-      }
-    });
-  }
-
-  async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  function handle(req: http.IncomingMessage, res: http.ServerResponse): void {
     const host = req.headers.host ?? '';
-    if (!ALLOWED_HOST.test(host)) {
-      send(res, 421, { error: 'wrong-host' });
-      return;
-    }
+    if (!ALLOWED_HOST.test(host)) return send(res, 421, { error: 'wrong-host' });
     const url = new URL(req.url ?? '/', `http://${host}`);
     if (!url.pathname.startsWith('/api/')) {
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'method' });
@@ -243,56 +204,22 @@ export function startHub(options: {
     // A cross-site page can send a request; it cannot make it look same-origin.
     const origin = req.headers.origin;
     if (origin && new URL(origin).host !== host) return send(res, 403, { error: 'cross-origin' });
-
     if (url.pathname === '/api/health') return send(res, 200, { app: 'switchboard' });
-
-    if (url.pathname === '/api/pair') {
-      if (req.method !== 'POST') return send(res, 405, { error: 'method' });
-      let body: z.infer<typeof PairBody>;
-      try {
-        body = PairBody.parse(JSON.parse(await readBody(req)));
-      } catch {
-        return send(res, 400, { error: 'bad-request' });
-      }
-      const result = pair(body.code, body.name ?? 'Phone');
-      if (!result.ok) return send(res, 401, { error: result.reason === 'expired' ? 'code-expired' : 'code-wrong' });
-      return send(res, 200, { token: result.token, device: result.device });
+    if (url.pathname.startsWith(API_BASE)) {
+      res.setHeader('cache-control', 'no-store');
+      for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
+      return void api(req, res);
     }
-
-    const device = authenticate(bearer(req));
-    if (!device) return send(res, 401, { error: 'not-paired' });
-    if (req.method !== 'GET') return send(res, 405, { error: 'method' });
-
-    switch (url.pathname) {
-      case '/api/overview':
-        return send(res, 200, overview(source, reader));
-      case '/api/session': {
-        const profile = url.searchParams.get('profile') ?? '';
-        const id = url.searchParams.get('id') ?? '';
-        const before = Number(url.searchParams.get('before'));
-        const transcript = reader.transcript(
-          source.homes(),
-          profile,
-          id,
-          Number.isInteger(before) && before > 0 ? before : null,
-        );
-        if (!transcript) return send(res, 404, { error: 'no-such-session' });
-        return send(res, 200, transcript);
-      }
-      case '/api/stream':
-        return stream(res);
-      case '/api/me':
-        return send(res, 200, { device });
-      default:
-        return send(res, 404, { error: 'not-found' });
-    }
+    send(res, 404, { error: 'not-found' });
   }
 
   const server = http.createServer((req, res) => {
-    handle(req, res).catch(() => {
+    try {
+      handle(req, res);
+    } catch {
       if (!res.headersSent) send(res, 500, { error: 'failed' });
       else res.end();
-    });
+    }
   });
 
   return new Promise((resolve, reject) => {
@@ -304,8 +231,7 @@ export function startHub(options: {
         port: typeof address === 'object' && address ? address.port : (options.port ?? DEFAULT_PORT),
         close: () =>
           new Promise<void>((done) => {
-            stopWatching?.();
-            for (const s of streams.keys()) s.destroy();
+            signal.stop();
             server.close(() => done());
             server.closeAllConnections?.();
           }),

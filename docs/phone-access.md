@@ -33,13 +33,23 @@ Claude and Codex apps ──write──▶ session files in each profile's home
   serves the phone app, and, to paired phones only, the profiles with their
   app state and usage, the recent sessions, and transcripts. It is on while
   the Phone access setting is on and Switchboard is running.
+- **The API.** A tRPC router (`src/remote/api.ts`) under `/api/trpc/`, which
+  the phone calls with types shared from the same code. `live` is a
+  server-sent-events subscription: it sends the overview when it starts and
+  again whenever something on it changes, driven by the file events plus a
+  five-second check for what is not a file (an app starting, new usage
+  numbers). Calls from another origin are refused.
 - **Tailscale.** `tailscale serve` publishes the hub on your tailnet (your
   private Tailscale network) over HTTPS, with a certificate Tailscale
   provides. Nothing is reachable from the internet, and the phone needs
   Tailscale on to open the app.
 - **Pairing.** A phone pairs once with an eight-character code that lasts ten
-  minutes and works once. In return it gets a device token. Switchboard stores
-  only a hash of it, and you can unpair the phone at any time.
+  minutes and works once. In return the hub sets a device cookie: HttpOnly,
+  so no script in the page can read it, and same-site only. Switchboard
+  stores only a hash of it, and you can unpair the phone at any time, from
+  the Mac or from the phone. A phone added to the home screen may keep its
+  own cookies apart from Safari's; if it opens on the pairing screen, pair
+  it there once.
 
 ## Setting it up
 

@@ -108,45 +108,45 @@ try {
   assert.match(code ?? '', /^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
   await page.locator('#settings-dialog').screenshot({ path: path.join(output, 'settings.png') });
 
-  const paired = await fetch(`${base}/api/pair`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code, name: 'Test phone' }),
-  });
-  assert.equal(paired.status, 200);
-  const { token } = await paired.json();
-  const auth = { authorization: `Bearer ${token}` };
-
-  const overview = await (await fetch(`${base}/api/overview`, { headers: auth })).json();
-  assert.deepEqual(
-    overview.sessions.map((s) => [s.profileId, s.title, s.state]),
-    [['codex-demo', 'Dark mode toggle', 'working']],
-  );
-  const transcript = await (
-    await fetch(`${base}/api/session?profile=codex-demo&id=thread-1`, { headers: auth })
-  ).json();
-  assert.deepEqual(
-    transcript.entries.map((e) => e.kind),
-    ['message', 'steps', 'message'],
-  );
-
-  // The window lists the phone it just paired.
-  await page.locator('#settings-cancel').click();
-  await page.getByRole('button', { name: 'Settings' }).click();
-  await page.locator('.phones li').filter({ hasText: 'Test phone' }).waitFor();
-
-  // What the phone shows, at phone size.
+  // The phone pairs itself from the link, and keeps the hub's cookie.
   const browser = await chromium.launch();
   try {
-    const phone = await browser.newPage({
+    const context = await browser.newContext({
       viewport: { width: 390, height: 844 },
       deviceScaleFactor: 2,
       colorScheme: 'light',
     });
-    await phone.addInitScript((t) => localStorage.setItem('switchboard.token', t), token);
-    await phone.goto(`http://localhost:${port}/`);
+    const phone = await context.newPage();
+    await phone.goto(`http://localhost:${port}/#pair=${code}`);
+    await phone.locator('#name').fill('Test phone');
+    await phone.getByRole('button', { name: 'Pair' }).click();
     await phone.getByText('Dark mode toggle').first().waitFor();
+    const [cookie] = await context.cookies();
+    assert.equal(cookie?.name, 'sb_device');
+    assert.equal(cookie.httpOnly, true);
+    assert.equal(await phone.evaluate(() => document.cookie), '');
     await phone.screenshot({ path: path.join(output, 'phone-home.png') });
+
+    // The same data through the API, as the paired phone.
+    const api = (route, input) =>
+      context.request
+        .get(
+          `http://localhost:${port}/api/trpc/${route}` +
+            (input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : ''),
+        )
+        .then((r) => r.json())
+        .then((r) => r.result.data);
+    const overview = await api('overview');
+    assert.deepEqual(
+      overview.sessions.map((s) => [s.profileId, s.title, s.state]),
+      [['codex-demo', 'Dark mode toggle', 'working']],
+    );
+    const transcript = await api('session', { profileId: 'codex-demo', sessionId: 'thread-1' });
+    assert.deepEqual(
+      transcript.entries.map((e) => e.kind),
+      ['message', 'steps', 'message'],
+    );
+
     await phone.locator('a.session').first().click();
     await phone.locator('.detail-head').waitFor();
     await phone.locator('.bubble.assistant', { hasText: 'Tests pass.' }).waitFor();
@@ -154,6 +154,11 @@ try {
   } finally {
     await browser.close();
   }
+
+  // The window lists the phone it just paired.
+  await page.locator('#settings-cancel').click();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.locator('.phones li').filter({ hasText: 'Test phone' }).waitFor();
   console.log(`phone access: ok (port ${port}); screenshots in ${path.relative(root, output)}`);
 } finally {
   await app?.close();

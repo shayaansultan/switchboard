@@ -30,6 +30,8 @@
     "build": "rm -rf out && tsc && bun build src/renderer/main.tsx --outdir out/renderer --target browser && cp src/renderer/index.html src/renderer/style.css out/renderer/ && cp -R src/renderer/fonts out/renderer/fonts && bun build src/phone/main.tsx --outdir out/phone --target browser && cp src/phone/index.html src/phone/style.css src/phone/sw.js src/phone/manifest.webmanifest out/phone/ && cp -R src/phone/icons out/phone/icons && cp -R src/renderer/fonts out/phone/fonts && sh src/native/build.sh"
   },
   "dependencies": {
+    "@trpc/client": "^11.19.0",
+    "@trpc/server": "^11.19.0",
     "jsonc-parser": "^3.3.1",
     "preact": "^10.29.8",
     "zod": "^4.6.5"

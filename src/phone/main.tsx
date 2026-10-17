@@ -1,11 +1,11 @@
 // The phone app: what every Claude and Codex profile on one Mac is doing,
 // served by that Mac's Switchboard (src/remote/hub.ts) over Tailscale.
 //
-// Three screens. Pair trades a code from Switchboard for a device token,
-// kept in localStorage and sent as a bearer token. Home lists the sessions
-// that are working, then each profile with its recent sessions, kept live by
-// one streamed response from /api/stream. A session shows its transcript and
-// re-reads it every few seconds while the agent is working.
+// Three screens. Pair trades a code from Switchboard for a device cookie the
+// hub sets (see api.ts). Home lists the sessions that are working, then each
+// profile with its recent sessions, kept live by the hub's `live`
+// subscription. A session shows its transcript and re-reads it whenever the
+// overview says it changed.
 //
 // Read-only on purpose: replying and approving arrive with the in-app taps.
 
@@ -13,8 +13,7 @@ import { render } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { HubProfile, Overview } from '../remote/hub';
 import type { Entry as TranscriptEntry, SessionSummary, Transcript } from '../remote/model';
-
-const TOKEN_KEY = 'switchboard.token';
+import { api, isUnpaired, pairingError } from './api';
 const FILTER_KEY = 'switchboard.filter';
 const SESSIONS_SHOWN = 4;
 
@@ -32,15 +31,6 @@ function store(key: string, value: string | null): void {
   } catch {
     // Private mode: the pairing lasts as long as the page does.
   }
-}
-
-class Unpaired extends Error {}
-
-async function api<T>(token: string, pathname: string): Promise<T> {
-  const res = await fetch(pathname, { headers: { authorization: `Bearer ${token}` }, cache: 'no-store' });
-  if (res.status === 401) throw new Unpaired();
-  if (!res.ok) throw new Error(`The Mac answered ${res.status}`);
-  return (await res.json()) as T;
 }
 
 // ---- time and labels ----
@@ -123,77 +113,33 @@ function useNow(ms = 30_000): number {
 }
 
 // ---- the live overview ----
-// One long response carrying `data: <overview>` events. Reconnects with a
-// growing delay; a 401 means this phone was unpaired.
+// The hub sends the overview when the subscription starts and again whenever
+// it changes. tRPC reconnects on its own after a drop; an UNAUTHORIZED error
+// means this phone was unpaired.
 
 type Link = 'connecting' | 'live' | 'retrying';
 
-function useOverview(token: string, onUnpaired: () => void): { overview: Overview | null; link: Link } {
+function useOverview(onUnpaired: () => void): { overview: Overview | null; link: Link } {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [link, setLink] = useState<Link>('connecting');
   useEffect(() => {
-    let stopped = false;
-    let controller: AbortController | null = null;
-    let delay = 1000;
-    async function run(): Promise<void> {
-      while (!stopped) {
-        controller = new AbortController();
-        try {
-          const res = await fetch('/api/stream', {
-            headers: { authorization: `Bearer ${token}` },
-            signal: controller.signal,
-            cache: 'no-store',
-          });
-          if (res.status === 401) return onUnpaired();
-          if (!res.ok || !res.body) throw new Error(String(res.status));
-          setLink('live');
-          delay = 1000;
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-          for (;;) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            let at: number;
-            while ((at = buffer.indexOf('\n\n')) >= 0) {
-              const event = buffer.slice(0, at);
-              buffer = buffer.slice(at + 2);
-              const data = event
-                .split('\n')
-                .filter((l) => l.startsWith('data: '))
-                .map((l) => l.slice(6))
-                .join('\n');
-              if (data) setOverview(JSON.parse(data) as Overview);
-            }
-          }
-        } catch {
-          // Offline, asleep, or the Mac went away: try again shortly.
-        }
-        if (stopped) return;
-        setLink('retrying');
-        await new Promise((r) => setTimeout(r, delay));
-        delay = Math.min(delay * 2, 30_000);
-      }
-    }
-    void run();
-    // Coming back to the app: reconnect at once instead of waiting out a delay.
-    const wake = () => {
-      if (document.visibilityState === 'visible') controller?.abort();
-    };
-    document.addEventListener('visibilitychange', wake);
-    return () => {
-      stopped = true;
-      controller?.abort();
-      document.removeEventListener('visibilitychange', wake);
-    };
-  }, [token]);
+    const sub = api.live.subscribe(undefined, {
+      onData: (o) => {
+        setOverview(o);
+        setLink('live');
+      },
+      onConnectionStateChange: (s) =>
+        setLink(s.state === 'pending' ? 'live' : s.state === 'connecting' ? 'retrying' : 'connecting'),
+      onError: (err) => (isUnpaired(err) ? onUnpaired() : setLink('retrying')),
+    });
+    return () => sub.unsubscribe();
+  }, []);
   return { overview, link };
 }
 
 // ---- screens ----
 
-function Pair({ onPaired }: { onPaired: (token: string) => void }) {
+function Pair({ onPaired }: { onPaired: () => void }) {
   const fromLink = /^#pair=([A-Za-z0-9-]+)$/.exec(location.hash)?.[1] ?? '';
   const [code, setCode] = useState(fromLink);
   const [name, setName] = useState(/iPad/.test(navigator.userAgent) ? 'iPad' : 'iPhone');
@@ -205,24 +151,18 @@ function Pair({ onPaired }: { onPaired: (token: string) => void }) {
     setPending(true);
     setError(null);
     try {
-      const res = await fetch('/api/pair', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ code, name }),
-      });
-      const body = (await res.json()) as { token?: string; error?: string };
-      if (body.token) {
-        history.replaceState(null, '', location.pathname);
-        onPaired(body.token);
-        return;
-      }
+      await api.pair.mutate({ code, name });
+      history.replaceState(null, '', location.pathname);
+      onPaired();
+    } catch (err) {
+      const reason = pairingError(err);
       setError(
-        body.error === 'code-expired'
+        reason === 'code-expired'
           ? 'That code has expired. Make a new one in Switchboard.'
-          : "That code doesn't match. Check it in Switchboard and try again.",
+          : reason === 'code-wrong'
+            ? "That code doesn't match. Check it in Switchboard and try again."
+            : "Can't reach your Mac. Check that Tailscale is on, on both devices.",
       );
-    } catch {
-      setError("Can't reach your Mac. Check that Tailscale is on, on both devices.");
     } finally {
       setPending(false);
     }
@@ -444,13 +384,11 @@ function Entry({ e }: { e: TranscriptEntry }) {
 }
 
 function SessionView({
-  token,
   profile,
   id,
   overview,
   onUnpaired,
 }: {
-  token: string;
   profile: string;
   id: string;
   overview: Overview | null;
@@ -468,10 +406,11 @@ function SessionView({
   useEffect(() => {
     let stopped = false;
     const load = () =>
-      api<Transcript>(token, `/api/session?profile=${encodeURIComponent(profile)}&id=${encodeURIComponent(id)}`)
-        .then((t) => !stopped && (setTranscript(t), setError(null)))
+      api.session
+        .query({ profileId: profile, sessionId: id })
+        .then((t: Transcript) => !stopped && (setTranscript(t), setError(null)))
         .catch((err) => {
-          if (err instanceof Unpaired) onUnpaired();
+          if (isUnpaired(err)) onUnpaired();
           else if (!stopped) setError("Couldn't load this session.");
         });
     void load();
@@ -480,7 +419,7 @@ function SessionView({
       stopped = true;
       if (t) clearInterval(t);
     };
-  }, [token, profile, id, working, tick]);
+  }, [profile, id, working, tick]);
 
   useEffect(() => {
     if (transcript && first.current) {
@@ -530,31 +469,25 @@ function SessionView({
 }
 
 function App() {
-  const [token, setToken] = useState(storage(TOKEN_KEY));
+  // null while asking the hub whether this phone is paired.
+  const [paired, setPaired] = useState<boolean | null>(null);
   const route = useRoute();
-  const unpair = useMemo(
-    () => () => {
-      store(TOKEN_KEY, null);
-      setToken(null);
-    },
-    [],
-  );
-  if (!token)
-    return (
-      <Pair
-        onPaired={(t) => {
-          store(TOKEN_KEY, t);
-          setToken(t);
-        }}
-      />
-    );
-  return <Paired token={token} route={route} onUnpaired={unpair} />;
+  useEffect(() => {
+    api.me
+      .query()
+      .then(() => setPaired(true))
+      .catch((err) => setPaired(isUnpaired(err) ? false : true));
+  }, []);
+  const unpair = useMemo(() => () => setPaired(false), []);
+  if (paired === null) return <Status link="connecting" />;
+  if (!paired) return <Pair onPaired={() => setPaired(true)} />;
+  return <Paired route={route} onUnpaired={unpair} />;
 }
 
-function Paired({ token, route, onUnpaired }: { token: string; route: Route; onUnpaired: () => void }) {
-  const { overview, link } = useOverview(token, onUnpaired);
+function Paired({ route, onUnpaired }: { route: Route; onUnpaired: () => void }) {
+  const { overview, link } = useOverview(onUnpaired);
   return route.name === 'session' ? (
-    <SessionView token={token} profile={route.profile} id={route.id} overview={overview} onUnpaired={onUnpaired} />
+    <SessionView profile={route.profile} id={route.id} overview={overview} onUnpaired={onUnpaired} />
   ) : (
     <Home overview={overview} link={link} />
   );
