@@ -12,7 +12,7 @@
 import { render } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { HubProfile, Overview } from '../remote/hub';
-import type { SessionSummary, Transcript, TranscriptEntry } from '../remote/sessions';
+import type { Entry as TranscriptEntry, SessionSummary, Transcript } from '../remote/model';
 
 const TOKEN_KEY = 'switchboard.token';
 const FILTER_KEY = 'switchboard.filter';
@@ -393,15 +393,54 @@ function Status({ link }: { link: Link }) {
   );
 }
 
+// Interim rendering of the shared model; the direction-A screens replace it.
 function Entry({ e }: { e: TranscriptEntry }) {
-  if (e.kind === 'tool')
-    return (
-      <div class={`tool ${e.failed ? 'failed' : ''}`}>
-        <span class="tool-name">{e.name}</span>
-        <span class="tool-detail">{e.detail}</span>
-      </div>
-    );
-  return <div class={`bubble ${e.kind}`}>{e.text}</div>;
+  switch (e.kind) {
+    case 'message':
+      return <div class={`bubble ${e.role}`}>{e.queued ? `Queued: ${e.text}` : e.text}</div>;
+    case 'steps':
+      return (
+        <>
+          {e.calls.map((c) => (
+            <div key={c.id} class={`tool ${c.failed ? 'failed' : ''}`}>
+              <span class="tool-name">{c.service ? `${c.service} · ${c.name}` : c.name}</span>
+              <span class="tool-detail">{c.detail}</span>
+            </div>
+          ))}
+        </>
+      );
+    case 'notice':
+      return <div class="tool">{e.text}</div>;
+    case 'question':
+      return <div class="bubble assistant">{e.questions.map((q) => q.text).join('\n')}</div>;
+    case 'subagent':
+      return (
+        <div class="tool">
+          <span class="tool-name">Subagent</span>
+          <span class="tool-detail">{e.title}</span>
+        </div>
+      );
+    case 'pr':
+      return (
+        <div class="tool">
+          <span class="tool-name">PR</span>
+          <span class="tool-detail">
+            {e.repo} #{e.number}
+          </span>
+        </div>
+      );
+    case 'artifact':
+      return (
+        <div class="tool">
+          <span class="tool-name">Artifact</span>
+          <span class="tool-detail">{e.title}</span>
+        </div>
+      );
+    case 'review':
+      return <div class="bubble assistant">{`${e.verdict}: ${e.summary}`}</div>;
+    default:
+      return null;
+  }
 }
 
 function SessionView({

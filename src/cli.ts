@@ -100,7 +100,8 @@ Phone access
   switchboard remote unpair DEVICE_ID | --all --yes
   switchboard remote sessions [PROFILE...] [--all] [--working]
                                             Recent sessions as the phone sees them (desktop only unless --all)
-  switchboard remote session PROFILE SESSION_ID
+  switchboard remote session PROFILE SESSION_ID [--before N]
+                                            One page of a transcript; pass the page's before value for older entries
 
 Setup
   switchboard settings set KEY VALUE

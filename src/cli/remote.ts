@@ -91,9 +91,13 @@ export async function remoteCommand(rest: string[], ctx: Context): Promise<void>
       return;
     }
     case 'session': {
-      const profile = resolveProfile(ctx.data, required(args[0], 'Profile'));
-      const id = required(args[1], 'Session id');
-      const transcript = new SessionReader().transcript(homes(ctx), profile.id, id);
+      const { values, positionals } = parse(args, { before: { type: 'string' } });
+      const profile = resolveProfile(ctx.data, required(positionals[0], 'Profile'));
+      const id = required(positionals[1], 'Session id');
+      const before = values.before === undefined ? null : Number(values.before);
+      if (before !== null && (!Number.isInteger(before) || before <= 0))
+        throw usageError('--before must be a byte position from an earlier page');
+      const transcript = new SessionReader().transcript(homes(ctx), profile.id, id, before);
       if (!transcript)
         throw notFound(
           'no-such-session',

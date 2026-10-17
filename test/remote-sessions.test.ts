@@ -1,13 +1,16 @@
 // The phone shows what each profile's agents are doing, read from the files
 // Claude and Codex write. These pin what it must get right from those files:
-// which session is working, what it is called, which files are not sessions
-// of their own, and what the transcript leaves out.
+// which state a session is in, what it is called, what it asked and produced,
+// which files are not sessions of their own, and that a long session can be
+// paged without reading it whole.
 
 import { test, expect, beforeEach } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { sandboxHome } from './setup';
 import { SessionReader, STALE_MS, type ProfileHome } from '../src/remote/sessions';
+import type { Entry } from '../src/remote/model';
 
 const root = path.join(sandboxHome, 'remote-sessions');
 const claude: ProfileHome = { id: 'claude-work', vendor: 'claude', home: path.join(root, 'claude') };
@@ -21,53 +24,182 @@ function write(file: string, records: unknown[], mtime = Date.now()): void {
   fs.utimesSync(file, mtime / 1000, mtime / 1000);
 }
 
-const prompt = (text: string, extra = {}) => ({
+const kinds = (entries: Entry[]) => entries.map((e) => e.kind);
+
+// ---- Claude ----
+
+const base = { sessionId: 's1', cwd: '/Users/me/Developer/app', entrypoint: 'claude-desktop', gitBranch: 'fix/login' };
+const prompt = (content: unknown, extra = {}) => ({
+  ...base,
   type: 'user',
-  sessionId: 's1',
-  cwd: '/Users/me/Developer/app',
-  entrypoint: 'claude-desktop',
   timestamp: '2026-10-18T01:00:00Z',
-  message: { role: 'user', content: text },
+  message: { role: 'user', content },
   ...extra,
 });
-const reply = (content: unknown[], stop: string | null) => ({
+const reply = (content: unknown[], stop: string | null, extra = {}) => ({
+  ...base,
   type: 'assistant',
-  sessionId: 's1',
   timestamp: '2026-10-18T01:00:05Z',
-  message: { role: 'assistant', content, stop_reason: stop },
+  message: { role: 'assistant', model: 'claude-opus-5-5', content, stop_reason: stop },
+  ...extra,
 });
+const tool = (id: string, name: string, input: unknown) => reply([{ type: 'tool_use', id, name, input }], 'tool_use');
+const result = (id: string, content: unknown, toolUseResult: unknown = {}, isError = false) =>
+  prompt([{ type: 'tool_result', tool_use_id: id, content, is_error: isError }], { toolUseResult });
 const claudeFile = (id = 's1') => path.join(claude.home, 'projects', '-Users-me-Developer-app', `${id}.jsonl`);
 
-test('a Claude session mid tool call is working, and one that stopped on its own is idle', () => {
-  write(claudeFile(), [
-    prompt('Fix the login bug'),
-    reply([{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'bun test' } }], 'tool_use'),
-  ]);
-  const [working] = new SessionReader().list([claude]);
+function session(records: unknown[], mtime?: number) {
+  write(claudeFile(), records, mtime);
+  const reader = new SessionReader();
+  const [summary] = reader.list([claude]);
+  return { summary, transcript: summary && reader.transcript([claude], claude.id, summary.id)! };
+}
+
+test('a Claude session mid tool call is working; one that stopped on its own is finished', () => {
+  const working = session([prompt('Fix the login bug'), tool('t1', 'Bash', { command: 'bun test' })]).summary;
   expect(working).toMatchObject({
-    id: 's1',
     state: 'working',
     origin: 'desktop',
     title: 'Fix the login bug',
-    cwd: '/Users/me/Developer/app',
+    branch: 'fix/login',
+    model: 'claude-opus-5-5',
   });
 
-  write(claudeFile(), [prompt('Fix the login bug'), reply([{ type: 'text', text: 'Fixed it.' }], 'end_turn')]);
-  const [idle] = new SessionReader().list([claude]);
-  expect(idle.state).toBe('idle');
-  expect(idle.lastMessage).toEqual({ role: 'assistant', text: 'Fixed it.' });
+  const done = session([prompt('Fix the login bug'), reply([{ type: 'text', text: 'Fixed it.' }], 'end_turn')]).summary;
+  expect(done.state).toBe('finished');
+  expect(done.lastMessage).toEqual({ role: 'assistant', text: 'Fixed it.' });
 });
 
-test('a Claude turn the person interrupted, or one nobody has written to in a while, is not working', () => {
-  write(claudeFile(), [prompt('Go'), prompt('[Request interrupted by user for tool use]')]);
-  expect(new SessionReader().list([claude])[0].state).toBe('idle');
+test('a Claude turn the person stopped, one that went quiet, and one that hit an API error each say so', () => {
+  expect(session([prompt('Go'), prompt('[Request interrupted by user for tool use]')]).summary.state).toBe('stopped');
+  expect(session([prompt('Go'), tool('t', 'Bash', {})], Date.now() - STALE_MS - 1000).summary.state).toBe('finished');
+  expect(
+    session([
+      prompt('Go'),
+      { type: 'system', subtype: 'api_error', content: 'Overloaded', timestamp: '2026-10-18T01:00:09Z' },
+    ]).summary.state,
+  ).toBe('errored');
+});
 
-  write(
-    claudeFile(),
-    [prompt('Go'), reply([{ type: 'tool_use', id: 't', name: 'Bash', input: {} }], 'tool_use')],
-    Date.now() - STALE_MS - 1000,
-  );
-  expect(new SessionReader().list([claude])[0].state).toBe('idle');
+test('an unanswered Claude question puts the session in needs-you, and the answer closes it', () => {
+  const ask = tool('q1', 'AskUserQuestion', {
+    questions: [
+      {
+        question: 'Which index?',
+        multiSelect: false,
+        options: [{ label: 'B-tree', description: 'Fast, small' }, { label: 'Full text' }],
+      },
+    ],
+  });
+  const waiting = session([prompt('Make search fast'), ask]);
+  expect(waiting.summary).toMatchObject({ state: 'needs-you', needs: 'Which index?' });
+  expect(waiting.transcript.entries[1]).toMatchObject({
+    kind: 'question',
+    questions: [
+      {
+        text: 'Which index?',
+        options: [
+          { label: 'B-tree', hint: 'Fast, small' },
+          { label: 'Full text', hint: null },
+        ],
+      },
+    ],
+    answers: null,
+  });
+
+  const answered = session([
+    prompt('Make search fast'),
+    ask,
+    result('q1', 'User answered', { answers: { 'Which index?': 'B-tree' } }),
+    reply([{ type: 'text', text: 'Adding it.' }], 'end_turn'),
+  ]);
+  expect(answered.summary.state).toBe('finished');
+  expect(answered.transcript.entries[1]).toMatchObject({ kind: 'question', answers: ['B-tree'] });
+});
+
+test('Claude tool calls gather into one steps entry, with output, failures, diffs and connector names', () => {
+  const { transcript } = session([
+    prompt('Run the tests<system-reminder>internal</system-reminder>'),
+    tool('t1', 'Bash', { command: 'bun test' }),
+    result('t1', 'boom', { stdout: '2 failed', stderr: 'boom' }, true),
+    tool('t2', 'Edit', { file_path: 'src/a.ts', old_string: 'a', new_string: 'b' }),
+    result('t2', 'ok', {
+      filePath: 'src/a.ts',
+      structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-a', '+b'] }],
+    }),
+    tool('t3', 'mcp__99486f1e-5fa9-4730-b81b-8efeb06ef414__notion-search', { query: 'roadmap' }),
+    reply([{ type: 'text', text: 'Two tests fail.' }], 'end_turn'),
+  ]);
+  expect(kinds(transcript.entries)).toEqual(['message', 'steps', 'message']);
+  expect(transcript.entries[0]).toMatchObject({ role: 'user', text: 'Run the tests' });
+  const steps = transcript.entries[1] as Extract<Entry, { kind: 'steps' }>;
+  expect(steps.calls.map((c) => [c.name, c.service, c.detail, c.failed])).toEqual([
+    ['Shell', null, 'bun test', true],
+    ['Edit', null, 'src/a.ts', false],
+    ['notion search', 'Notion', 'roadmap', false],
+  ]);
+  expect(steps.calls[0].output).toBe('2 failed\nboom');
+  expect(steps.calls[1].change).toMatchObject({ path: 'src/a.ts', kind: 'modify', adds: 1, dels: 1 });
+});
+
+test('what a Claude session produced becomes entries: one PR however often it is recorded, artifacts, subagents', () => {
+  const pr = {
+    type: 'pr-link',
+    sessionId: 's1',
+    prNumber: 42,
+    prUrl: 'https://github.com/me/app/pull/42',
+    prRepository: 'me/app',
+    timestamp: '2026-10-18T01:00:06Z',
+  };
+  const { summary, transcript } = session([
+    prompt('Ship it'),
+    tool('a1', 'Agent', { description: 'Find callers', prompt: '…' }),
+    result('a1', [{ type: 'text', text: 'Found 3 callers.' }]),
+    tool('f1', 'Artifact', { file_path: '/tmp/notes.html' }),
+    result('f1', 'Published /tmp/notes.html at https://claude.ai/artifact/AbC123 (Version 1)'),
+    pr,
+    reply([{ type: 'text', text: 'Opened the PR.' }], 'end_turn'),
+    pr,
+  ]);
+  expect(transcript.entries.filter((e) => e.kind === 'pr')).toHaveLength(1);
+  expect(transcript.entries.find((e) => e.kind === 'subagent')).toMatchObject({
+    title: 'Find callers',
+    summary: 'Found 3 callers.',
+  });
+  expect(transcript.entries.find((e) => e.kind === 'artifact')).toMatchObject({
+    url: 'https://claude.ai/artifact/AbC123',
+    title: 'notes',
+  });
+  expect(summary.prs).toEqual([{ url: 'https://github.com/me/app/pull/42', number: 42, repo: 'me/app' }]);
+});
+
+test("a Claude prompt typed while the agent works shows as queued until it is picked up, and the agent's task list feeds the summary", () => {
+  const plan = tool('p1', 'TodoWrite', {
+    todos: [
+      { content: 'Read', status: 'completed' },
+      { content: 'Fix', status: 'in_progress' },
+      { content: 'Test', status: 'pending' },
+    ],
+  });
+  const { summary, transcript } = session([
+    prompt('Fix it'),
+    plan,
+    {
+      type: 'queue-operation',
+      operation: 'enqueue',
+      content: 'also update the docs',
+      timestamp: '2026-10-18T01:00:07Z',
+    },
+    tool('t1', 'Bash', { command: 'bun test' }),
+  ]);
+  expect(transcript.entries.at(-1)).toMatchObject({
+    kind: 'message',
+    role: 'user',
+    text: 'also update the docs',
+    queued: true,
+  });
+  expect(summary.plan).toEqual({ done: 1, total: 3, current: 'Fix' });
+  expect(transcript.entries.some((e) => e.kind === 'steps' && e.calls.some((c) => c.name === 'TodoWrite'))).toBe(false);
 });
 
 test('a Claude title set in the app wins over the first prompt, and subagent files are not sessions', () => {
@@ -78,27 +210,31 @@ test('a Claude title set in the app wins over the first prompt, and subagent fil
   write(path.join(claude.home, 'projects', '-Users-me-Developer-app', 's1', 'subagents', 'agent-1.jsonl'), [
     prompt('sub'),
   ]);
-  const sessions = new SessionReader().list([claude]);
-  expect(sessions.map((s) => s.title)).toEqual(['Login bug']);
+  expect(new SessionReader().list([claude]).map((s) => s.title)).toEqual(['Login bug']);
 });
 
-test('a Claude transcript drops attached reminders and tool results, and marks failed tool calls', () => {
-  write(claudeFile(), [
-    prompt('Run the tests<system-reminder>internal</system-reminder>'),
-    reply([{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'bun test' } }], 'tool_use'),
-    prompt('', {
-      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', is_error: true, content: 'boom' }] },
-    }),
-    reply([{ type: 'text', text: 'Two tests fail.' }], 'end_turn'),
-  ]);
+test('a long session is read a page at a time, from the end back to the start', () => {
+  const records: unknown[] = [prompt('Start')];
+  for (let i = 0; i < 4000; i++)
+    records.push(reply([{ type: 'text', text: `Reply ${i} ` + 'x'.repeat(2000) }], 'end_turn'));
+  write(claudeFile(), records);
   const reader = new SessionReader();
   reader.list([claude]);
-  const { entries } = reader.transcript([claude], 'claude-work', 's1')!;
-  expect(entries.map((e) => ({ ...e, at: undefined }))).toEqual([
-    { kind: 'user', text: 'Run the tests', at: undefined },
-    { kind: 'tool', name: 'Bash', detail: 'bun test', failed: true, at: undefined },
-    { kind: 'assistant', text: 'Two tests fail.', at: undefined },
-  ]);
+  const pages: Entry[][] = [];
+  let before: number | null = null;
+  do {
+    const page = reader.transcript([claude], claude.id, 's1', before)!;
+    pages.push(page.entries);
+    before = page.before;
+  } while (before !== null);
+  expect(pages.length).toBeGreaterThan(1);
+  const texts = pages
+    .reverse()
+    .flat()
+    .map((e) => (e.kind === 'message' ? e.text.slice(0, 10) : e.kind));
+  expect(texts[0]).toBe('Start');
+  expect(texts.at(-1)).toBe('Reply 3999');
+  expect(texts).toHaveLength(4001);
 });
 
 // ---- Codex ----
@@ -126,24 +262,108 @@ function rollout(id: string, events: unknown[], meta: Record<string, unknown> = 
 const event = (payload: unknown) => ({ type: 'event_msg', timestamp: '2026-10-18T01:00:00Z', payload });
 const item = (i: unknown) => event({ type: 'item_completed', item: i });
 const userMessage = (text: string) => item({ type: 'UserMessage', content: [{ type: 'text', text }] });
-
-test('a Codex thread is working between task_started and task_complete, and takes its name from the index', () => {
-  rollout('t1', [event({ type: 'task_started' }), userMessage('Add dark mode')]);
-  fs.writeFileSync(
-    path.join(codex.home, 'session_index.jsonl'),
-    JSON.stringify({ id: 't1', thread_name: 'Dark mode' }) + '\n',
-  );
-  const [working] = new SessionReader().list([codex]);
-  expect(working).toMatchObject({ id: 't1', title: 'Dark mode', state: 'working', origin: 'desktop' });
-
-  rollout('t1', [event({ type: 'task_started' }), userMessage('Add dark mode'), event({ type: 'task_complete' })]);
-  expect(new SessionReader().list([codex])[0].state).toBe('idle');
+const agentMessage = (text: string) => item({ type: 'AgentMessage', content: [{ type: 'Text', text }] });
+const call = (name: string, args: unknown) => ({
+  type: 'response_item',
+  payload: { type: 'function_call', name, arguments: JSON.stringify(args), call_id: name },
 });
 
-test('a Codex subagent thread is part of its parent, not a session of its own', () => {
-  rollout('parent', [userMessage('Plan it')]);
-  rollout('child', [userMessage('Sub task')], { source: { subagent: { other: 'guardian' } } });
-  expect(new SessionReader().list([codex]).map((s) => s.id)).toEqual(['parent']);
+test('a Codex thread is working between task_started and task_complete; one the person stopped says so', () => {
+  rollout('t1', [event({ type: 'task_started' }), userMessage('Add dark mode')]);
+  expect(new SessionReader().list([codex])[0]).toMatchObject({
+    id: 't1',
+    title: 'Add dark mode',
+    state: 'working',
+    origin: 'desktop',
+  });
+  rollout('t1', [
+    event({ type: 'task_started' }),
+    userMessage('Add dark mode'),
+    event({ type: 'turn_aborted', reason: 'interrupted' }),
+  ]);
+  expect(new SessionReader().list([codex])[0].state).toBe('stopped');
+});
+
+test('a Codex question waits for the next message, and its commands, edits and reviews become entries', () => {
+  rollout('t1', [
+    userMessage('Make search fast'),
+    item({
+      type: 'CommandExecution',
+      id: 'c1',
+      command: ['/bin/zsh', '-lc', 'rg -n index src'],
+      aggregated_output: 'src/db.ts:4',
+      exit_code: 1,
+    }),
+    item({
+      type: 'FileChange',
+      id: 'f1',
+      changes: { 'src/db.ts': { type: 'update', unified_diff: '@@ -1 +1,2 @@\n a\n+b' } },
+      status: 'completed',
+    }),
+    call('request_user_input_async', { questions: [{ title: 'Which index?', options: ['B-tree', 'Full text'] }] }),
+    event({ type: 'task_complete' }),
+  ]);
+  const reader = new SessionReader();
+  expect(reader.list([codex])[0]).toMatchObject({ state: 'needs-you', needs: 'Which index?' });
+  const { entries } = reader.transcript([codex], codex.id, 't1')!;
+  expect(kinds(entries)).toEqual(['message', 'steps', 'question']);
+  const steps = entries[1] as Extract<Entry, { kind: 'steps' }>;
+  expect(steps.calls.map((c) => [c.name, c.detail, c.failed, c.output])).toEqual([
+    ['Shell', 'rg -n index src', true, 'src/db.ts:4'],
+    ['Edit', 'src/db.ts', false, null],
+  ]);
+  expect(steps.calls[1].change).toMatchObject({ kind: 'modify', adds: 1, dels: 0 });
+
+  rollout('t1', [
+    userMessage('Make search fast'),
+    call('request_user_input_async', { questions: [{ title: 'Which index?', options: ['B-tree'] }] }),
+    userMessage('B-tree'),
+    item({
+      type: 'ExitedReviewMode',
+      id: 'r',
+      review_output: {
+        findings: [{ title: 'Missing test', body: 'No test covers it' }],
+        overall_correctness: 'patch is incorrect',
+        overall_explanation: 'One gap.',
+      },
+    }),
+  ]);
+  const later = new SessionReader();
+  expect(later.list([codex])[0].state).toBe('finished');
+  const again = later.transcript([codex], codex.id, 't1')!.entries;
+  expect(again[1]).toMatchObject({ kind: 'question', answers: ['B-tree'] });
+  expect(again.at(-1)).toMatchObject({
+    kind: 'review',
+    verdict: 'patch is incorrect',
+    findings: [{ title: 'Missing test' }],
+  });
+});
+
+test("Codex's thread index names threads and hides subagents and archived threads, and the folders stand in without it", () => {
+  const now = Date.now();
+  const parent = rollout('parent', [userMessage('Plan it')]);
+  const child = rollout('child', [userMessage('Sub task')]);
+  const old = rollout('old', [userMessage('Archived')]);
+  const db = new DatabaseSync(path.join(codex.home, 'state_5.sqlite'));
+  db.exec(`create table threads (id text, rollout_path text, name text, title text, git_branch text, model text, originator text, source text, updated_at_ms integer, archived integer);
+           create table thread_spawn_edges (parent_thread_id text, child_thread_id text, status text);`);
+  const add = db.prepare('insert into threads values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  add.run('parent', parent, 'Planning', 'Plan it', 'main', 'gpt-6', 'Codex Desktop', 'vscode', now, 0);
+  add.run('child', child, null, 'Sub task', null, null, 'Codex Desktop', 'vscode', now, 0);
+  add.run('old', old, null, 'Archived', null, null, 'Codex Desktop', 'vscode', now, 1);
+  db.prepare('insert into thread_spawn_edges values (?, ?, ?)').run('parent', 'child', 'done');
+  db.close();
+  expect(new SessionReader().list([codex]).map((s) => [s.id, s.title, s.branch, s.model])).toEqual([
+    ['parent', 'Planning', 'main', 'gpt-6'],
+  ]);
+
+  fs.rmSync(path.join(codex.home, 'state_5.sqlite'));
+  expect(
+    new SessionReader()
+      .list([codex])
+      .map((s) => s.id)
+      .sort(),
+  ).toEqual(['child', 'old', 'parent']);
 });
 
 test('a codex exec run is titled by its prompt, found past the instructions Codex injects first', () => {
@@ -166,10 +386,6 @@ test('a codex exec run is titled by its prompt, found past the instructions Code
     type: 'response_item',
     payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Review the branch' }] },
   };
-  rollout(
-    'e1',
-    [instructions, context, ask, item({ type: 'AgentMessage', content: [{ type: 'Text', text: 'READY' }] })],
-    { originator: 'codex_exec' },
-  );
+  rollout('e1', [instructions, context, ask, agentMessage('READY')], { originator: 'codex_exec' });
   expect(new SessionReader().list([codex])[0]).toMatchObject({ title: 'Review the branch', origin: 'exec' });
 });

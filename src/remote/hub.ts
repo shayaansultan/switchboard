@@ -19,10 +19,12 @@ import * as path from 'node:path';
 import { z } from 'zod';
 import type { AppState, Vendor } from '../types';
 import { authenticate, pair } from './pairing';
-import { SessionReader, type ProfileHome, type SessionSummary } from './sessions';
+import { SessionReader, watch, type ProfileHome, type SessionSummary } from './sessions';
 
 export const DEFAULT_PORT = 47821;
-const STREAM_CHECK_MS = 3000;
+// Session files are watched; this catches what is not a file, such as an
+// app starting or new usage numbers.
+const STREAM_CHECK_MS = 5000;
 const HEARTBEAT_MS = 25_000;
 const MAX_BODY = 4096;
 
@@ -145,7 +147,21 @@ export function startHub(options: {
 }): Promise<Hub> {
   const { source, staticDir } = options;
   const reader = new SessionReader();
-  const streams = new Set<http.ServerResponse>();
+  const streams = new Map<http.ServerResponse, () => void>();
+  // One watcher over every profile's session folders, rebuilt when the set
+  // of profiles changes, telling each open stream to look again.
+  let watching = '';
+  let stopWatching: (() => void) | null = null;
+  const ensureWatching = () => {
+    const homes = source.homes();
+    const key = JSON.stringify(homes);
+    if (key === watching) return;
+    stopWatching?.();
+    watching = key;
+    stopWatching = watch(homes, () => {
+      for (const push of streams.values()) push();
+    });
+  };
 
   function serveStatic(req: http.IncomingMessage, res: http.ServerResponse, pathname: string): void {
     const rel = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.slice(1));
@@ -177,7 +193,6 @@ export function startHub(options: {
       'cache-control': 'no-store',
       connection: 'keep-alive',
     });
-    streams.add(res);
     let last = '';
     let lastWrite = Date.now();
     const push = () => {
@@ -196,11 +211,21 @@ export function startHub(options: {
         // A file vanished between list and read; the next tick sees the new state.
       }
     };
+    streams.set(res, push);
+    ensureWatching();
     push();
-    const timer = setInterval(push, STREAM_CHECK_MS);
+    const timer = setInterval(() => {
+      ensureWatching();
+      push();
+    }, STREAM_CHECK_MS);
     res.on('close', () => {
       clearInterval(timer);
       streams.delete(res);
+      if (!streams.size) {
+        stopWatching?.();
+        stopWatching = null;
+        watching = '';
+      }
     });
   }
 
@@ -244,7 +269,13 @@ export function startHub(options: {
       case '/api/session': {
         const profile = url.searchParams.get('profile') ?? '';
         const id = url.searchParams.get('id') ?? '';
-        const transcript = reader.transcript(source.homes(), profile, id);
+        const before = Number(url.searchParams.get('before'));
+        const transcript = reader.transcript(
+          source.homes(),
+          profile,
+          id,
+          Number.isInteger(before) && before > 0 ? before : null,
+        );
         if (!transcript) return send(res, 404, { error: 'no-such-session' });
         return send(res, 200, transcript);
       }
@@ -273,7 +304,8 @@ export function startHub(options: {
         port: typeof address === 'object' && address ? address.port : (options.port ?? DEFAULT_PORT),
         close: () =>
           new Promise<void>((done) => {
-            for (const s of streams) s.destroy();
+            stopWatching?.();
+            for (const s of streams.keys()) s.destroy();
             server.close(() => done());
             server.closeAllConnections?.();
           }),

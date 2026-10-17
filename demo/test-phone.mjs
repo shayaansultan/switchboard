@@ -127,7 +127,7 @@ try {
   ).json();
   assert.deepEqual(
     transcript.entries.map((e) => e.kind),
-    ['user', 'tool', 'assistant'],
+    ['message', 'steps', 'message'],
   );
 
   // The window lists the phone it just paired.

@@ -19,9 +19,16 @@ Claude and Codex apps ──write──▶ session files in each profile's home
 
 - **Session files.** Claude writes one file per session under
   `<home>/projects/`, and Codex one rollout per thread under
-  `<home>/sessions/`. The hub reads the head and tail of each recent file to
-  learn its title, folder, latest message, and whether a turn is in progress.
-  It never talks to the apps, so nothing about them changes.
+  `<home>/sessions/`, with an index of its threads in `state_5.sqlite`. Two
+  readers (`src/remote/claude.ts`, `src/remote/codex.ts`) turn these into one
+  shared model (`src/remote/model.ts`): a session's state (working, needs
+  you, waiting, finished, stopped, errored) and a transcript of prompts,
+  replies, tool steps with their output and diffs, questions, PRs,
+  artifacts, subagents and reviews. A summary reads only the head and tail of
+  a file, and transcripts are read a page at a time from the end, because a
+  session file can pass 400 MB. The hub follows the session folders through
+  macOS file events. It never talks to the apps, so nothing about them
+  changes. Codex's index is opened read-only.
 - **The hub.** It runs inside Switchboard and listens on 127.0.0.1 only. It
   serves the phone app, and, to paired phones only, the profiles with their
   app state and usage, the recent sessions, and transcripts. It is on while
