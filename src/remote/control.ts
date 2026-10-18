@@ -110,6 +110,13 @@ class Inbox<T> {
     w.resolve(this.items.splice(0));
   }
 
+  // Answers a waiting long poll with nothing, so its connection can close.
+  end(): void {
+    const w = this.waiter;
+    this.waiter = null;
+    w?.resolve([]);
+  }
+
   take(holdMs: number): Promise<T[]> {
     this.seenAt = Date.now();
     // A newer poll replaces a stale one (the plugin timed out and asked again).
@@ -638,11 +645,19 @@ export class Control {
     for (const h of this.held.values()) this.settle(h, { status: 'gone' });
     this.held.clear();
     this.outcomes.clear();
+    // Long polls hold their connections open; answer them so the server can
+    // close without waiting out HOLD_MS.
+    for (const inbox of [...this.claude.values(), ...this.codex.values()]) inbox.end();
     const server = this.server;
     this.server = null;
     if (!server) return Promise.resolve();
     return new Promise((done) => {
-      server.close(() => done());
+      // A connection a runtime will not close for us must not hang shutdown.
+      const timer = setTimeout(done, 1000);
+      server.close(() => {
+        clearTimeout(timer);
+        done();
+      });
       server.closeAllConnections?.();
     });
   }
