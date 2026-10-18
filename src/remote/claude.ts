@@ -335,6 +335,7 @@ const SPECIAL = new Set([
 const PLAN = new Set(['mcp__ccd_turn__update_plan', 'TodoWrite']);
 // The desktop app's own turn plumbing (task list, wrap-up box): not work.
 const PLUMBING = /^mcp__ccd_turn__/;
+const WRAP_UP = 'mcp__ccd_turn__wrap_up';
 
 interface Pending {
   call?: ToolCall;
@@ -496,6 +497,19 @@ export function claudeEntries(records: Rec[], file = ''): Entry[] {
       const name = str(b.name) ?? 'tool';
       const input = obj(b.input);
       const id = str(b.id) ?? '';
+      if (name === WRAP_UP) {
+        const actions = arr(input.actions).map(obj);
+        push({
+          kind: 'next',
+          recap: str(input.recap) ?? '',
+          ask: str(input.ask),
+          replies: actions
+            .filter((a) => !str(a.action) && str(a.label))
+            .map((a) => ({ label: str(a.label)!, message: str(a.message) ?? str(a.label)! })),
+          at,
+        });
+        continue;
+      }
       if (PLAN.has(name) || PLUMBING.test(name)) continue;
       if (SPECIAL.has(name)) {
         let entry: Entry | null = null;
@@ -573,23 +587,59 @@ export function claudeEntries(records: Rec[], file = ''): Entry[] {
 
 // ---- summary ----
 
+// The task list as it stands after the last update. Claude Desktop's list
+// (update_plan) is sent whole, then moved on by small updates: advance one
+// step, or mark steps done and start another by number; its wrap-up checks
+// the rest off. TodoWrite always sends the whole list.
 function plan(records: Rec[]): SessionSummary['plan'] {
-  for (let i = records.length - 1; i >= 0; i--) {
-    const r = records[i];
+  let items: { content: string | null; status: string }[] | null = null;
+  for (const r of records) {
     if (r.type !== 'assistant') continue;
-    const blocks = arr(obj(r.message).content).map(obj);
-    for (let j = blocks.length - 1; j >= 0; j--) {
-      const b = blocks[j];
-      if (b.type !== 'tool_use' || !PLAN.has(str(b.name) ?? '')) continue;
+    for (const b of arr(obj(r.message).content).map(obj)) {
+      if (b.type !== 'tool_use') continue;
+      const name = str(b.name) ?? '';
       const input = obj(b.input);
-      const items = arr(input.items ?? input.todos).map(obj);
-      if (!items.length) continue;
-      const done = items.filter((t) => t.status === 'completed').length;
-      const now = items.find((t) => t.status === 'in_progress');
-      return { done, total: items.length, current: now ? (str(now.content) ?? str(now.activeForm)) : null };
+      if (name === WRAP_UP) {
+        if (items) items = items.map((t) => ({ ...t, status: 'completed' }));
+        continue;
+      }
+      if (!PLAN.has(name)) continue;
+      const list = arr(input.items ?? input.todos).map(obj);
+      if (list.length) {
+        items = list.map((t) => ({ content: str(t.content) ?? str(t.activeForm), status: str(t.status) ?? 'pending' }));
+        continue;
+      }
+      if (!items) continue;
+      if (input.advance === true) {
+        const at = items.findIndex((t) => t.status === 'in_progress');
+        if (at >= 0) items[at].status = 'completed';
+        const next = items.findIndex((t) => t.status === 'pending');
+        if (next >= 0) items[next].status = 'in_progress';
+      }
+      for (const n of arr(input.done)) if (typeof n === 'number' && items[n - 1]) items[n - 1].status = 'completed';
+      if (typeof input.start === 'number' && items[input.start - 1]) {
+        for (const t of items) if (t.status === 'in_progress') t.status = 'pending';
+        items[input.start - 1].status = 'in_progress';
+      }
     }
   }
-  return null;
+  if (!items?.length) return null;
+  const done = items.filter((t) => t.status === 'completed').length;
+  const now = items.find((t) => t.status === 'in_progress');
+  return { done, total: items.length, current: now?.content ?? null };
+}
+
+// The task list from the tail; when the tail holds only updates to a list
+// set further back (pictures in tool results fill a tail fast), from a
+// longer stretch.
+const PLAN_BYTES = 8 * 1024 * 1024;
+function planOf(info: FileInfo, end: Rec[]): SessionSummary['plan'] {
+  const found = plan(end);
+  if (found || info.size <= TAIL_BYTES) return found;
+  const updates = end.some(
+    (r) => r.type === 'assistant' && arr(obj(r.message).content).some((b) => PLAN.has(str(obj(b).name) ?? '')),
+  );
+  return updates ? plan(tail(info, PLAN_BYTES)) : null;
 }
 
 function stateOf(
@@ -615,6 +665,20 @@ function stateOf(
         state: 'needs-you',
         needs: oneLine(str(obj(arr(obj(ask.input).questions)[0]).question) ?? 'A question for you', 200),
       };
+    break;
+  }
+  // Claude Desktop's end-of-turn box can block on the person: a question
+  // waiting for a reply, until the next prompt.
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const r = turns[i];
+    if (r.type === 'user' && !isToolResult(r) && fromPerson(r)) break;
+    if (r.type !== 'assistant') continue;
+    const box = arr(obj(r.message).content)
+      .map(obj)
+      .find((b) => b.type === 'tool_use' && b.name === WRAP_UP);
+    if (!box) continue;
+    const input = obj(box.input);
+    if (input.blocked === true && str(input.ask)) return { state: 'needs-you', needs: oneLine(str(input.ask)!, 200) };
     break;
   }
   const last = turns[turns.length - 1];
@@ -676,7 +740,7 @@ export function summarizeClaude(
     state,
     updatedAt: new Date(info.mtimeMs).toISOString(),
     lastMessage: lastMessage ? { role: lastMessage.role, text: oneLine(lastMessage.text, 280) } : null,
-    plan: plan(end),
+    plan: planOf(info, end),
     needs,
     background,
     prs: [...prs.values()],

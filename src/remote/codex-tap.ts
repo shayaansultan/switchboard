@@ -138,8 +138,11 @@ export function codexTap(options: { profileId: string; socket: string; engine: W
 
   // A reply typed on the phone: a turn on the thread, loading the thread
   // into the engine first if the app has not opened it since it started.
-  async function startTurn(threadId: string, text: string): Promise<void> {
-    const params = { threadId, input: [{ type: 'text', text }] };
+  async function startTurn(threadId: string, text: string, images: string[] = []): Promise<void> {
+    const params = {
+      threadId,
+      input: [...(text ? [{ type: 'text', text }] : []), ...images.map((path) => ({ type: 'localImage', path }))],
+    };
     const first = await request('turn/start', params);
     if (!first.error) return;
     const resumed = await request('thread/resume', { threadId });
@@ -149,7 +152,14 @@ export function codexTap(options: { profileId: string; socket: string; engine: W
   async function serve(): Promise<void> {
     while (!stopped) {
       let reply: {
-        commands?: { type: string; threadId?: string; text?: string; requestId?: string | number; result?: unknown }[];
+        commands?: {
+          type: string;
+          threadId?: string;
+          text?: string;
+          images?: string[];
+          requestId?: string | number;
+          result?: unknown;
+        }[];
       };
       try {
         reply = (await post(socket, '/codex/poll', { profileId })) as typeof reply;
@@ -159,7 +169,8 @@ export function codexTap(options: { profileId: string; socket: string; engine: W
         continue;
       }
       for (const c of reply.commands ?? []) {
-        if (c.type === 'prompt' && c.threadId && c.text) void startTurn(c.threadId, c.text);
+        if (c.type === 'prompt' && c.threadId && (c.text || c.images?.length))
+          void startTurn(c.threadId, c.text ?? '', c.images ?? []);
         else if (c.type === 'answer' && c.requestId !== undefined && asked.has(c.requestId)) {
           asked.delete(c.requestId);
           send({ id: c.requestId, result: c.result });

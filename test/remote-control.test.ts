@@ -357,3 +357,33 @@ test('an MCP form is filled in on the phone, a link prompt is confirmed, and a d
   expect(control.pending()).toEqual([]);
   c.tap.stop();
 });
+
+test('files attached on the phone reach Claude by path and Codex as images of the turn', async () => {
+  const shot = { name: 'shot.png', type: 'image/png', path: '/u/1/shot.png' };
+  const log = { name: 'build.log', type: 'application/octet-stream', path: '/u/2/build.log' };
+  const poll = post(socket, '/claude/poll', claude);
+  await until(() => control.reachable().claude.includes('claude-work/s1'));
+  control.reply('claude', 'claude-work', 's1', 'Why does this fail?', [shot, log]);
+  expect(await poll).toEqual({
+    commands: [
+      {
+        type: 'prompt',
+        text: 'Why does this fail?\n\nAttached from my phone (open with the Read tool):\n- /u/1/shot.png\n- /u/2/build.log',
+      },
+    ],
+  });
+
+  const c = codex();
+  c.fromApp({ id: 'list:1', method: 'thread/list', params: {} });
+  await until(() => control.reachable().codex.includes('codex-work'));
+  control.reply('codex', 'codex-work', 't1', '', [shot, log]);
+  await until(() => c.toEngine().some((m) => m.method === 'turn/start'));
+  expect(c.toEngine().find((m) => m.method === 'turn/start')!.params).toEqual({
+    threadId: 't1',
+    input: [
+      { type: 'text', text: 'Attached from my phone:\n- /u/2/build.log' },
+      { type: 'localImage', path: '/u/1/shot.png' },
+    ],
+  });
+  c.tap.stop();
+});

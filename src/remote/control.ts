@@ -84,7 +84,7 @@ export type Decision = { choice: string; form?: Record<string, FieldValue> } | {
 
 type ClaudeCommand = { type: 'prompt'; text: string };
 type CodexCommand =
-  | { type: 'prompt'; id: string; threadId: string; text: string }
+  | { type: 'prompt'; id: string; threadId: string; text: string; images: string[] }
   | { type: 'answer'; requestId: string | number; result: unknown };
 
 interface Waiter<T> {
@@ -427,15 +427,35 @@ export class Control {
     return { claude: alive(this.claude), codex: alive(this.codex) };
   }
 
-  reply(vendor: Vendor, profileId: string, sessionId: string, text: string): void {
+  // `files` are uploads (uploads.ts) to pass on: Codex takes pictures as
+  // images of the turn; anything else, and everything for Claude, whose
+  // plugin cannot attach bytes, is named by path for the agent to open.
+  reply(
+    vendor: Vendor,
+    profileId: string,
+    sessionId: string,
+    text: string,
+    files: { name: string; type: string; path: string }[] = [],
+  ): void {
     const { claude, codex } = this.reachable();
+    const listed = (list: typeof files) =>
+      list.length
+        ? `${text ? `${text}\n\n` : ''}Attached from my phone${vendor === 'claude' ? ' (open with the Read tool)' : ''}:\n${list.map((f) => `- ${f.path}`).join('\n')}`
+        : text;
     if (vendor === 'claude') {
       const key = `${profileId}/${sessionId}`;
       if (!claude.includes(key)) throw new Error('not-reachable');
-      this.claude.get(key)!.push({ type: 'prompt', text });
+      this.claude.get(key)!.push({ type: 'prompt', text: listed(files) });
     } else {
       if (!codex.includes(profileId)) throw new Error('not-reachable');
-      this.codex.get(profileId)!.push({ type: 'prompt', id: randomUUID(), threadId: sessionId, text });
+      const images = files.filter((f) => f.type.startsWith('image/'));
+      this.codex.get(profileId)!.push({
+        type: 'prompt',
+        id: randomUUID(),
+        threadId: sessionId,
+        text: listed(files.filter((f) => !f.type.startsWith('image/'))),
+        images: images.map((f) => f.path),
+      });
     }
   }
 

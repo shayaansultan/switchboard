@@ -291,6 +291,51 @@ test('skill text, the compaction summary and wrapper tags never show as what the
   ]);
 });
 
+test("Claude Desktop's end-of-turn box is an entry with its replies, and a blocking one means the session needs you", () => {
+  const box = (blocked: boolean) =>
+    tool('w', 'mcp__ccd_turn__wrap_up', {
+      recap: 'The migration is ready.',
+      ask: 'Run it now?',
+      blocked,
+      actions: [
+        { label: 'Run it', message: 'Run the migration now.' },
+        { label: 'Commit', action: 'commit' },
+      ],
+    });
+  const steps = [
+    prompt('Prepare the migration'),
+    tool('p1', 'mcp__ccd_turn__update_plan', {
+      items: [
+        { content: 'Write it', status: 'in_progress' },
+        { content: 'Test it', status: 'pending' },
+        { content: 'Report', status: 'pending' },
+      ],
+    }),
+    result('p1', 'ok'),
+    tool('p2', 'mcp__ccd_turn__update_plan', { advance: true }),
+    result('p2', 'ok'),
+  ];
+  const midway = session(steps).summary;
+  expect(midway.plan).toEqual({ done: 1, total: 3, current: 'Test it' });
+
+  const { summary, transcript } = session([...steps, box(true), result('w', 'Shown')], Date.now() - 60_000);
+  // The box is the turn's last word; nothing follows it.
+  expect(summary).toMatchObject({ state: 'needs-you', needs: 'Run it now?', plan: { done: 3, total: 3 } });
+  expect(transcript.entries.at(-1)).toMatchObject({
+    kind: 'next',
+    recap: 'The migration is ready.',
+    ask: 'Run it now?',
+    replies: [{ label: 'Run it', message: 'Run the migration now.' }],
+  });
+
+  const closing = reply([{ type: 'text', text: 'The migration is ready to run.' }], 'end_turn');
+  expect(session([...steps, box(false), result('w', 'Shown'), closing], Date.now() - 60_000).summary.state).toBe(
+    'finished',
+  );
+  const answered = session([...steps, box(true), result('w', 'Shown'), prompt('Run the migration now.')]).summary;
+  expect(answered.state).not.toBe('needs-you');
+});
+
 test('a long session is read a page at a time, from the end back to the start', () => {
   const records: unknown[] = [prompt('Start')];
   for (let i = 0; i < 4000; i++)

@@ -21,6 +21,7 @@ import { initTRPC, TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import type { Vendor } from '../types';
 import type { Control } from './control';
+import { findUpload, type Upload } from './uploads';
 import type { Overview } from './hub';
 import { pushState, PushPrefs, publicKey, push, setPrefs, Subscription, subscribe, unsubscribe } from './push';
 import { authenticate, pair, revoke, type DeviceView } from './pairing';
@@ -142,14 +143,19 @@ export function createRouter(deps: ApiDeps) {
         z.object({
           profileId: z.string().min(1).max(200),
           sessionId: z.string().min(1).max(200),
-          text: z.string().trim().min(1).max(20_000),
+          text: z.string().trim().max(100_000),
+          // Upload ids from /api/upload.
+          files: z.array(z.string().max(64)).max(10).optional(),
         }),
       )
       .mutation(({ input }) => {
+        const files = (input.files ?? []).map((id) => findUpload(id));
+        if (files.some((f) => !f)) throw new TRPCError({ code: 'NOT_FOUND', message: 'no-such-file' });
+        if (!input.text && !files.length) throw new TRPCError({ code: 'BAD_REQUEST', message: 'empty' });
         const vendor = deps.vendorOf?.(input.profileId);
         if (!deps.control || !vendor) throw new TRPCError({ code: 'NOT_FOUND', message: 'not-reachable' });
         try {
-          deps.control.reply(vendor, input.profileId, input.sessionId, input.text);
+          deps.control.reply(vendor, input.profileId, input.sessionId, input.text, files as Upload[]);
         } catch (error) {
           controlError(error);
         }

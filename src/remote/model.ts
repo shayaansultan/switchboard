@@ -131,6 +131,16 @@ export const Entry = z.discriminatedUnion('kind', [
     at,
   }),
   z.object({ kind: z.literal('notice'), tone: z.enum(['info', 'error']), text: z.string(), at }),
+  // The box Claude Desktop shows at the end of a turn: what is now true, and
+  // a question with buttons whose answers are replies (mcp__ccd_turn__wrap_up).
+  z.object({
+    kind: z.literal('next'),
+    recap: z.string(),
+    ask: z.string().nullable(),
+    // Each button's reply; app actions (commit, open a PR) are left out.
+    replies: z.array(z.object({ label: z.string(), message: z.string() })),
+    at,
+  }),
 ]);
 export type Entry = z.infer<typeof Entry>;
 export type EntryOf<K extends Entry['kind']> = Extract<Entry, { kind: K }>;

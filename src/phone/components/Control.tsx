@@ -8,9 +8,10 @@
 // shows on both, and whichever answers first wins.
 
 import { useMutation } from '@tanstack/react-query';
-import { ArrowUp, ExternalLink } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowUp, ExternalLink, FileText, Plus, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import type { Field, FieldValue, Pending } from '../../remote/control';
+import type { EntryOf } from '../../remote/model';
 import { Switch } from './ui/switch';
 import { cn } from '@/lib/cn';
 import { sessionHref, useTRPC } from '../data';
@@ -249,7 +250,75 @@ export function PendingCard({ pending, title }: { pending: Pending; title?: stri
   );
 }
 
-// The reply box, fixed to the foot of a session.
+// The box Claude Desktop shows at the end of a turn. Its buttons are replies,
+// so they work while the box is the session's latest word and the phone can
+// reach the session; otherwise it is the record of what was asked.
+export function NextStep({
+  entry,
+  profileId,
+  sessionId,
+  live,
+}: {
+  entry: EntryOf<'next'>;
+  profileId: string;
+  sessionId: string;
+  live: boolean;
+}) {
+  const trpc = useTRPC();
+  const reply = useMutation(trpc.reply.mutationOptions());
+  const asking = !!entry.ask;
+  return (
+    <div
+      className={cn(
+        'flex flex-col gap-2.5 rounded-2xl border bg-card p-3.5',
+        asking && live ? 'border-warn' : 'border-border',
+      )}
+    >
+      {entry.recap ? <span className="text-sm text-subtle">{entry.recap}</span> : null}
+      {entry.ask ? <span className="font-semibold">{entry.ask}</span> : null}
+      {entry.replies.length && live ? (
+        <span className="flex flex-wrap gap-2">
+          {entry.replies.map((r, i) => (
+            <Button
+              key={r.label}
+              size="sm"
+              variant={i === 0 ? 'default' : 'outline'}
+              disabled={reply.isPending || reply.isSuccess}
+              onClick={() => reply.mutate({ profileId, sessionId, text: r.message })}
+            >
+              {r.label}
+            </Button>
+          ))}
+        </span>
+      ) : null}
+      {reply.isSuccess ? <span className="text-[13px] text-run-text">Sent to your Mac</span> : null}
+      {reply.isError ? <span className="text-[13px] text-bad-text">Couldn't send that</span> : null}
+    </div>
+  );
+}
+
+// A picture or file on its way into a reply: uploaded to the Mac as soon as
+// it is picked (/api/upload), sent by id with the reply.
+interface Attachment {
+  key: string;
+  name: string;
+  image: string | null;
+  id: string | null;
+  failed: boolean;
+}
+
+async function upload(file: File): Promise<string> {
+  const res = await fetch('/api/upload', {
+    method: 'POST',
+    headers: { 'content-type': file.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(file.name) },
+    body: file,
+  });
+  if (!res.ok) throw new Error(res.status === 413 ? 'too-large' : 'failed');
+  return ((await res.json()) as { id: string }).id;
+}
+
+// The reply box, fixed to the foot of a session. While it has focus the
+// keyboard covers the home indicator, so its safe-area padding goes.
 export function Composer({
   profileId,
   sessionId,
@@ -261,47 +330,150 @@ export function Composer({
 }) {
   const trpc = useTRPC();
   const [text, setText] = useState('');
-  const reply = useMutation(trpc.reply.mutationOptions({ onSuccess: () => setText('') }));
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const [typing, setTyping] = useState(false);
+  const picker = useRef<HTMLInputElement>(null);
+  // The box's height, for the session screen to keep its last lines clear.
+  const box = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const set = () => document.documentElement.style.setProperty('--composer', `${el.offsetHeight}px`);
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    set();
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.removeProperty('--composer');
+    };
+  }, [reachable]);
+  const reply = useMutation(
+    trpc.reply.mutationOptions({
+      onSuccess: () => {
+        setText('');
+        for (const f of files) if (f.image) URL.revokeObjectURL(f.image);
+        setFiles([]);
+      },
+    }),
+  );
   if (!reachable)
     return (
-      <div className="px-gutter pb-safe fixed inset-x-0 bottom-0 border-t border-border bg-background py-2.5 text-center text-xs text-muted-foreground">
+      <div
+        ref={(el) => {
+          box.current = el;
+        }}
+        className="px-gutter pb-safe fixed inset-x-0 bottom-0 border-t border-border bg-background py-2.5 text-center text-xs text-muted-foreground"
+      >
         Not reachable right now. Replies reach sessions the app has running, in profiles opened from Switchboard while
         phone access is on.
       </div>
     );
+
+  const add = (list: FileList | null) => {
+    for (const file of Array.from(list ?? []).slice(0, 10 - files.length)) {
+      const key = `${file.name}-${file.size}-${Math.random()}`;
+      const image = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+      setFiles((all) => [...all, { key, name: file.name, image, id: null, failed: false }]);
+      upload(file).then(
+        (id) => setFiles((all) => all.map((f) => (f.key === key ? { ...f, id } : f))),
+        () => setFiles((all) => all.map((f) => (f.key === key ? { ...f, failed: true } : f))),
+      );
+    }
+  };
+  const uploading = files.some((f) => !f.id && !f.failed);
+  const ready = files.filter((f) => f.id);
+  const canSend = (text.trim() || ready.length) && !uploading && !reply.isPending;
   const send = () => {
-    if (text.trim() && !reply.isPending) reply.mutate({ profileId, sessionId, text: text.trim() });
+    if (canSend) reply.mutate({ profileId, sessionId, text: text.trim(), files: ready.map((f) => f.id!) });
   };
   return (
     <form
-      className="px-gutter pb-safe fixed inset-x-0 bottom-0 flex flex-col gap-1 border-t border-border bg-background pt-2.5"
+      ref={(el) => {
+        box.current = el;
+      }}
+      className={cn(
+        'px-gutter fixed inset-x-0 bottom-0 flex flex-col gap-2 border-t border-border bg-background pt-2.5',
+        typing ? 'pb-2' : 'pb-safe',
+      )}
       onSubmit={(e) => {
         e.preventDefault();
         send();
       }}
     >
-      <span className="flex items-end gap-2 pb-2.5">
+      {files.length ? (
+        <span className="-mx-4 flex gap-2 overflow-x-auto px-4">
+          {files.map((f) => (
+            <span
+              key={f.key}
+              className={cn(
+                'relative flex h-14 shrink-0 items-center gap-2 overflow-hidden rounded-xl border bg-card',
+                f.failed ? 'border-bad-text' : 'border-border',
+                f.image ? 'w-14' : 'max-w-52 pr-8 pl-3',
+              )}
+            >
+              {f.image ? (
+                <img src={f.image} alt={f.name} className="size-full object-cover" />
+              ) : (
+                <>
+                  <FileText size={16} className="shrink-0 text-subtle" aria-hidden />
+                  <span className="truncate text-[13px]">{f.name}</span>
+                </>
+              )}
+              {!f.id && !f.failed ? <span className="absolute inset-0 animate-pulse bg-background/50" /> : null}
+              <button
+                type="button"
+                aria-label={`Remove ${f.name}`}
+                onClick={() => setFiles((all) => all.filter((x) => x.key !== f.key))}
+                className="absolute top-0.5 right-0.5 grid size-5 place-items-center rounded-full bg-foreground/70 text-background"
+              >
+                <X size={12} aria-hidden />
+              </button>
+            </span>
+          ))}
+        </span>
+      ) : null}
+      <span className="flex items-end gap-2">
+        <input
+          ref={picker}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            add(e.target.files);
+            e.target.value = '';
+          }}
+        />
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          className="shrink-0 rounded-full"
+          aria-label="Attach pictures or files"
+          onClick={() => picker.current?.click()}
+        >
+          <Plus size={18} aria-hidden />
+        </Button>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onFocus={() => setTyping(true)}
+          onBlur={() => setTyping(false)}
           rows={1}
           placeholder="Reply"
           aria-label="Reply"
-          className="field-sizing-content max-h-40 min-h-11 flex-1 resize-none rounded-[22px] border border-border bg-card px-4 py-2.5"
+          className="field-sizing-content max-h-[40dvh] min-h-11 min-w-0 flex-1 resize-none rounded-[22px] border border-border bg-card px-4 py-2.5"
         />
-        <Button
-          type="submit"
-          size="icon"
-          className="rounded-full"
-          disabled={!text.trim() || reply.isPending}
-          aria-label="Send"
-        >
+        <Button type="submit" size="icon" className="shrink-0 rounded-full" disabled={!canSend} aria-label="Send">
           <ArrowUp size={18} aria-hidden />
         </Button>
       </span>
-      {reply.isError ? (
-        <span className="-mt-1.5 pb-2 text-xs text-bad-text">
-          {reply.error.message === 'not-reachable' ? 'This session can no longer be reached.' : "Couldn't send that."}
+      {reply.isError || files.some((f) => f.failed) ? (
+        <span className="text-xs text-bad-text">
+          {files.some((f) => f.failed)
+            ? "A file couldn't be uploaded (25 MB at most). Remove it to send."
+            : reply.error?.message === 'not-reachable'
+              ? 'This session can no longer be reached.'
+              : "Couldn't send that."}
         </span>
       ) : null}
     </form>

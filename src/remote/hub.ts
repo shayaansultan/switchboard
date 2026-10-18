@@ -32,6 +32,7 @@ import { Control, type Pending } from './control';
 import { changes as noteChanges, emptyWatch, type Watch } from './notify';
 import { authenticate } from './pairing';
 import { anySubscribed, push } from './push';
+import { MAX_UPLOAD, saveUpload, sweepUploads } from './uploads';
 import { SessionReader, watch, type ProfileHome, type SessionSummary } from './sessions';
 
 export const DEFAULT_PORT = 47821;
@@ -98,7 +99,7 @@ const SECURITY_HEADERS = {
 };
 
 const CSP =
-  "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; " +
+  "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; " +
   "manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'";
 
 function send(res: http.ServerResponse, status: number, body: unknown): void {
@@ -250,6 +251,7 @@ export function startHub(options: {
     options.control === false ? undefined : new Control({ away, onChange: () => signal.changes.emit('change') });
   const look = () => overview(source, reader, control);
   const notes = notifier(look, signal.changes, away);
+  sweepUploads();
   notes.sync();
   const router = createRouter({
     overview: look,
@@ -312,6 +314,34 @@ export function startHub(options: {
     else media.body.pipe(res);
   }
 
+  // A picture or file attached to a reply (uploads.ts). Paired phones only;
+  // the body is the file, its name in x-file-name.
+  function receiveUpload(req: http.IncomingMessage, res: http.ServerResponse): void {
+    if (req.method !== 'POST') return send(res, 405, { error: 'method' });
+    if (!authenticate(tokenFrom(req))) return send(res, 401, { error: 'not-paired' });
+    if (Number(req.headers['content-length'] ?? 0) > MAX_UPLOAD) return send(res, 413, { error: 'too-large' });
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (c: Buffer) => {
+      size += c.length;
+      if (size > MAX_UPLOAD) {
+        send(res, 413, { error: 'too-large' });
+        req.destroy();
+      } else chunks.push(c);
+    });
+    req.on('end', () => {
+      if (res.headersSent) return;
+      let name = 'file';
+      try {
+        name = decodeURIComponent(String(req.headers['x-file-name'] ?? 'file'));
+      } catch {
+        // Keep the default.
+      }
+      const up = saveUpload(name, String(req.headers['content-type'] ?? ''), Buffer.concat(chunks));
+      send(res, 200, { id: up.id, name: up.name, type: up.type, size: up.size });
+    });
+  }
+
   function handle(req: http.IncomingMessage, res: http.ServerResponse): void {
     const host = req.headers.host ?? '';
     if (!ALLOWED_HOST.test(host)) return send(res, 421, { error: 'wrong-host' });
@@ -325,6 +355,7 @@ export function startHub(options: {
     if (origin && new URL(origin).host !== host) return send(res, 403, { error: 'cross-origin' });
     if (url.pathname === '/api/health') return send(res, 200, { app: 'switchboard' });
     if (url.pathname.startsWith('/api/media/')) return serveMedia(req, res, url.pathname.slice('/api/media/'.length));
+    if (url.pathname === '/api/upload') return receiveUpload(req, res);
     if (url.pathname.startsWith(API_BASE)) {
       res.setHeader('cache-control', 'no-store');
       for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);

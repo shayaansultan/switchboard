@@ -235,6 +235,28 @@ function Steps({ entry }: { entry: EntryOf<'steps'> }) {
   );
 }
 
+// What the person sent. A long one (a pasted spec, a log) folds to its
+// first lines, as a long reply does.
+const LONG_PROMPT = 600;
+
+function Prompt({ text }: { text: string }) {
+  const [all, setAll] = useState(text.length <= LONG_PROMPT);
+  return (
+    <div className="flex max-w-[86%] flex-col gap-1.5 self-end rounded-[16px_16px_4px_16px] bg-primary px-3.5 py-2.5 text-primary-foreground">
+      <div className={cn('whitespace-pre-wrap break-words', !all && 'line-clamp-[8]')}>{text}</div>
+      {text.length > LONG_PROMPT ? (
+        <button
+          type="button"
+          onClick={() => setAll(!all)}
+          className="self-start text-[13px] font-semibold text-primary-foreground/80"
+        >
+          {all ? 'Show less' : 'Show more'}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function Reply({ text }: { text: string }) {
   const [all, setAll] = useState(text.length <= LONG_REPLY);
   return (
@@ -373,9 +395,7 @@ export function EntryView({ entry }: { entry: Entry }) {
           <span className="whitespace-pre-wrap">{entry.text}</span>
         </div>
       ) : (
-        <div className="max-w-[86%] self-end rounded-[16px_16px_4px_16px] bg-primary px-3.5 py-2.5 whitespace-pre-wrap break-words text-primary-foreground">
-          {entry.text}
-        </div>
+        <Prompt text={entry.text} />
       );
     case 'steps':
       return <Steps entry={entry} />;
@@ -450,6 +470,14 @@ export function EntryView({ entry }: { entry: Entry }) {
               <span className="text-[13px] whitespace-pre-wrap text-subtle">{f.body}</span>
             </div>
           ))}
+        </div>
+      );
+    case 'next':
+      // Drawn with its buttons by the session screen (NextStep in Control.tsx).
+      return (
+        <div className="flex flex-col gap-1.5 rounded-2xl border border-border bg-card p-3.5">
+          {entry.recap ? <span className="text-sm text-subtle">{entry.recap}</span> : null}
+          {entry.ask ? <span className="font-semibold">{entry.ask}</span> : null}
         </div>
       );
     case 'notice':

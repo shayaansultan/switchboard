@@ -219,3 +219,30 @@ test('profiles that share a name are told apart by their app, and others keep th
     labelled([p('a', 'Default', 'claude'), p('b', 'default', 'codex'), p('c', 'Work', 'claude')]).map((x) => x.label),
   ).toEqual(['Default · Claude', 'default · Codex', 'Work']);
 });
+
+test('only a paired phone can upload, an upload is kept owner-only, and a reply names files by id alone', async () => {
+  const upload = (headers: Record<string, string>) =>
+    fetch(`${base()}/api/upload`, {
+      method: 'POST',
+      headers: { 'content-type': 'image/png', 'x-file-name': encodeURIComponent('../../shot one.png'), ...headers },
+      body: Buffer.from('png bytes'),
+    });
+  expect((await upload({})).status).toBe(401);
+
+  const phone = client();
+  await phone.trpc.pair.mutate({ code: newCode().code, name: 'Phone' });
+  const res = await upload({ cookie: phone.jar.cookie });
+  const up = (await res.json()) as { id: string; name: string; size: number };
+  expect(up).toMatchObject({ name: 'shot one.png', size: 9 });
+  const file = path.join(remoteDir(), 'uploads', up.id, 'shot one.png');
+  expect(fs.readFileSync(file, 'utf8')).toBe('png bytes');
+  expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+
+  const reply = (files: string[]) =>
+    phone.trpc.reply
+      .mutate({ profileId: 'claude-work', sessionId: 's1', text: 'look', files })
+      .catch((e: TRPCClientError<ApiRouter>) => e.message);
+  expect(await reply(['../../../etc/passwd'])).toBe('no-such-file');
+  // Known file, but nothing in that session is polling.
+  expect(await reply([up.id])).toBe('not-reachable');
+});
