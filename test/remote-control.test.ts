@@ -45,6 +45,8 @@ test('a reply reaches the polling Claude session, and only a session that polls 
   await until(() => control.reachable().claude.includes('claude-work/s1'));
   control.reply('claude', claude.profileId, claude.sessionId, 'Ship it');
   expect(await poll).toEqual({ commands: [{ type: 'prompt', text: 'Ship it' }] });
+  // Delivered once: the next poll has nothing.
+  expect(await post(socket, '/claude/poll', claude)).toEqual({ commands: [] });
   expect(fs.statSync(socket).mode & 0o777).toBe(0o600);
 });
 

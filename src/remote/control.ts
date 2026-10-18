@@ -677,7 +677,9 @@ export class Control {
           body = {};
         }
         const url = new URL(req.url ?? '/', 'http://control');
-        this.route(url.pathname, body, () => res.destroyed || req.destroyed).then(
+        // A request reads as destroyed once its body is in; only the response
+        // says whether the client is still there.
+        this.route(url.pathname, body, () => res.destroyed).then(
           (out) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(out)),
           (error: Error & { status?: number }) =>
             res
