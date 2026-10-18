@@ -22,7 +22,7 @@ beforeEach(async () => {
   away = true;
   changes = 0;
   socket = path.join(os.tmpdir(), `sb-control-${process.pid}-${Date.now()}.sock`);
-  control = new Control({ away: () => away, onChange: () => changes++, socket });
+  control = new Control({ away: () => away, onChange: () => changes++, socket, holdMs: 1000 });
   await control.listen();
 });
 afterEach(async () => {
@@ -386,4 +386,40 @@ test('files attached on the phone reach Claude by path and Codex as images of th
     ],
   });
   c.tap.stop();
+});
+
+test('a Codex reply during a running turn joins the thread queue, and one Codex refuses is reported to the phone', async () => {
+  const c = codex();
+  c.fromApp({ id: 'list:1', method: 'thread/list', params: {} });
+  await until(() => control.reachable().codex.includes('codex-work'));
+  c.fromEngine({ method: 'turn/started', params: { threadId: 't1', turn: { id: 'u1' } } });
+  control.reply('codex', 'codex-work', 't1', 'Also update the docs');
+  await until(() => c.toEngine().some((m) => m.method === 'thread/queue/add'));
+  const queued = c.toEngine().find((m) => m.method === 'thread/queue/add')!;
+  expect(queued.params).toMatchObject({ threadId: 't1', input: [{ type: 'text', text: 'Also update the docs' }] });
+  c.fromEngine({ id: queued.id, error: { message: 'queue is full' } });
+  await until(() => control.failures()['codex-work/t1'] === 'queue is full');
+  expect(c.toApp().some((m) => m.id === queued.id)).toBe(false);
+
+  // After the turn ends a reply starts one, and clears the old failure.
+  c.fromEngine({ method: 'turn/completed', params: { threadId: 't1', turn: { id: 'u1' } } });
+  control.reply('codex', 'codex-work', 't1', 'Go on');
+  expect(control.failures()).toEqual({});
+  await until(() => c.toEngine().some((m) => m.method === 'turn/start'));
+  c.tap.stop();
+});
+
+test('a reply nobody collects within two minutes is dropped rather than typed in later', async () => {
+  const poll = post(socket, '/claude/poll', claude);
+  await until(() => control.reachable().claude.includes('claude-work/s1'));
+  control.reply('claude', 'claude-work', 's1', 'first');
+  await poll;
+  const realNow = Date.now;
+  control.reply('claude', 'claude-work', 's1', 'stale');
+  Date.now = () => realNow() + 3 * 60_000;
+  try {
+    expect(await post(socket, '/claude/poll', claude)).toEqual({ commands: [] });
+  } finally {
+    Date.now = realNow;
+  }
 });

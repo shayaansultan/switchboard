@@ -323,15 +323,21 @@ export function Composer({
   profileId,
   sessionId,
   reachable,
+  problem,
 }: {
   profileId: string;
   sessionId: string;
   reachable: boolean;
+  // Why the last reply did not go through, when the app said so.
+  problem: string | null;
 }) {
   const trpc = useTRPC();
   const [text, setText] = useState('');
   const [files, setFiles] = useState<Attachment[]>([]);
   const [typing, setTyping] = useState(false);
+  // Blur comes before the tap that caused it lands; changing the padding at
+  // once would move the buttons out from under the finger.
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const picker = useRef<HTMLInputElement>(null);
   // The box's height, for the session screen to keep its last lines clear.
   const box = useRef<HTMLElement | null>(null);
@@ -456,8 +462,13 @@ export function Composer({
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          onFocus={() => setTyping(true)}
-          onBlur={() => setTyping(false)}
+          onFocus={() => {
+            if (settle.current) clearTimeout(settle.current);
+            setTyping(true);
+          }}
+          onBlur={() => {
+            settle.current = setTimeout(() => setTyping(false), 300);
+          }}
           rows={1}
           placeholder="Reply"
           aria-label="Reply"
@@ -467,6 +478,9 @@ export function Composer({
           <ArrowUp size={18} aria-hidden />
         </Button>
       </span>
+      {problem && !reply.isPending ? (
+        <span className="text-xs text-bad-text">Your last reply didn't go through: {problem}</span>
+      ) : null}
       {reply.isError || files.some((f) => f.failed) ? (
         <span className="text-xs text-bad-text">
           {files.some((f) => f.failed)

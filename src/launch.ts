@@ -281,11 +281,14 @@ export function remoteEnvironment(
   phone: boolean,
   routed: boolean,
   plugin: string | null = remotePlugin(),
+  wrapper: (profile: Profile) => string | null = remoteWrapper,
 ): Record<string, string> {
   if (!phone) return {};
   const base = { SWITCHBOARD_PROFILE: profile.id, SWITCHBOARD_CONTROL_SOCKET: controlSocket() };
   if (profile.vendor === 'claude') return plugin ? { ...base, CLAUDE_CODE_PLUGIN_DIRS: plugin } : {};
-  return routed ? base : { ...base, CODEX_CLI_PATH: remoteWrapper(profile) };
+  if (routed) return base;
+  const file = wrapper(profile);
+  return file ? { ...base, CODEX_CLI_PATH: file } : {};
 }
 
 // Merges launch environments, joining plugin folders rather than replacing.

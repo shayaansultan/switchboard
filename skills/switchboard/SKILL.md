@@ -62,7 +62,10 @@ manage what paired phones can see. Pairing codes and unpairing are the user's to
 hand a code to anyone else. Publishing on the tailnet is the user's `tailscale serve` command,
 which `remote status` prints; do not run it for them. Replying and approving happen on the
 phone itself; with phone access on, launch desktop profiles from Switchboard (`switchboard launch`)
-so the phone can reach their sessions.
+so the phone can reach their sessions. `remote notifications` lists what each phone is notified
+about; `remote notifications DEVICE_ID --kinds needs,finished,errored,limits`, `--off` and `--test`
+change one phone. A phone turns notifications on from its own Settings; changing or testing them is
+the user's to ask for.
 
 ## Usage reset grants
 

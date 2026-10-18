@@ -64,6 +64,8 @@ export interface Overview {
   pending: Pending[];
   // `${profileId}/${sessionId}` of each session a reply from the phone reaches.
   reachable: string[];
+  // Recent replies that reached the app but did not go through, by the same key.
+  failures: Record<string, string>;
 }
 
 // What the hub reads from whoever hosts it: the app, or a test.
@@ -147,6 +149,7 @@ export function overview(source: HubSource, reader: SessionReader, control?: Con
     profiles: labelled(source.profiles()),
     sessions,
     pending: control?.pending() ?? [],
+    failures: control?.failures() ?? {},
     reachable: sessions
       .filter((s) => (s.vendor === 'claude' ? claude.has(`${s.profileId}/${s.id}`) : codex.has(s.profileId)))
       .map((s) => `${s.profileId}/${s.id}`),
@@ -182,30 +185,39 @@ function notifier(look: () => Overview, changes: EventEmitter, away: () => boole
       if (want === on) return;
       on = want;
       if (want) {
-        changes.on('change', check);
+        changes.on('quiet', check);
         check();
       } else {
-        changes.off('change', check);
+        changes.off('quiet', check);
         watch = null;
       }
     },
     stop() {
-      changes.off('change', check);
+      changes.off('quiet', check);
       on = false;
     },
   };
 }
 
-// Emits 'change' while anyone listens: on file events in the profiles'
-// session folders, and every CHECK_MS. Watching starts with the first
-// listener and stops with the last.
-function changeSignal(source: HubSource): { changes: EventEmitter; stop(): void } {
+// Emits 'change' on file events in the profiles' session folders and on a
+// timer for what is not a file (an app starting, new usage numbers), while
+// anyone listens. A phone with the app open listens for 'change' and gets
+// the timer every CHECK_MS; the notifier listens for 'quiet' and, when it is
+// the only listener, the timer runs every QUIET_MS. Watching starts with the
+// first listener of either and stops with the last.
+const QUIET_MS = 60_000;
+
+function changeSignal(source: HubSource): { changes: EventEmitter; emit(): void; stop(): void } {
   const changes = new EventEmitter();
   changes.setMaxListeners(50);
   let watching = '';
   let stopWatching: (() => void) | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
-  const emit = () => changes.emit('change');
+  let every = 0;
+  const emit = () => {
+    changes.emit('change');
+    changes.emit('quiet');
+  };
   const follow = () => {
     const homes = source.homes();
     const key = JSON.stringify(homes);
@@ -220,19 +232,30 @@ function changeSignal(source: HubSource): { changes: EventEmitter; stop(): void 
     watching = '';
     if (timer) clearInterval(timer);
     timer = null;
+    every = 0;
   };
-  changes.on('newListener', (event) => {
-    if (event !== 'change' || timer) return;
-    follow();
-    timer = setInterval(() => {
+  // Listener counts change after these events fire, so look a tick later.
+  const settle = () =>
+    queueMicrotask(() => {
+      const live = changes.listenerCount('change');
+      if (!live && !changes.listenerCount('quiet')) return stop();
       follow();
-      emit();
-    }, CHECK_MS);
+      const want = live ? CHECK_MS : QUIET_MS;
+      if (want === every) return;
+      if (timer) clearInterval(timer);
+      every = want;
+      timer = setInterval(() => {
+        follow();
+        emit();
+      }, want);
+    });
+  changes.on('newListener', (event) => {
+    if (event === 'change' || event === 'quiet') settle();
   });
   changes.on('removeListener', (event) => {
-    if (event === 'change' && changes.listenerCount('change') === 0) stop();
+    if (event === 'change' || event === 'quiet') settle();
   });
-  return { changes, stop };
+  return { changes, emit, stop };
 }
 
 export function startHub(options: {
@@ -247,8 +270,7 @@ export function startHub(options: {
   const reader = new SessionReader();
   const signal = changeSignal(source);
   const away = () => source.away?.() ?? false;
-  const control =
-    options.control === false ? undefined : new Control({ away, onChange: () => signal.changes.emit('change') });
+  const control = options.control === false ? undefined : new Control({ away, onChange: signal.emit });
   const look = () => overview(source, reader, control);
   const notes = notifier(look, signal.changes, away);
   sweepUploads();
@@ -337,8 +359,12 @@ export function startHub(options: {
       } catch {
         // Keep the default.
       }
-      const up = saveUpload(name, String(req.headers['content-type'] ?? ''), Buffer.concat(chunks));
-      send(res, 200, { id: up.id, name: up.name, type: up.type, size: up.size });
+      try {
+        const up = saveUpload(name, String(req.headers['content-type'] ?? ''), Buffer.concat(chunks));
+        send(res, 200, { id: up.id, name: up.name, type: up.type, size: up.size });
+      } catch {
+        send(res, 500, { error: 'not-saved' });
+      }
     });
   }
 

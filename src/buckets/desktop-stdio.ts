@@ -62,8 +62,9 @@ export function run(bucket: string | null, binary: string, args: string[]): void
     tap?.stop();
     process.exitCode = code ?? (signal === 'SIGINT' ? 130 : signal === 'SIGTERM' ? 143 : 1);
     process.stdin.destroy();
-    // The tap's long poll would keep the process alive.
-    if (tap) setImmediate(() => process.exit());
+    // Stopping the tap ends its long poll, so the process exits once the
+    // engine's last output has reached the app; this only bounds the wait.
+    if (tap) setTimeout(() => process.exit(), 3000);
   });
 }
 

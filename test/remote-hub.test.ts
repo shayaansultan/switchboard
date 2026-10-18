@@ -243,6 +243,9 @@ test('only a paired phone can upload, an upload is kept owner-only, and a reply 
       .mutate({ profileId: 'claude-work', sessionId: 's1', text: 'look', files })
       .catch((e: TRPCClientError<ApiRouter>) => e.message);
   expect(await reply(['../../../etc/passwd'])).toBe('no-such-file');
+  // A name that is only dots would be the folder itself.
+  const dots = (await (await upload({ cookie: phone.jar.cookie, 'x-file-name': '..' })).json()) as { name: string };
+  expect(dots.name).toBe('file');
   // Known file, but nothing in that session is polling.
   expect(await reply([up.id])).toBe('not-reachable');
 });

@@ -212,11 +212,16 @@ function track(r: Rec, running: Map<string, string>): void {
     }
 }
 
+// The first look at a file reads only its last stretch: work started further
+// back than this has almost always reported, and reading a 400 MB file whole
+// would hold up the app's main process.
+const FIRST_SCAN_BYTES = 32 * 1024 * 1024;
+
 export function scanBackground(info: FileInfo, before?: Background): Background {
   const state: Background =
     before && before.offset <= info.size
       ? { offset: before.offset, running: new Map(before.running) }
-      : { offset: 0, running: new Map() };
+      : { offset: Math.max(0, info.size - FIRST_SCAN_BYTES), running: new Map() };
   while (state.offset < info.size) {
     const chunk = readChunk(info.file, state.offset, Math.min(SCAN_CHUNK, info.size - state.offset));
     const last = chunk.lastIndexOf(10);

@@ -184,6 +184,8 @@ switchboard remote on | off
 switchboard remote pair              # a one-time code and a link with it filled in
 switchboard remote devices
 switchboard remote unpair DEVICE_ID  # or --all --yes
+switchboard remote notifications     # what each phone is notified about
+switchboard remote notifications DEVICE_ID --kinds needs,errored   # or --off, --test
 switchboard remote sessions --working --human
 switchboard remote session PROFILE SESSION_ID
 ```

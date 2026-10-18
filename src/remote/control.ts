@@ -91,23 +91,35 @@ interface Waiter<T> {
   resolve(value: T): void;
 }
 
+// A command not collected within this long is dropped: the session it was
+// for has stopped asking, and typing it in later would surprise.
+export const COMMAND_TTL_MS = 2 * 60_000;
+
 // A queue a long poll drains: answers at once when something is queued,
 // otherwise when the next thing arrives or HOLD_MS passes.
 class Inbox<T> {
-  private items: T[] = [];
+  private items: { value: T; at: number }[] = [];
   private waiter: Waiter<T[]> | null = null;
   seenAt = 0;
 
   push(item: T): void {
-    this.items.push(item);
+    this.items.push({ value: item, at: Date.now() });
     this.flush();
   }
 
+  // Puts back what a poll took but could not deliver (its connection had
+  // closed), ahead of anything newer.
+  restore(items: T[]): void {
+    this.items.unshift(...items.map((value) => ({ value, at: Date.now() })));
+  }
+
   private flush(): void {
+    const fresh = Date.now() - COMMAND_TTL_MS;
+    this.items = this.items.filter((i) => i.at > fresh);
     if (!this.waiter || !this.items.length) return;
     const w = this.waiter;
     this.waiter = null;
-    w.resolve(this.items.splice(0));
+    w.resolve(this.items.splice(0).map((i) => i.value));
   }
 
   // Answers a waiting long poll with nothing, so its connection can close.
@@ -149,6 +161,7 @@ const CodexRequest = CodexHello.extend({
   method: z.string(),
   params: z.record(z.string(), z.unknown()),
 });
+const CodexFailed = CodexHello.extend({ threadId: z.string().max(200), error: z.string().max(500) });
 const CodexResolved = CodexHello.extend({ requestId: z.union([z.string(), z.number()]) });
 
 type ClaudeOutcome =
@@ -399,12 +412,17 @@ export interface ControlOptions {
   // Called whenever what the phone shows here changes.
   onChange(): void;
   socket?: string;
+  // How long a long poll is held; tests shorten it.
+  holdMs?: number;
 }
 
 export class Control {
   private claude = new Map<string, Inbox<ClaudeCommand>>();
   private codex = new Map<string, Inbox<CodexCommand>>();
   private held = new Map<string, Held>();
+  // A reply that reached the app but could not be delivered, by session key,
+  // for the phone to show for a while.
+  private problems = new Map<string, { error: string; at: number }>();
   // Claude outcomes the plugin has not collected yet: it may be between waits.
   private outcomes = new Map<string, ClaudeOutcome>();
   private server: http.Server | null = null;
@@ -412,6 +430,13 @@ export class Control {
   constructor(private options: ControlOptions) {}
 
   // ---- what the phone sees ----
+
+  // Recent replies that did not go through: `${profileId}/${sessionId}` → why.
+  failures(): Record<string, string> {
+    const fresh = Date.now() - COMMAND_TTL_MS;
+    for (const [key, p] of this.problems) if (p.at <= fresh) this.problems.delete(key);
+    return Object.fromEntries([...this.problems].map(([key, p]) => [key, p.error]));
+  }
 
   pending(): Pending[] {
     this.sweep();
@@ -448,6 +473,7 @@ export class Control {
       this.claude.get(key)!.push({ type: 'prompt', text: listed(files) });
     } else {
       if (!codex.includes(profileId)) throw new Error('not-reachable');
+      this.problems.delete(`${profileId}/${sessionId}`);
       const images = files.filter((f) => f.type.startsWith('image/'));
       this.codex.get(profileId)!.push({
         type: 'prompt',
@@ -522,11 +548,15 @@ export class Control {
     if (changed) this.options.onChange();
   }
 
-  private async route(pathname: string, body: unknown): Promise<unknown> {
+  // `gone` says whether the asker's connection has closed, so a long poll
+  // that outlived its client hands its commands back instead of losing them.
+  private async route(pathname: string, body: unknown, gone: () => boolean = () => false): Promise<unknown> {
     switch (pathname) {
       case '/claude/poll': {
         const hello = ClaudeHello.parse(body);
-        const commands = await this.inbox(this.claude, `${hello.profileId}/${hello.sessionId}`).take(HOLD_MS);
+        const inbox = this.inbox(this.claude, `${hello.profileId}/${hello.sessionId}`);
+        const commands = await inbox.take(this.options.holdMs ?? HOLD_MS);
+        if (gone() && commands.length) inbox.restore(commands);
         return { commands };
       }
       case '/claude/ask': {
@@ -591,7 +621,10 @@ export class Control {
       }
       case '/codex/poll': {
         const hello = CodexHello.parse(body);
-        return { commands: await this.inbox(this.codex, hello.profileId).take(HOLD_MS) };
+        const inbox = this.inbox(this.codex, hello.profileId);
+        const commands = await inbox.take(this.options.holdMs ?? HOLD_MS);
+        if (gone() && commands.length) inbox.restore(commands);
+        return { commands };
       }
       case '/codex/request': {
         const req = CodexRequest.parse(body);
@@ -603,6 +636,12 @@ export class Control {
           { profileId: req.profileId, vendor: 'codex', sessionId: threadId, ...shown },
           { requestId: req.requestId, method: req.method, params: req.params },
         );
+        return { ok: true };
+      }
+      case '/codex/failed': {
+        const failed = CodexFailed.parse(body);
+        this.problems.set(`${failed.profileId}/${failed.threadId}`, { error: failed.error, at: Date.now() });
+        this.options.onChange();
         return { ok: true };
       }
       case '/codex/resolved': {
@@ -638,7 +677,7 @@ export class Control {
           body = {};
         }
         const url = new URL(req.url ?? '/', 'http://control');
-        this.route(url.pathname, body).then(
+        this.route(url.pathname, body, () => res.destroyed || req.destroyed).then(
           (out) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(out)),
           (error: Error & { status?: number }) =>
             res

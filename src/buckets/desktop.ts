@@ -63,9 +63,17 @@ export function wrapperScript(
 // The wrapper a Codex profile without a bucket launches its engine through
 // while phone access is on: the engine untouched, with the phone's tap on
 // its connection (desktop-remote.ts). Rewritten at each launch; its content
-// only changes when Switchboard or ChatGPT moves.
-export function remoteWrapper(profile: Profile): string {
-  const binary = codexBinary();
+// only changes when Switchboard or ChatGPT moves. Null when the engine
+// cannot be found: the app then launches as it would without phone access,
+// read-only from the phone, rather than not at all.
+export function remoteWrapper(profile: Profile, find: () => string = codexBinary): string | null {
+  let binary: string;
+  try {
+    binary = find();
+  } catch {
+    return null;
+  }
+  if (!fs.existsSync(binary)) return null;
   const adapter = runtime();
   const file = desktopRouting(profile.id).wrapper;
   const command = `env ELECTRON_RUN_AS_NODE=1 ${[adapter.execPath, adapter.script('desktop-remote'), binary].map(shellQuote).join(' ')}`;

@@ -76,7 +76,13 @@ function parse(line: string): Message | null {
   }
 }
 
-export function post(socket: string, path: string, body: unknown, timeoutMs = 30_000): Promise<unknown> {
+export function post(
+  socket: string,
+  path: string,
+  body: unknown,
+  timeoutMs = 30_000,
+  signal?: AbortSignal,
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify(body);
     const req = http.request(
@@ -86,6 +92,7 @@ export function post(socket: string, path: string, body: unknown, timeoutMs = 30
         method: 'POST',
         headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) },
         timeout: timeoutMs,
+        signal,
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -121,8 +128,12 @@ export function codexTap(options: { profileId: string; socket: string; engine: W
   const own = new Map<string, (reply: Message) => void>();
   // The engine's open requests to the app that the hub knows about.
   const asked = new Set<string | number>();
+  // Threads with a turn running: a reply to one waits in the thread's queue.
+  const running = new Set<string>();
   let serving = false;
   let stopped = false;
+  // Ends the long poll and the retry wait when the engine goes.
+  const quit = new AbortController();
 
   const send = (message: Message): void => {
     engine.write(JSON.stringify(message) + '\n');
@@ -136,17 +147,28 @@ export function codexTap(options: { profileId: string; socket: string; engine: W
   const tell = (path: string, body: Record<string, unknown>) =>
     void post(socket, path, { profileId, ...body }, 5000).catch(() => {});
 
-  // A reply typed on the phone: a turn on the thread, loading the thread
-  // into the engine first if the app has not opened it since it started.
-  async function startTurn(threadId: string, text: string, images: string[] = []): Promise<void> {
-    const params = {
-      threadId,
-      input: [...(text ? [{ type: 'text', text }] : []), ...images.map((path) => ({ type: 'localImage', path }))],
-    };
-    const first = await request('turn/start', params);
-    if (!first.error) return;
-    const resumed = await request('thread/resume', { threadId });
-    if (!resumed.error) await request('turn/start', params);
+  const errorText = (m: Message): string => {
+    const e = m.error as { message?: unknown } | undefined;
+    return typeof e?.message === 'string' ? e.message : 'Codex refused the message';
+  };
+
+  // A reply typed on the phone. Mid-turn it joins the thread's queue, as a
+  // message typed in the app would, and runs when the turn ends; otherwise
+  // it starts a turn, loading the thread into the engine first if the app
+  // has not opened it since it started. The hub hears when it fails.
+  async function deliver(threadId: string, text: string, images: string[] = []): Promise<void> {
+    const input = [...(text ? [{ type: 'text', text }] : []), ...images.map((path) => ({ type: 'localImage', path }))];
+    let reply: Message;
+    if (running.has(threadId)) {
+      reply = await request('thread/queue/add', { threadId, clientUserMessageId: randomUUID(), input });
+    } else {
+      reply = await request('turn/start', { threadId, input });
+      if (reply.error) {
+        const resumed = await request('thread/resume', { threadId });
+        if (!resumed.error) reply = await request('turn/start', { threadId, input });
+      }
+    }
+    if (reply.error) tell('/codex/failed', { threadId, error: errorText(reply) });
   }
 
   async function serve(): Promise<void> {
@@ -162,15 +184,22 @@ export function codexTap(options: { profileId: string; socket: string; engine: W
         }[];
       };
       try {
-        reply = (await post(socket, '/codex/poll', { profileId })) as typeof reply;
+        reply = (await post(socket, '/codex/poll', { profileId }, 30_000, quit.signal)) as typeof reply;
       } catch {
+        if (stopped) return;
         // Phone access is off or the app is restarting.
-        await new Promise((r) => setTimeout(r, RETRY_MS));
+        await new Promise<void>((r) => {
+          const timer = setTimeout(r, RETRY_MS);
+          quit.signal.addEventListener('abort', () => {
+            clearTimeout(timer);
+            r();
+          });
+        });
         continue;
       }
       for (const c of reply.commands ?? []) {
         if (c.type === 'prompt' && c.threadId && (c.text || c.images?.length))
-          void startTurn(c.threadId, c.text ?? '', c.images ?? []);
+          void deliver(c.threadId, c.text ?? '', c.images ?? []);
         else if (c.type === 'answer' && c.requestId !== undefined && asked.has(c.requestId)) {
           asked.delete(c.requestId);
           send({ id: c.requestId, result: c.result });
@@ -203,6 +232,9 @@ export function codexTap(options: { profileId: string; socket: string; engine: W
       own.delete(m.id);
       return null;
     }
+    const thread = m.params?.threadId;
+    if (m.method === 'turn/started' && typeof thread === 'string') running.add(thread);
+    else if (m.method === 'turn/completed' && typeof thread === 'string') running.delete(thread);
     if (m.method && m.id !== undefined && ASKS.has(m.method)) {
       asked.add(m.id);
       tell('/codex/request', { requestId: m.id, method: m.method, params: m.params ?? {} });
@@ -218,6 +250,7 @@ export function codexTap(options: { profileId: string; socket: string; engine: W
     fromEngine,
     stop() {
       stopped = true;
+      quit.abort();
     },
   };
 }

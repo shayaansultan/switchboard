@@ -93,7 +93,7 @@ function controlError(error: unknown): never {
 
 // What the phone should hear about; generatedAt always differs.
 const fingerprint = (o: Overview): string =>
-  JSON.stringify({ p: o.profiles, s: o.sessions, q: o.pending, r: o.reachable });
+  JSON.stringify({ p: o.profiles, s: o.sessions, q: o.pending, r: o.reachable, f: o.failures });
 
 export function createRouter(deps: ApiDeps) {
   return t.router({

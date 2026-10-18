@@ -289,7 +289,12 @@ export function Session({
           {fresh ? 'New activity' : 'Latest'}
         </button>
       ) : null}
-      <Composer profileId={profileId} sessionId={sessionId} reachable={reachable} />
+      <Composer
+        profileId={profileId}
+        sessionId={sessionId}
+        reachable={reachable}
+        problem={overview?.failures[`${profileId}/${sessionId}`] ?? null}
+      />
     </main>
   );
 }

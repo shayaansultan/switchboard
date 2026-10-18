@@ -34,7 +34,8 @@ function safeName(name: string): string {
     .basename(name)
     .replace(/[^\w.\- ]+/g, '_')
     .trim();
-  return (base || 'file').slice(0, 120);
+  // '.' and '..' would name the folder itself or its parent.
+  return (/^\.*$/.test(base) ? 'file' : base).slice(0, 120);
 }
 
 export function saveUpload(name: string, type: string, body: Buffer): Upload {

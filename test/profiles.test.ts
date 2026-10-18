@@ -375,6 +375,7 @@ test('the store survives a round trip and never persists the load error', () => 
 // silently rather than visibly.
 
 const launch = require('../src/launch');
+const { remoteWrapper } = require('../src/buckets/desktop');
 
 test('a non-default profile is launched with both isolations, for both apps', () => {
   const data = profiles.load();
@@ -448,9 +449,22 @@ test('with phone access on, launches carry what the phone replies through; off, 
     SWITCHBOARD_PROFILE: 'claude-default',
   });
 
-  const plain = launch.remoteEnvironment(codex, true, false);
+  const engine = path.join(process.env.HOME, 'codex-engine');
+  fs.writeFileSync(engine, '');
+  const plain = launch.remoteEnvironment(codex, true, false, null, (p) => remoteWrapper(p, () => engine));
   expect(fs.readFileSync(plain.CODEX_CLI_PATH, 'utf8')).toContain('desktop-remote');
   expect(fs.statSync(plain.CODEX_CLI_PATH).mode & 0o777).toBe(0o700);
+  // No engine where ChatGPT should have it: launch as before, read-only from the phone.
+  expect(launch.remoteEnvironment(codex, true, false, null, (p) => remoteWrapper(p, () => '/nowhere/codex'))).toEqual(
+    {},
+  );
+  expect(
+    launch.remoteEnvironment(codex, true, false, null, (p) =>
+      remoteWrapper(p, () => {
+        throw new Error('moved');
+      }),
+    ),
+  ).toEqual({});
   // A bucket's wrapper already taps the connection; only the socket is added.
   expect(launch.remoteEnvironment(codex, true, true)).not.toHaveProperty('CODEX_CLI_PATH');
 });

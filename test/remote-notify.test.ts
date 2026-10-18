@@ -55,6 +55,7 @@ const overview = (sessions: SessionSummary[], pct: number | null = 10): Overview
   sessions,
   pending: [],
   reachable: [],
+  failures: {},
 });
 
 test('the first look sends nothing; a question, an error and a long run finishing each do', () => {
