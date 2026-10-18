@@ -60,12 +60,19 @@ export function probe(port: number, timeoutMs = 1500): Promise<boolean> {
 }
 
 const TAILSCALE = ['tailscale', '/Applications/Tailscale.app/Contents/MacOS/Tailscale'];
+// The app's binary answers as the command line only when it can tell it was
+// run from one: a terminal's TERM, or this. Switchboard opened at login has
+// launchd's environment and no TERM, and without it the binary tries to open
+// the Tailscale app instead, so the Phone tab said this Mac was not on the
+// tailnet while phones reached it fine. Read at each call: the app adopts
+// the login shell's PATH after this module loads.
+const tailscaleEnv = () => ({ ...process.env, TAILSCALE_BE_CLI: '1' });
 
 // This Mac's MagicDNS name, such as "studio.tail1234.ts.net", or null.
 export async function tailnetName(): Promise<string | null> {
   for (const binary of TAILSCALE) {
     try {
-      const { stdout } = await execute(binary, ['status', '--json'], { timeout: 5000 });
+      const { stdout } = await execute(binary, ['status', '--json'], { timeout: 5000, env: tailscaleEnv() });
       const name = (JSON.parse(stdout) as { Self?: { DNSName?: string } }).Self?.DNSName?.replace(/\.$/, '');
       if (name) return name;
     } catch {
