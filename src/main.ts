@@ -1143,16 +1143,18 @@ app.whenReady().then(async () => {
   void resumeInterruptedBuckets();
   // Asleep or locked, there is nobody to show numbers to.
   powerMonitor.on('suspend', () => pausePolling('sleep'));
+  // Locked, there is nobody at the Mac, but with phone access on the phone
+  // still shows usage and is told when a profile runs low.
   powerMonitor.on('lock-screen', () => {
     screenLocked = true;
-    pausePolling('lock');
+    if (!data.settings.phoneAccess) pausePolling('lock');
   });
   powerMonitor.on('unlock-screen', () => {
     screenLocked = false;
   });
   powerMonitor.on('resume', () => void resumePolling('sleep'));
   powerMonitor.on('unlock-screen', () => void resumePolling('lock'));
-  if (powerMonitor.getSystemIdleState(1) === 'locked') pollingPause.pause('lock');
+  if (powerMonitor.getSystemIdleState(1) === 'locked' && !data.settings.phoneAccess) pollingPause.pause('lock');
   desktopWatch.setPaused(pollingPause.paused);
   desktopWatch.start();
   app.on('will-quit', () => desktopWatch.stop());

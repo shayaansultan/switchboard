@@ -24,7 +24,7 @@ import type { Control } from './control';
 import { findUpload, type Upload } from './uploads';
 import type { Overview } from './hub';
 import { pushState, PushPrefs, publicKey, push, setPrefs, Subscription, subscribe, unsubscribe } from './push';
-import { authenticate, pair, revoke, type DeviceView } from './pairing';
+import { authenticate, listDevices, pair, revoke, type DeviceView } from './pairing';
 import type { Transcript } from './model';
 
 export const COOKIE = 'sb_device';
@@ -225,8 +225,13 @@ export function createRouter(deps: ApiDeps) {
       }),
     }),
 
-    live: paired.subscription(async function* ({ signal }) {
+    live: paired.subscription(async function* ({ signal, ctx }) {
       let last = '';
+      // A phone unpaired while its stream is open hears nothing more.
+      const stillPaired = () => {
+        if (!listDevices().some((d) => d.id === ctx.device.id))
+          throw new TRPCError({ code: 'UNAUTHORIZED', message: 'not-paired' });
+      };
       const next = (): Overview | null => {
         let o: Overview;
         try {
@@ -246,6 +251,7 @@ export function createRouter(deps: ApiDeps) {
       if (first) yield first;
       try {
         for await (const _ of changes) {
+          stillPaired();
           const o = next();
           if (o) yield o;
         }

@@ -142,9 +142,9 @@ test('the app shell is served, and paths outside it are not', async () => {
   expect(await (await fetch(`${base()}/..%2Fsecret.txt`)).text()).not.toContain('secret');
 });
 
-test('the live stream sends the overview, then again when a session file changes', async () => {
+test('the live stream sends the overview, then again when a session file changes, and stops once the phone is unpaired', async () => {
   const phone = client();
-  await phone.trpc.pair.mutate({ code: newCode().code });
+  const paired = await phone.trpc.pair.mutate({ code: newCode().code });
   const controller = new AbortController();
   const res = await fetch(`${base()}/api/trpc/live`, {
     headers: { cookie: phone.jar.cookie, accept: 'text/event-stream' },
@@ -199,9 +199,18 @@ test('the live stream sends the overview, then again when a session file changes
   fs.writeFileSync(path.join(claudeHome, 'projects', 'p', 'live1.jsonl'), JSON.stringify(record) + '\n');
   // A file event arrives within moments; the 5 s timer is the fallback, so allow for it.
   const [second] = await overviews(1, 7000);
-  controller.abort();
   expect(second.sessions.map((s) => s.title)).toEqual(['Ship the stream']);
-});
+
+  // Unpaired from the Mac while the stream is open: nothing more reaches it.
+  revoke(paired.device.id);
+  fs.writeFileSync(
+    path.join(claudeHome, 'projects', 'p', 'live2.jsonl'),
+    JSON.stringify({ ...record, sessionId: 'live2', message: { role: 'user', content: 'After unpairing' } }) + '\n',
+  );
+  expect(await overviews(1, 6500)).toEqual([]);
+  controller.abort();
+  // Each wait allows for the hub's 5 s fallback timer when a file event is missed.
+}, 25_000);
 
 test('profiles that share a name are told apart by their app, and others keep their name', () => {
   const p = (id: string, name: string, vendor: 'claude' | 'codex') => ({

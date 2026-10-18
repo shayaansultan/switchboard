@@ -3,7 +3,8 @@
 // notes; push.ts sends each note to the phones that want its kind.
 //
 // Only changes count, never a state the first look found: starting the app
-// does not replay everything that already needs you. A session that finishes
+// does not replay everything that already needs you. A session that appears
+// later already needing you, or errored, counts. A session that finishes
 // counts only after it worked for a while, so a quick answer to a quick
 // question stays quiet. Usage warns once per window, as it crosses
 // LIMIT_PCT, until that window resets.
@@ -57,7 +58,9 @@ export function changes(
     const before = watch.sessions.get(key);
     const workingSince = s.state === 'working' ? (before?.state === 'working' ? before.workingSince : now) : null;
     next.sessions.set(key, { state: s.state, workingSince });
-    if (first || !before || before.state === s.state) continue;
+    if (first || before?.state === s.state) continue;
+    // A session first seen after startup counts only for what needs a look.
+    if (!before && s.state !== 'needs-you' && s.state !== 'errored') continue;
     const who = label.get(s.profileId) ?? s.profileId;
     const base = { tag: key, url: route(s.profileId, s.id) };
     if (s.state === 'needs-you')
@@ -66,7 +69,7 @@ export function changes(
       notes.push({ ...base, kind: 'errored', title: s.title, body: `${who} stopped with an error` });
     else if (
       s.state === 'finished' &&
-      before.state === 'working' &&
+      before?.state === 'working' &&
       before.workingSince !== null &&
       now - before.workingSince >= LONG_RUN_MS
     )

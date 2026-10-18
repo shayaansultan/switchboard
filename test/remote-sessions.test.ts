@@ -336,6 +336,31 @@ test("Claude Desktop's end-of-turn box is an entry with its replies, and a block
   expect(answered.state).not.toBe('needs-you');
 });
 
+test('a record longer than a page (an inline screenshot) does not stop paging', () => {
+  const big = 'x'.repeat(5 * 1024 * 1024);
+  const { transcript } = session([
+    prompt('First prompt'),
+    reply([{ type: 'text', text: big }], 'end_turn'),
+    prompt('Last prompt'),
+    reply([{ type: 'text', text: 'Done.' }], 'end_turn'),
+  ]);
+  const reader = new SessionReader();
+  reader.list([claude]);
+  const seen: string[] = [];
+  let before: number | null = null;
+  const cursors: number[] = [];
+  for (let page = 0; page < 10; page++) {
+    const t = reader.transcript([claude], claude.id, transcript.session.id, before)!;
+    for (const e of t.entries) if (e.kind === 'message' && e.role === 'user') seen.push(e.text);
+    if (t.before === null) break;
+    if (before !== null) expect(t.before).toBeLessThan(before);
+    cursors.push(t.before);
+    before = t.before;
+  }
+  expect(seen).toContain('First prompt');
+  expect(seen).toContain('Last prompt');
+});
+
 test('a long session is read a page at a time, from the end back to the start', () => {
   const records: unknown[] = [prompt('Start')];
   for (let i = 0; i < 4000; i++)

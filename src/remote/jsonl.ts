@@ -89,6 +89,10 @@ export function head(info: FileInfo, bytes: number): Rec[] {
 // Records that end at or before `end`, starting no earlier than `end - bytes`.
 // `start` is where the first returned record begins: pass it as the next
 // `end` to read the page before.
+// A record longer than a page (an inline screenshot can be) is read whole up
+// to this size; past it, the page skips it, so `start` always moves back.
+const MAX_RECORD = 64 * 1024 * 1024;
+
 export function window(info: FileInfo, end: number, bytes: number): { records: Rec[]; start: number } {
   const stop = Math.min(end, info.size);
   const from = Math.max(0, stop - bytes);
@@ -97,7 +101,9 @@ export function window(info: FileInfo, end: number, bytes: number): { records: R
   let offset = 0;
   if (from > 0) {
     const first = bytes_.indexOf(10);
-    if (first < 0) return { records: [], start: from };
+    // No whole record in the slice: the one ending at `stop` began before it.
+    if (first < 0 || first + 1 >= bytes_.length)
+      return bytes * 2 <= MAX_RECORD ? window(info, end, bytes * 2) : { records: [], start: from };
     offset = first + 1;
   }
   const start = from + offset;

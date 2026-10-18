@@ -83,6 +83,12 @@ test('the first look sends nothing; a question, an error and a long run finishin
   expect(w.notes).toMatchObject([{ kind: 'errored' }]);
 });
 
+test('a session that first appears already needing you is news; one that appears finished is not', () => {
+  const seeded = changes(emptyWatch(), overview([]), [], 0, true).watch;
+  expect(changes(seeded, overview([session('needs-you')]), [], 1).notes).toMatchObject([{ kind: 'needs' }]);
+  expect(changes(seeded, overview([session('finished')]), [], 1).notes).toEqual([]);
+});
+
 test('a held request is announced once, and a profile running low warns once per window', () => {
   const asking = [{ id: 'r1', profileId: 'claude-work', sessionId: 's1', title: 'Run a command: bun test' }];
   let w = changes(emptyWatch(), overview([]), [], 0, true);
