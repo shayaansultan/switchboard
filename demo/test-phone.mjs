@@ -168,7 +168,13 @@ try {
   assert.equal(linked.theme, 'dark');
   assert.match(linked.env.CLAUDE_CODE_PLUGIN_DIRS, /switchboard-remote$/);
   assert.equal(linked.env.SWITCHBOARD_CONTROL_SOCKET, path.join(home, '.switchboard', 'remote', 'control.sock'));
-  await page.locator('.phone-main').screenshot({ path: path.join(output, 'phone-tab-reach.png') });
+  // Only the new sections: the steps above name this Mac and its tailnet.
+  const top = await page.locator('.phone-reach').boundingBox();
+  const bottom = await page.locator('.phone-default-claude').boundingBox();
+  await page.screenshot({
+    path: path.join(output, 'phone-tab-reach.png'),
+    clip: { x: top.x - 16, y: top.y - 4, width: top.width + 32, height: bottom.y + bottom.height - top.y + 20 },
+  });
   await page.locator('.phone-default-claude .switch').click();
   await page.locator('input[name=phoneDefaultClaude]:not(:checked)').waitFor({ state: 'attached' });
   assert.deepEqual(JSON.parse(await fs.readFile(claudeSettings, 'utf8')), { theme: 'dark' });
