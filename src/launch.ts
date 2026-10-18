@@ -195,8 +195,11 @@ export async function relaunchForPhone(
   if (instanceFor(profile, await runningInstances())) {
     await steps.quit(profile);
     if (instanceFor(profile, await runningInstances()))
-      throw new Error(
-        `${VENDORS[profile.vendor].label} for "${profile.name}" did not quit. Quit it on the Mac, then open it from Switchboard.`,
+      throw Object.assign(
+        new Error(
+          `${VENDORS[profile.vendor].label} for "${profile.name}" did not quit. Quit it on the Mac, then open it from Switchboard.`,
+        ),
+        { code: 'did-not-quit' },
       );
   }
   await steps.open(profile);

@@ -147,7 +147,9 @@ export async function remoteCommand(rest: string[], ctx: Context): Promise<void>
       try {
         await launch.relaunchForPhone(profile);
       } catch (error) {
-        throw refused('did-not-quit', (error as Error).message);
+        if ((error as { code?: string }).code === 'did-not-quit')
+          throw refused('did-not-quit', (error as Error).message);
+        throw error;
       }
       ctx.out.result({ profile: profile.id, relaunched: true });
       return;

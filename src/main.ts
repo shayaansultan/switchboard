@@ -315,8 +315,9 @@ async function relaunchForPhone(p: Profile): Promise<void> {
   await launch.relaunchForPhone(p, { quit: (x) => quitApp(x), open: launchApp });
 }
 
-// Default Claude's settings entry follows the setting and phone access; any
-// other time the file is left alone. A failure is shown in the Phone tab.
+// Default Claude's settings entry follows the setting and phone access, and
+// goes when Switchboard quits (below); any other time the file is left
+// alone. A failure is shown in the Phone tab.
 let defaultClaudeError: string | null = null;
 function syncDefaultClaude(): void {
   const wanted = !!data.settings.phoneAccess && !!data.settings.phoneDefaultClaude;
