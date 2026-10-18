@@ -10,6 +10,12 @@
 // counts only after it worked for a while, so a quick answer to a quick
 // question stays quiet. Usage warns once per window, as it crosses
 // LIMIT_PCT, until that window resets.
+//
+// A request held for the phone is announced only once it has waited
+// ASK_GRACE_MS. Many settle sooner without anyone: in auto mode Claude's
+// classifier allows the call a moment after it asked, and someone back at
+// the Mac answers there. Announcing those at once buzzed the phone for
+// requests that were gone by the time it was opened.
 
 import type { Overview } from './hub';
 import type { Note } from './push';
@@ -18,6 +24,7 @@ import { fullest } from '../shared/usage';
 // A session has to work this long before its finishing is news.
 export const LONG_RUN_MS = 5 * 60_000;
 export const LIMIT_PCT = 90;
+export const ASK_GRACE_MS = 15_000;
 
 export interface Watch {
   // `${profileId}/${sessionId}` → its state and when it started working.
@@ -37,6 +44,20 @@ export interface Asking {
   profileId: string;
   sessionId: string;
   title: string;
+  // When it was asked, in ms.
+  since: number;
+}
+
+// A notification is plain text: the Markdown a session writes reads as
+// noise there.
+export function plainText(text: string): string {
+  return text
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/`{1,3}([^`]*)`{1,3}/g, '$1')
+    .replace(/(\*\*|__)(.+?)\1/g, '$2')
+    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 const route = (profileId: string, sessionId: string) =>
@@ -50,7 +71,7 @@ export function changes(
   asking: Asking[],
   now = Date.now(),
   first = false,
-): { notes: Note[]; watch: Watch } {
+): { notes: Note[]; watch: Watch; wakeIn: number | null } {
   const notes: Note[] = [];
   const label = new Map(overview.profiles.map((p) => [p.id, p.label]));
   const next: Watch = { sessions: new Map(), warned: new Set(watch.warned), asked: new Set() };
@@ -79,12 +100,19 @@ export function changes(
         ...base,
         kind: 'finished',
         title: s.title,
-        body: s.lastMessage?.role === 'assistant' ? `${who}: ${s.lastMessage.text}` : `${who} finished`,
+        body: s.lastMessage?.role === 'assistant' ? `${who}: ${plainText(s.lastMessage.text)}` : `${who} finished`,
       });
   }
 
   const origin = new Map(overview.sessions.map((s) => [`${s.profileId}/${s.id}`, s.origin]));
+  // When the next held request comes due, for the caller to look again.
+  let wakeIn: number | null = null;
   for (const a of asking) {
+    const waited = now - a.since;
+    if (!first && !watch.asked.has(a.id) && waited < ASK_GRACE_MS) {
+      wakeIn = Math.min(wakeIn ?? Infinity, ASK_GRACE_MS - waited);
+      continue;
+    }
     next.asked.add(a.id);
     if (first || watch.asked.has(a.id)) continue;
     const who = label.get(a.profileId) ?? a.profileId;
@@ -115,5 +143,5 @@ export function changes(
         url: '#/accounts',
       });
   }
-  return { notes, watch: next };
+  return { notes, watch: next, wakeIn };
 }

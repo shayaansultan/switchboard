@@ -161,6 +161,8 @@ export function overview(source: HubSource, reader: SessionReader, control?: Con
 function notifier(look: () => Overview, changes: EventEmitter, away: () => boolean): { sync(): void; stop(): void } {
   let watch: Watch | null = null;
   let busy = false;
+  // Looks again when a held request has waited long enough to announce.
+  let due: ReturnType<typeof setTimeout> | null = null;
   const check = () => {
     if (busy) return;
     busy = true;
@@ -168,10 +170,19 @@ function notifier(look: () => Overview, changes: EventEmitter, away: () => boole
       const o = look();
       // A Codex approval also shows on the desktop; buzz the phone for it only
       // while nobody is at the Mac. Claude's only reach the phone then anyway.
-      const asking = away() ? o.pending.map((p) => ({ ...p, title: `${p.title}: ${p.detail}`.slice(0, 120) })) : [];
+      const asking = away()
+        ? o.pending.map((p) => ({
+            ...p,
+            title: `${p.title}: ${p.detail}`.slice(0, 120),
+            since: Date.parse(p.createdAt) || Date.now(),
+          }))
+        : [];
       const result = noteChanges(watch ?? emptyWatch(), o, asking, Date.now(), watch === null);
       watch = result.watch;
       for (const note of result.notes) void push(note).catch(() => {});
+      if (due) clearTimeout(due);
+      due = result.wakeIn === null ? null : setTimeout(check, result.wakeIn + 50);
+      due?.unref?.();
     } catch {
       // A file vanished mid-read; the next change looks again.
     } finally {
@@ -190,10 +201,12 @@ function notifier(look: () => Overview, changes: EventEmitter, away: () => boole
       } else {
         changes.off('quiet', check);
         watch = null;
+        if (due) clearTimeout(due);
       }
     },
     stop() {
       changes.off('quiet', check);
+      if (due) clearTimeout(due);
       on = false;
     },
   };

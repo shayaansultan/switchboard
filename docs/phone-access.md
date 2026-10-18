@@ -154,6 +154,17 @@ phone ──reply / decide──▶ hub ◀──long poll── Claude plugin (
   Claude Code lets a plugin only refuse an MCP prompt, not fill it in, so
   Claude's stay on the Mac.
 
+## Pictures and files in a reply
+
+The reply box's **+** offers **Photos or files** and **Paste from
+clipboard**. Pasting into the reply box works too, and so does dropping
+files on it from an iPad or a computer's browser. Each picture or file
+uploads to the Mac as soon as it is added, up to 10 a reply and 25 MB each.
+A pasted screenshot gets a name like `Pasted 18.00.47.png`, not
+`image.png`. When a long press on the reply box doesn't offer Paste for a
+copied picture, **Paste from clipboard** reads it directly; iOS asks before
+the page reads the clipboard.
+
 ## Notifications
 
 Settings on the phone has **Turn on notifications**. iOS allows it only once
@@ -174,7 +185,14 @@ What triggers one (`src/remote/notify.ts`), each a switch in Settings:
 | Usage running low       | A profile passes 90% of a usage window, once per window       | Off     |
 
 Only changes count: turning the app on does not replay what already needs
-you. Notifications for one session replace each other.
+you. Notifications for one session replace each other, and opening the
+phone app clears them, since its inbox shows what still needs you.
+
+An approval or question held for the phone notifies only once it has
+waited 15 seconds. Many settle sooner on their own: in auto mode Claude's
+classifier allows a call a moment after it asks, and someone back at the
+Mac answers there. Notifying at once would buzz for requests that are gone
+by the time the phone opens.
 
 Subagents never notify on their own: neither app lists them as sessions,
 and a session stays working while its background subagents run, so it

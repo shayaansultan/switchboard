@@ -8,6 +8,7 @@
 // docs/.work/phone/.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +20,9 @@ const output = path.join(root, 'docs', '.work', 'phone');
 await fs.mkdir(output, { recursive: true });
 
 const port = 47000 + Math.floor(Math.random() * 900);
-const home = await fs.mkdtemp(path.join(os.tmpdir(), 'switchboard-phone-'));
+// Under /tmp rather than macOS's long per-user temp folder: the control
+// socket inside it must fit the 104-byte limit on a Unix socket's path.
+const home = await fs.mkdtemp(path.join(process.platform === 'darwin' ? '/tmp' : os.tmpdir(), 'sb-phone-'));
 const codexHome = path.join(home, '.switchboard', 'codex', 'codex-demo', 'home');
 await fs.mkdir(path.join(home, '.switchboard'), { recursive: true });
 await fs.writeFile(
@@ -74,6 +77,29 @@ await fs.writeFile(
   path.join(codexHome, 'session_index.jsonl'),
   JSON.stringify({ id: 'thread-1', thread_name: 'Dark mode toggle' }) + '\n',
 );
+
+// A POST to the control socket, as the Codex tap makes one.
+function post(socket, route, body, timeout) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body);
+    const req = http.request(
+      { socketPath: socket, path: route, method: 'POST', timeout, headers: { 'content-type': 'application/json' } },
+      (res) => {
+        let text = '';
+        res.on('data', (c) => (text += c));
+        res.on('end', () => resolve(JSON.parse(text || '{}')));
+      },
+    );
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+    req.end(data);
+  });
+}
+
+async function assertCount(locator, n) {
+  for (let i = 0; i < 100 && (await locator.count()) !== n; i++) await new Promise((r) => setTimeout(r, 50));
+  assert.equal(await locator.count(), n);
+}
 
 const base = `http://127.0.0.1:${port}`;
 async function waitForHub() {
@@ -196,6 +222,63 @@ try {
     await phone.goto(`http://localhost:${port}/#/s/codex-demo/thread-1`);
     await phone.getByText('Tests pass. Wiring the toggle into the header next.').waitFor();
     await phone.screenshot({ path: path.join(output, 'phone-session.png') });
+
+    // Pictures into a reply. A stand-in for the Codex app's tap polls the
+    // control socket, so the session is reachable, and collects the reply.
+    const socket = path.join(home, '.switchboard', 'remote', 'control.sock');
+    await fs.access(socket);
+    const received = [];
+    let tapping = true;
+    const tap = (async () => {
+      while (tapping) {
+        const out = await post(socket, '/codex/poll', { profileId: 'codex-demo' }, 5000).catch(() => null);
+        if (!out) await new Promise((r) => setTimeout(r, 200));
+        received.push(...(out?.commands ?? []));
+      }
+    })();
+    const reply = phone.getByRole('textbox', { name: 'Reply' });
+    await reply.waitFor({ timeout: 15000 });
+    const thumbs = phone.locator('form img[alt^="Pasted "]');
+    // A screenshot pasted into the reply box: named, not "image.png".
+    await reply.evaluate((el) => {
+      const data = new DataTransfer();
+      const png = Uint8Array.from(
+        atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='),
+        (c) => c.charCodeAt(0),
+      );
+      data.items.add(new File([png], 'image.png', { type: 'image/png' }));
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    await thumbs.first().waitFor();
+    // The attach menu's Paste reads a picture straight from the clipboard.
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: `http://localhost:${port}` });
+    await phone.evaluate(async () => {
+      const png = await (await fetch('icons/icon-192.png')).blob();
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+    });
+    await phone.getByRole('button', { name: 'Attach pictures or files' }).click();
+    await phone.getByRole('menuitem', { name: 'Paste from clipboard' }).waitFor();
+    await phone.screenshot({ path: path.join(output, 'phone-attach-menu.png') });
+    await phone.getByRole('menuitem', { name: 'Paste from clipboard' }).click();
+    await assertCount(thumbs, 2);
+    // A file dropped on the reply box, as on an iPad.
+    await reply.evaluate((el) => {
+      const data = new DataTransfer();
+      data.items.add(new File(['notes'], 'notes.txt', { type: 'text/plain' }));
+      el.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }));
+    });
+    await phone.getByText('notes.txt').waitFor();
+    await reply.fill('Here are the screenshots');
+    await phone.locator('form .animate-pulse').first().waitFor({ state: 'detached' });
+    await phone.screenshot({ path: path.join(output, 'phone-pasted.png') });
+    await phone.getByRole('button', { name: 'Send' }).click();
+    for (let i = 0; i < 100 && !received.length; i++) await phone.waitForTimeout(50);
+    tapping = false;
+    await tap;
+    assert.equal(received[0]?.type, 'prompt');
+    assert.equal(received[0].images.length, 2);
+    assert.match(received[0].text, /Here are the screenshots/);
+    assert.match(received[0].text, /notes\.txt/);
   } finally {
     await browser.close();
   }
