@@ -39,7 +39,7 @@ export function listDir(dir: string): string[] {
   }
 }
 
-function readBytes(file: string, start: number, length: number): Buffer {
+export function readBytes(file: string, start: number, length: number): Buffer {
   const fd = fs.openSync(file, 'r');
   try {
     const buffer = Buffer.alloc(length);

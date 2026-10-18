@@ -11,6 +11,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { sandboxHome } from './setup';
 import { SessionReader, STALE_MS, type ProfileHome } from '../src/remote/sessions';
 import type { Entry } from '../src/remote/model';
+import { PAGE_BYTES } from '../src/remote/claude';
 
 const root = path.join(sandboxHome, 'remote-sessions');
 const claude: ProfileHome = { id: 'claude-work', vendor: 'claude', home: path.join(root, 'claude') };
@@ -359,6 +360,37 @@ test('a record longer than a page (an inline screenshot) does not stop paging', 
   }
   expect(seen).toContain('First prompt');
   expect(seen).toContain('Last prompt');
+});
+
+test('a tool call keeps its output when its result lands on the next page', () => {
+  // Size the last reply so the newest page starts inside the call's line:
+  // the call is then on the older page and its result on the newer one.
+  const call = tool('t1', 'Bash', { command: 'bun test' });
+  const done = result('t1', 'ok', { stdout: '42 pass', stderr: '' });
+  const size = (r: unknown) => JSON.stringify(r).length + 1;
+  const shell = size(reply([{ type: 'text', text: '' }], 'end_turn'));
+  const pad = 'p'.repeat(PAGE_BYTES - size(done) - Math.floor(size(call) / 2) - shell);
+  write(claudeFile(), [prompt('Run the tests'), call, done, reply([{ type: 'text', text: pad }], 'end_turn')]);
+  const reader = new SessionReader();
+  const [summary] = reader.list([claude]);
+  const newest = reader.transcript([claude], claude.id, summary.id)!;
+  expect(newest.before).not.toBeNull();
+  const older = reader.transcript([claude], claude.id, summary.id, newest.before)!;
+  const found = older.entries.flatMap((e) => (e.kind === 'steps' ? e.calls : []))[0];
+  expect(found).toMatchObject({ name: 'Shell', output: '42 pass' });
+});
+
+test('a waiting session is finished once its scheduled time passes, without a new write', () => {
+  const at = Date.now() + 60_000;
+  write(claudeFile(), [
+    prompt('Check back in a minute'),
+    tool('s', 'ScheduleWakeup', { delaySeconds: 60 }),
+    result('s', 'Scheduled', { scheduledFor: at }),
+    reply([{ type: 'text', text: 'Back in a minute.' }], 'end_turn'),
+  ]);
+  const reader = new SessionReader();
+  expect(reader.list([claude])[0].state).toBe('waiting');
+  expect(reader.list([claude], at + 1000)[0].state).toBe('finished');
 });
 
 test('a long session is read a page at a time, from the end back to the start', () => {

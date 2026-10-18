@@ -23,6 +23,8 @@ import {
   mcpName,
   offsetOf,
   num,
+  parseLines,
+  readBytes,
   obj,
   oneLine,
   stat,
@@ -755,7 +757,23 @@ export function summarizeClaude(
 }
 
 // A page of entries ending at byte `before` (the end of the file when null).
+// A tool's result can land just past a page's end, on the newer page. Each
+// page reads that stretch for results of its own calls, so a call keeps its
+// output, pictures and diff whichever page it is on.
+const LOOKAHEAD_BYTES = 2 * 1024 * 1024;
+
+function resultsAfter(info: FileInfo, end: number): Rec[] {
+  const bytes = readBytes(info.file, end, Math.min(LOOKAHEAD_BYTES, info.size - end));
+  const last = bytes.lastIndexOf(10);
+  if (last < 0) return [];
+  return parseLines(bytes.subarray(0, last).toString('utf8').split('\n'), end).filter(
+    (r) => r.type === 'user' && isToolResult(r),
+  );
+}
+
 export function claudePage(info: FileInfo, before: number | null): { entries: Entry[]; before: number | null } {
-  const { records, start } = window(info, before ?? info.size, PAGE_BYTES);
-  return { entries: claudeEntries(records, info.file), before: start > 0 ? start : null };
+  const end = before ?? info.size;
+  const { records, start } = window(info, end, PAGE_BYTES);
+  const later = end < info.size ? resultsAfter(info, end) : [];
+  return { entries: claudeEntries([...records, ...later], info.file), before: start > 0 ? start : null };
 }

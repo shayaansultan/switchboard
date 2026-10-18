@@ -113,7 +113,7 @@ function send(res: http.ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-// The name people gave this Mac ("Shayaan's MacBook Pro"). The network host
+// The name people gave this Mac ("Alex's MacBook Pro"). The network host
 // name can be an address, which tells a phone nothing.
 let computer: string | null = null;
 function computerName(): string {
@@ -333,7 +333,12 @@ export function startHub(options: {
       return void res.end();
     }
     if (Buffer.isBuffer(media.body)) res.end(media.body);
-    else media.body.pipe(res);
+    else {
+      // The file can vanish or fail after it was found; an error on the
+      // stream would otherwise escape this handler.
+      media.body.on('error', () => res.destroy());
+      media.body.pipe(res);
+    }
   }
 
   // A picture or file attached to a reply (uploads.ts). Paired phones only;

@@ -76,8 +76,13 @@ export class SessionReader {
             bg = undefined;
           }
         }
-        // Background work can finish or go quiet without the file changing.
-        if (changed || !cached || (cached.summary && cached.summary.background !== running)) {
+        // Background work can finish or go quiet without the file changing,
+        // and a waiting session's scheduled time can pass.
+        if (
+          changed ||
+          !cached ||
+          (cached.summary && (cached.summary.background !== running || cached.summary.state === 'waiting'))
+        ) {
           let summary: SessionSummary | null = null;
           try {
             summary = c.thread

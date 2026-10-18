@@ -31,7 +31,15 @@ function Paired() {
     scrollTo(0, 0);
   }, [route.name]);
   if (route.name === 'session')
-    return <Session profileId={route.profileId} sessionId={route.sessionId} overview={overview} />;
+    // Keyed, so a draft or attachment never carries over to another session.
+    return (
+      <Session
+        key={`${route.profileId}/${route.sessionId}`}
+        profileId={route.profileId}
+        sessionId={route.sessionId}
+        overview={overview}
+      />
+    );
   if (route.name === 'files')
     return <Files profileId={route.profileId} sessionId={route.sessionId} overview={overview} />;
   return (

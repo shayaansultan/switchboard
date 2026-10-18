@@ -304,6 +304,9 @@ const AWAY_IDLE_S = 60;
 let screenLocked = false;
 
 function applyPhoneAccess(): Promise<void> {
+  // A lock pause was taken while phone access was off; with it on, the
+  // phone needs fresh numbers even while the Mac is locked.
+  if (data.settings.phoneAccess) void resumePolling('lock');
   phoneAccessChange = phoneAccessChange.then(async () => {
     const port = data.settings.phoneAccess ? (data.settings.phonePort ?? DEFAULT_PORT) : null;
     if (hub && hub.port === port) return;
