@@ -532,8 +532,16 @@ nativeTheme.on('updated', () => {
   if (win && !win.isDestroyed()) win.setBackgroundColor(windowBackground());
 });
 
+// For the UI tests (demo/): the window is never shown, the app never becomes
+// the active one and puts nothing in the Dock or the menu bar, so a test run
+// does not take the screen, or the Space, someone is working in. Playwright
+// drives and captures the page all the same.
+const BACKGROUND = process.env.SWITCHBOARD_BACKGROUND === '1';
+if (BACKGROUND && process.platform === 'darwin') app.setActivationPolicy('accessory');
+
 function createWindow(): BrowserWindow {
   const w = new BrowserWindow({
+    show: !BACKGROUND,
     width: 760,
     height: 640,
     minWidth: 560,
@@ -544,7 +552,13 @@ function createWindow(): BrowserWindow {
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 20, y: 19 },
     backgroundColor: windowBackground(),
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      // Hidden, the page would otherwise be throttled like a background tab.
+      backgroundThrottling: !BACKGROUND,
+    },
   });
   w.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   w.on('closed', () => {
@@ -574,6 +588,7 @@ function createWindow(): BrowserWindow {
 
 function showWindow(): void {
   const w = win ?? createWindow();
+  if (BACKGROUND) return;
   w.show();
   w.focus();
 }
@@ -1134,7 +1149,7 @@ app.whenReady().then(async () => {
   if (!app.isPackaged) app.dock?.setIcon(path.join(__dirname, '..', 'build', 'icon-1024.png'));
   await launch.adoptLoginShellPath();
   applyAppearance();
-  createTray();
+  if (!BACKGROUND) createTray();
   void awake.refresh();
   // Reads only. The toggle remains a macOS setting when Switchboard exits.
   const awakePoll = setInterval(() => void awake.refresh(), 15_000);

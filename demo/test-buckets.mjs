@@ -29,6 +29,9 @@ const options = {
     ...process.env,
     HOME: home,
     SWITCHBOARD_ROOT: path.join(home, '.switchboard'),
+    // Drive the window without showing it, so a run never takes the screen
+    // (src/main.ts). SWITCHBOARD_BACKGROUND=0 shows it, to watch a run.
+    SWITCHBOARD_BACKGROUND: process.env.SWITCHBOARD_BACKGROUND ?? '1',
     SWITCHBOARD_PROXY_BINARY: path.join(os.homedir(), '.switchboard', 'bin', 'cliproxyapi-7.3.2', 'cli-proxy-api'),
   },
 };
