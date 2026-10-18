@@ -14,6 +14,7 @@ import type { Overview } from '../../remote/hub';
 import type { Entry, FileChange } from '../../remote/model';
 import { ago } from '../../shared/time';
 import { backgroundText, PulseDot, ProfileTag, StateText, project } from '../components/bits';
+import { Composer, PendingCard } from '../components/Control';
 import { EntryView, MadeFiles } from '../components/Entries';
 import { Button } from '../components/ui/button';
 import { sessionHref, useNow, useTRPC } from '../data';
@@ -135,7 +136,7 @@ export function Session({
   ].filter(Boolean);
 
   return (
-    <main className="flex min-h-dvh flex-col">
+    <main className="flex min-h-dvh flex-col pb-24">
       <header className="px-gutter pt-safe sticky top-0 z-10 flex flex-col gap-1.5 border-b border-border bg-background pb-2.5">
         <a href="#/" className="inline-flex min-h-8 items-center gap-0.5 self-start text-muted-foreground no-underline">
           <ChevronLeft size={18} aria-hidden />
@@ -246,6 +247,12 @@ export function Session({
           <EntryView key={i} entry={e} />
         ))}
 
+        {overview?.pending
+          .filter((p) => p.profileId === profileId && p.sessionId === sessionId)
+          .map((p) => (
+            <PendingCard key={p.id} pending={p} />
+          ))}
+
         {summary?.state === 'working' ? (
           <div className="flex items-center gap-1.5 text-[13px] text-run-text">
             <PulseDot />
@@ -265,12 +272,17 @@ export function Session({
             }
             bottom.current?.scrollIntoView({ behavior: 'smooth' });
           }}
-          className="fixed right-4 bottom-[calc(env(safe-area-inset-bottom,0px)+1rem)] inline-flex h-[34px] items-center gap-1 rounded-full bg-primary px-3 text-[13px] font-semibold text-primary-foreground shadow-md"
+          className="fixed right-4 bottom-[calc(env(safe-area-inset-bottom,0px)+5rem)] inline-flex h-[34px] items-center gap-1 rounded-full bg-primary px-3 text-[13px] font-semibold text-primary-foreground shadow-md"
         >
           <ArrowDown size={14} aria-hidden />
           {fresh ? 'New activity' : 'Latest'}
         </button>
       ) : null}
+      <Composer
+        profileId={profileId}
+        sessionId={sessionId}
+        reachable={!!overview?.reachable.includes(`${profileId}/${sessionId}`)}
+      />
     </main>
   );
 }

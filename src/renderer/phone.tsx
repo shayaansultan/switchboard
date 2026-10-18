@@ -186,7 +186,8 @@ export function PhoneTab({ state }: { state: State }) {
               <p class="hint">No phones yet.</p>
             )}
             <p class="hint">
-              Paired phones see every profile's sessions and transcripts. Unpair one to shut it out at once.
+              Paired phones see every profile's sessions and transcripts, and can reply and approve in the profiles you
+              open from Switchboard while this is on. Unpair one to shut it out at once.
             </p>
           </div>
         </Panel>

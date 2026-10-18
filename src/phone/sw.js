@@ -51,3 +51,38 @@ self.addEventListener('fetch', (event) => {
       ),
   );
 });
+
+// A notification from the Mac (src/remote/push.ts): title, body, a tag that
+// replaces the last one for the same session, and where tapping it opens.
+self.addEventListener('push', (event) => {
+  let note = {};
+  try {
+    note = event.data ? event.data.json() : {};
+  } catch {
+    note = { body: event.data ? event.data.text() : '' };
+  }
+  event.waitUntil(
+    self.registration.showNotification(note.title || 'Switchboard', {
+      body: note.body || '',
+      tag: note.tag,
+      icon: 'icons/icon-192.png',
+      data: { url: note.url || '#/' },
+    }),
+  );
+});
+
+// Tapping one opens its session: in the open app if there is one.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const hash = (event.notification.data && event.notification.data.url) || '#/';
+  const url = new URL(hash, self.registration.scope).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
+      for (const client of windows) {
+        client.postMessage({ navigate: hash });
+        if ('focus' in client) return client.focus();
+      }
+      return self.clients.openWindow(url);
+    }),
+  );
+});

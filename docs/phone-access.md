@@ -2,8 +2,9 @@
 
 Phone access lets you see, from your phone, what every Claude and Codex
 profile on this Mac is working on. It covers sessions started in the desktop
-apps, in a terminal or by a script. It is read-only for now: you can watch
-sessions and read their transcripts, but not reply or approve from the phone.
+apps, in a terminal or by a script. From the phone you can also reply in a
+session, answer its questions and approve what it wants to run, and get a
+notification when one needs you or finishes.
 
 ## How it fits together
 
@@ -113,6 +114,68 @@ from the same tokens as the window (`src/design/tokens.css`).
   the inbox shows, folded or open steps, text size, which profiles to show, and unpairing this phone. These stay on the
   phone.
 
+## Replying and approving
+
+Switchboard cannot drive the desktop apps from outside, so something inside
+each one does it and asks the hub what to do, over a socket in
+`~/.switchboard/remote/` that only your user can open (`src/remote/control.ts`).
+
+```
+phone ──reply / decide──▶ hub ◀──long poll── Claude plugin (in each Code session)
+                               ◀──long poll── Codex tap (on the app's engine line)
+```
+
+- **Claude:** with phone access on, every Claude profile Switchboard launches,
+  the Default one included, loads the `switchboard-remote` plugin beside the
+  profile band. A reply comes in as your own prompt, a turn of its own once
+  the session is idle.
+- **Codex:** every Codex profile Switchboard launches runs its engine through
+  a wrapper that taps the app's connection to it (`src/remote/codex-tap.ts`).
+  A reply becomes the app's own turn, so the app shows it live.
+- **Approvals and questions.** A Codex approval or question shows in the app
+  and on the phone at once, and the first answer wins; the app's card clears
+  by itself. A Claude one has to be held to wait for the phone, which would
+  keep the app's own dialog from showing, so it goes to the phone only while
+  nobody is at the Mac (the screen is locked, or no input for a minute), and
+  goes back to the app as soon as someone is.
+- A profile's app has to be opened from Switchboard after phone access is
+  turned on. One opened from the Dock can be read from the phone but not
+  replied to, and the session screen says so.
+- Claude Desktop runs a session's engine, and with it the plugin, once the
+  session is used in that run of the app, and keeps it while the app is open.
+  After the app restarts, an older session can be replied to again once it
+  has been opened and used on the Mac. A Codex profile's whole thread list is
+  reachable as soon as the app is open.
+- An approval that Claude asks for because of an `ask` rule in your settings
+  stays on the Mac: Claude Code does not let a plugin lift a settings rule.
+  Approvals the session's mode asks for (Manual) go to the phone.
+- Codex also sends requests for more access (network, files outside the
+  workspace) and MCP prompts: forms the phone fills in, and links it opens.
+  Claude Code lets a plugin only refuse an MCP prompt, not fill it in, so
+  Claude's stay on the Mac.
+
+## Notifications
+
+Settings on the phone has **Turn on notifications**. iOS allows it only once
+Switchboard is on the Home Screen. The phone hands the hub a push
+subscription, and the hub sends through Apple's push service, encrypted for
+the phone, so Apple carries the message without reading it
+(`src/remote/push.ts`). These go out over the internet, not only the tailnet,
+and carry only what the notification shows. The Mac sends while it is awake
+and Switchboard runs.
+
+What triggers one (`src/remote/notify.ts`), each a switch in Settings:
+
+| Kind                    | When                                                          | Default |
+| ----------------------- | ------------------------------------------------------------- | ------- |
+| Needs you               | A session asks a question, or an approval waits for the phone | On      |
+| Long sessions finishing | A session that worked five minutes or more finishes           | On      |
+| Errors                  | A session stops with an error                                 | On      |
+| Usage running low       | A profile passes 90% of a usage window, once per window       | Off     |
+
+Only changes count: turning the app on does not replay what already needs
+you. Notifications for one session replace each other.
+
 ## From a terminal
 
 ```bash
@@ -132,15 +195,20 @@ whether or not Switchboard is running.
 
 Under `~/.switchboard/remote/`: `devices.json` (paired phones, with token
 hashes), `pairing.json` (the hash of the one live code) and `hub.json`
-(whether the app's hub is listening, for `remote status`). All are mode 600.
+(whether the app's hub is listening, for `remote status`), `media.key` (signs
+picture and file ids), `push.json` (the push key pair and each phone's
+subscription and choices) and `control.sock` (the control socket). All are
+mode 600.
 
 ## Limits
 
-- Read-only. Replying and approving from the phone come next, through the
-  same plugin Switchboard already loads into Claude profiles and the engine
-  wrapper it uses for Codex.
-- No push notifications yet. The phone app updates while it is open.
-- A desktop app opened from the Dock rather than Switchboard still shows up
-  here, because its session files are the same.
+- Replying and approving need the profile's app opened from Switchboard with
+  phone access on. A desktop app opened from the Dock still shows up here,
+  because its session files are the same, but read-only.
+- Claude approvals reach the phone only while nobody is at the Mac, and
+  not when a settings rule asked for them. Claude's MCP prompts, a Codex
+  question with a secret answer and a Codex device check stay on the Mac.
+- Notifications need the Mac awake. A reply sent while a turn runs waits for
+  it to end.
 - Session file formats belong to Anthropic and OpenAI and can change. The
   reader skips lines it does not understand rather than failing.

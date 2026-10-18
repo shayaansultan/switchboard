@@ -295,7 +295,13 @@ const hubSource: HubSource = {
       };
     }),
   homes: () => data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, home: profiles.dirs(p).home })),
+  // Approvals go to the phone while nobody is at the Mac: the screen is
+  // locked, or there has been no input for AWAY_IDLE_S.
+  away: () => screenLocked || powerMonitor.getSystemIdleTime() >= AWAY_IDLE_S,
 };
+
+const AWAY_IDLE_S = 60;
+let screenLocked = false;
 
 function applyPhoneAccess(): Promise<void> {
   phoneAccessChange = phoneAccessChange.then(async () => {
@@ -405,7 +411,7 @@ async function expectApp(p: Profile, kind: 'starting' | 'quitting') {
 }
 
 async function launchApp(p: Profile): Promise<void> {
-  await launch.launchDesktop(p);
+  await launch.launchDesktop(p, !!data.settings.phoneAccess);
   const { failedToStart } = await expectApp(p, 'starting');
   if (failedToStart)
     throw new Error(
@@ -1137,7 +1143,13 @@ app.whenReady().then(async () => {
   void resumeInterruptedBuckets();
   // Asleep or locked, there is nobody to show numbers to.
   powerMonitor.on('suspend', () => pausePolling('sleep'));
-  powerMonitor.on('lock-screen', () => pausePolling('lock'));
+  powerMonitor.on('lock-screen', () => {
+    screenLocked = true;
+    pausePolling('lock');
+  });
+  powerMonitor.on('unlock-screen', () => {
+    screenLocked = false;
+  });
   powerMonitor.on('resume', () => void resumePolling('sleep'));
   powerMonitor.on('unlock-screen', () => void resumePolling('lock'));
   if (powerMonitor.getSystemIdleState(1) === 'locked') pollingPause.pause('lock');

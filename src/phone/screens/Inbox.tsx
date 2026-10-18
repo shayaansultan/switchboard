@@ -20,6 +20,7 @@ import {
   project,
   backgroundText,
 } from '../components/bits';
+import { PendingCard } from '../components/Control';
 import { Button } from '../components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
 import { sessionHref, useNow, type Link } from '../data';
@@ -184,7 +185,13 @@ export function Inbox({ overview, link }: { overview: Overview | undefined; link
       (prefs.inbox === 'all' || s.origin === 'desktop') &&
       (filter === 'all' || s.profileId === filter),
   );
-  const needs = visible.filter((s) => s.state === 'needs-you');
+  const shown = new Set(visible.map((s) => `${s.profileId}/${s.id}`));
+  // Requests the phone can answer, from the sessions on show; a session with
+  // one shows as that card, not twice.
+  const pending = overview.pending.filter((p) => shown.has(`${p.profileId}/${p.sessionId}`));
+  const asking = new Set(pending.map((p) => `${p.profileId}/${p.sessionId}`));
+  const titles = new Map(visible.map((s) => [`${s.profileId}/${s.id}`, s.title]));
+  const needs = visible.filter((s) => s.state === 'needs-you' && !asking.has(`${s.profileId}/${s.id}`));
   const working = visible.filter((s) => s.state === 'working' || s.state === 'waiting');
   const earlier = visible.filter((s) => s.state === 'finished' || s.state === 'stopped' || s.state === 'errored');
   const chips = overview.profiles.filter((p) => !prefs.hidden.includes(p.id));
@@ -221,9 +228,12 @@ export function Inbox({ overview, link }: { overview: Overview | undefined; link
         ))}
       </ToggleGroup>
 
-      {needs.length ? (
+      {needs.length || pending.length ? (
         <section className="flex flex-col gap-2">
           <SectionTitle tone="warn">Needs you</SectionTitle>
+          {pending.map((p) => (
+            <PendingCard key={p.id} pending={p} title={titles.get(`${p.profileId}/${p.sessionId}`)} />
+          ))}
           {needs.map((s) => (
             <NeedsCard key={s.profileId + s.id} s={s} profile={profiles.get(s.profileId)} now={now} />
           ))}

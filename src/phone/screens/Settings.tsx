@@ -1,6 +1,6 @@
 // Settings on the phone: the Mac it is paired with, its appearance and how
-// to show sessions (kept on this phone only), and unpairing. Notifications
-// join this screen when the Mac can send them.
+// to show sessions (kept on this phone only), notifications (Notifications.tsx),
+// and unpairing.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type * as React from 'react';
@@ -12,6 +12,7 @@ import { Switch } from '../components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group';
 import { useTRPC, type Link } from '../data';
 import { setPrefs, usePrefs, type Prefs } from '../prefs';
+import { NotificationSettings } from './Notifications';
 
 function Group({ children }: { children: React.ReactNode }) {
   return <div className="overflow-hidden rounded-2xl border border-border bg-card">{children}</div>;
@@ -146,6 +147,8 @@ export function Settings({ overview, link }: { overview: Overview | undefined; l
         </Group>
         <p className="m-0 text-xs text-muted-foreground">These stay on this phone.</p>
       </section>
+
+      <NotificationSettings />
 
       <section className="flex flex-col gap-2">
         <SectionTitle>This phone</SectionTitle>

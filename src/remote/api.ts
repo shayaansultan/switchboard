@@ -5,6 +5,10 @@
 // live-updates stream (EventSource cannot send headers). Scripts and tests
 // may send it as a bearer header instead.
 //
+// `reply` and `decide` reach the desktop apps through the control socket
+// (control.ts); `push` turns this phone's notifications on and off and says
+// which kinds it wants (push.ts).
+//
 // `live` is a server-sent-events subscription: it sends the overview at once,
 // then again whenever something the phone shows has changed. The hub decides
 // when to look (file events, plus a timer for app state and usage); this
@@ -15,7 +19,10 @@ import type { EventEmitter } from 'node:events';
 import type * as http from 'node:http';
 import { initTRPC, TRPCError } from '@trpc/server';
 import { z } from 'zod';
+import type { Vendor } from '../types';
+import type { Control } from './control';
 import type { Overview } from './hub';
+import { pushState, PushPrefs, publicKey, push, setPrefs, Subscription, subscribe, unsubscribe } from './push';
 import { authenticate, pair, revoke, type DeviceView } from './pairing';
 import type { Transcript } from './model';
 
@@ -69,10 +76,23 @@ export interface ApiDeps {
   transcript(profileId: string, sessionId: string, before: number | null): Transcript | null;
   // Emits 'change' when the overview may have changed.
   changes: EventEmitter;
+  // Absent when the hub runs without its control socket.
+  control?: Control;
+  vendorOf?(profileId: string): Vendor | null;
+  // A phone turned notifications on or off.
+  notificationsChanged?(): void;
+}
+
+// A control error as the phone reads it.
+function controlError(error: unknown): never {
+  const message = (error as Error).message;
+  const code = message === 'no-such-request' || message === 'not-reachable' ? 'NOT_FOUND' : 'BAD_REQUEST';
+  throw new TRPCError({ code, message });
 }
 
 // What the phone should hear about; generatedAt always differs.
-const fingerprint = (o: Overview): string => JSON.stringify({ p: o.profiles, s: o.sessions });
+const fingerprint = (o: Overview): string =>
+  JSON.stringify({ p: o.profiles, s: o.sessions, q: o.pending, r: o.reachable });
 
 export function createRouter(deps: ApiDeps) {
   return t.router({
@@ -93,6 +113,8 @@ export function createRouter(deps: ApiDeps) {
 
     unpair: paired.mutation(({ ctx }) => {
       revoke(ctx.device.id);
+      unsubscribe(ctx.device.id);
+      deps.notificationsChanged?.();
       ctx.setCookie(null);
       return { unpaired: true };
     }),
@@ -113,6 +135,89 @@ export function createRouter(deps: ApiDeps) {
         if (!transcript) throw new TRPCError({ code: 'NOT_FOUND', message: 'no-such-session' });
         return transcript;
       }),
+
+    // Types a reply into the session, as if at the Mac.
+    reply: paired
+      .input(
+        z.object({
+          profileId: z.string().min(1).max(200),
+          sessionId: z.string().min(1).max(200),
+          text: z.string().trim().min(1).max(20_000),
+        }),
+      )
+      .mutation(({ input }) => {
+        const vendor = deps.vendorOf?.(input.profileId);
+        if (!deps.control || !vendor) throw new TRPCError({ code: 'NOT_FOUND', message: 'not-reachable' });
+        try {
+          deps.control.reply(vendor, input.profileId, input.sessionId, input.text);
+        } catch (error) {
+          controlError(error);
+        }
+        return { sent: true };
+      }),
+
+    // Answers a request waiting on the person: an approval or a question.
+    decide: paired
+      .input(
+        z.object({
+          id: z.string().min(1).max(100),
+          choice: z.string().max(100).optional(),
+          answers: z.record(z.string().max(2000), z.array(z.string().max(2000)).max(20)).optional(),
+          // An MCP form's fields, by id.
+          form: z
+            .record(
+              z.string().max(200),
+              z.union([z.string().max(5000), z.number(), z.boolean(), z.array(z.string().max(500)).max(50)]),
+            )
+            .optional(),
+        }),
+      )
+      .mutation(({ input }) => {
+        if (!deps.control) throw new TRPCError({ code: 'NOT_FOUND', message: 'no-such-request' });
+        try {
+          deps.control.decide(
+            input.id,
+            input.answers ? { answers: input.answers } : { choice: input.choice ?? '', form: input.form },
+          );
+        } catch (error) {
+          controlError(error);
+        }
+        return { decided: true };
+      }),
+
+    push: t.router({
+      state: paired.query(({ ctx }) => ({ key: publicKey(), ...pushState(ctx.device.id) })),
+      subscribe: paired
+        .input(z.object({ subscription: Subscription, prefs: PushPrefs.optional() }))
+        .mutation(({ ctx, input }) => {
+          subscribe(ctx.device.id, input.subscription, input.prefs);
+          deps.notificationsChanged?.();
+          return pushState(ctx.device.id);
+        }),
+      prefs: paired.input(PushPrefs).mutation(({ ctx, input }) => {
+        if (!setPrefs(ctx.device.id, input)) throw new TRPCError({ code: 'NOT_FOUND', message: 'not-subscribed' });
+        return pushState(ctx.device.id);
+      }),
+      unsubscribe: paired.mutation(({ ctx }) => {
+        unsubscribe(ctx.device.id);
+        deps.notificationsChanged?.();
+        return pushState(ctx.device.id);
+      }),
+      // A notification to this phone alone, to show the setup works.
+      test: paired.mutation(async ({ ctx }) => {
+        const sent = await push(
+          {
+            kind: 'needs',
+            title: 'Switchboard',
+            body: 'Notifications from this Mac reach this phone.',
+            tag: 'test',
+            url: '#/settings',
+          },
+          { deviceId: ctx.device.id },
+        );
+        return { sent: sent > 0 };
+      }),
+    }),
 
     live: paired.subscription(async function* ({ signal }) {
       let last = '';
