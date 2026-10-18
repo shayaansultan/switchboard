@@ -331,7 +331,11 @@ export function startHub(options: {
       ...(ext === '.html' ? { 'content-security-policy': CSP } : {}),
     });
     if (req.method === 'HEAD') res.end();
-    else fs.createReadStream(file).pipe(res);
+    else
+      // A rebuild can remove the file after it was found.
+      fs.createReadStream(file)
+        .on('error', () => res.destroy())
+        .pipe(res);
   }
 
   // A picture or file a session refers to, by the signed id its transcript
@@ -354,16 +358,14 @@ export function startHub(options: {
       'content-security-policy': active ? HTML_POLICY : "default-src 'none'; sandbox",
       ...(active ? { 'x-frame-options': 'SAMEORIGIN' } : {}),
     });
-    if (req.method === 'HEAD') {
-      if ('destroy' in media.body) media.body.destroy();
-      return void res.end();
-    }
+    if (req.method === 'HEAD') return void res.end();
     if (Buffer.isBuffer(media.body)) res.end(media.body);
     else {
       // The file can vanish or fail after it was found; an error on the
       // stream would otherwise escape this handler.
-      media.body.on('error', () => res.destroy());
-      media.body.pipe(res);
+      const stream = media.body();
+      stream.on('error', () => res.destroy());
+      stream.pipe(res);
     }
   }
 

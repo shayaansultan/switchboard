@@ -98,7 +98,10 @@ export interface MediaBody {
   type: string;
   name: string;
   size: number;
-  body: Buffer | fs.ReadStream;
+  // A file on disk opens only when it is sent: a HEAD request, or a caller
+  // that only wanted its size, then holds no open stream whose error, from
+  // a file that vanished meanwhile, nobody would hear.
+  body: Buffer | (() => fs.ReadStream);
 }
 
 function readLine(file: string, offset: number): string | null {
@@ -148,7 +151,7 @@ export function readMedia(ref: MediaRef): MediaBody | null {
       type: TYPES[path.extname(ref.p).toLowerCase()] ?? 'application/octet-stream',
       name: path.basename(ref.p),
       size: st.size,
-      body: fs.createReadStream(ref.p),
+      body: () => fs.createReadStream(ref.p),
     };
   }
   let line: string | null;
