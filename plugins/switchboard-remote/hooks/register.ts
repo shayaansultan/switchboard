@@ -7,7 +7,9 @@
 // - A reply typed on the phone comes in as the person's own prompt
 //   ($.prompt.submit with asUser), a turn of its own once the session is
 //   idle. The plugin asks the hub for replies with a long poll.
-// - A tool call that would ask the person (tool.check settles on "ask") and
+// - A tool call that would ask the person (tool.check settles on "ask",
+//   from the session's mode rather than a settings rule, which a plugin may
+//   not lift) and
 //   a question the model puts to them (AskUserQuestion) go to the phone, but
 //   only while nobody is at the Mac: the hub says so. Holding the call is the
 //   only way to wait for the phone, and it keeps the desktop's own dialog
@@ -119,7 +121,16 @@ export const register: Register = (on) => {
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e);
     // Only what would ask the person; a question or a plan is theirs to see.
-    if (verdict.decision !== 'ask' || !link || e.tool === 'AskUserQuestion' || e.tool === 'ExitPlanMode')
+    // An ask a settings rule or hook made stays on the Mac: Claude Code does
+    // not let a plugin lift it, so the phone's answer would not count.
+    if (
+      verdict.decision !== 'ask' ||
+      !link ||
+      verdict.rule ||
+      verdict.hook ||
+      e.tool === 'AskUserQuestion' ||
+      e.tool === 'ExitPlanMode'
+    )
       return verdict;
     const decision = await viaPhone($, 'approval', e.tool, e.input, next.signal);
     if (!decision || !('choice' in decision)) return verdict;

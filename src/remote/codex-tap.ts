@@ -25,7 +25,9 @@ import { Transform, type TransformCallback, type Writable } from 'node:stream';
 const ASKS = new Set([
   'item/commandExecution/requestApproval',
   'item/fileChange/requestApproval',
+  'item/permissions/requestApproval',
   'item/tool/requestUserInput',
+  'mcpServer/elicitation/request',
 ]);
 const RETRY_MS = 5000;
 

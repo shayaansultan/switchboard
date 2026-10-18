@@ -163,12 +163,22 @@ export function createRouter(deps: ApiDeps) {
           id: z.string().min(1).max(100),
           choice: z.string().max(100).optional(),
           answers: z.record(z.string().max(2000), z.array(z.string().max(2000)).max(20)).optional(),
+          // An MCP form's fields, by id.
+          form: z
+            .record(
+              z.string().max(200),
+              z.union([z.string().max(5000), z.number(), z.boolean(), z.array(z.string().max(500)).max(50)]),
+            )
+            .optional(),
         }),
       )
       .mutation(({ input }) => {
         if (!deps.control) throw new TRPCError({ code: 'NOT_FOUND', message: 'no-such-request' });
         try {
-          deps.control.decide(input.id, input.answers ? { answers: input.answers } : { choice: input.choice ?? '' });
+          deps.control.decide(
+            input.id,
+            input.answers ? { answers: input.answers } : { choice: input.choice ?? '', form: input.form },
+          );
         } catch (error) {
           controlError(error);
         }

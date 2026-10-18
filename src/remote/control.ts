@@ -50,21 +50,37 @@ export interface Question {
   multi: boolean;
 }
 
-// What the phone shows for a request waiting on the person.
+// One field of a form an MCP server asks the person to fill in.
+export interface Field {
+  id: string;
+  label: string;
+  hint: string | null;
+  type: 'text' | 'number' | 'boolean' | 'choice' | 'multi';
+  options: Choice[];
+  required: boolean;
+  default: FieldValue | null;
+}
+export type FieldValue = string | number | boolean | string[];
+
+// What the phone shows for a request waiting on the person: an approval
+// (pick a choice), questions (pick or type answers), or a form from an MCP
+// server (fill in fields, or open a link, then pick a choice).
 export interface Pending {
   id: string;
   profileId: string;
   vendor: Vendor;
   sessionId: string;
-  kind: 'approval' | 'question';
+  kind: 'approval' | 'question' | 'form';
   title: string;
   detail: string;
   choices: Choice[];
   questions: Question[];
+  fields: Field[];
+  url: string | null;
   createdAt: string;
 }
 
-export type Decision = { choice: string } | { answers: Record<string, string[]> };
+export type Decision = { choice: string; form?: Record<string, FieldValue> } | { answers: Record<string, string[]> };
 
 type ClaudeCommand = { type: 'prompt'; text: string };
 type CodexCommand =
@@ -138,9 +154,10 @@ interface Held {
   pending: Pending;
   // Claude: the plugin's wait, answered with the decision or a release.
   waiter?: Waiter<ClaudeOutcome> | null;
-  // Codex: the engine's own request id, to answer it by.
+  // Codex: the engine's own request id, to answer it by, and what it asked.
   requestId?: string | number;
   method?: string;
+  params?: Record<string, unknown>;
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
@@ -194,25 +211,145 @@ const CODEX_APPROVAL: Choice[] = [
   { value: 'decline', label: 'Decline' },
 ];
 
+const CODEX_PERMISSIONS: Choice[] = [
+  { value: 'turn', label: 'Allow for this turn' },
+  { value: 'session', label: 'Allow for this session' },
+  { value: 'decline', label: 'Decline' },
+];
+
+// What a Codex permissions request asks for, in words.
+function permissionsText(params: Record<string, unknown>): string {
+  const p = obj(params.permissions);
+  const fs = obj(p.fileSystem);
+  const lines: string[] = [];
+  if (obj(p.network).enabled === true) lines.push('Network access');
+  const paths = (key: string) =>
+    Array.isArray(fs[key]) ? (fs[key] as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+  for (const path of paths('write')) lines.push(`Write ${path}`);
+  for (const path of paths('read')) lines.push(`Read ${path}`);
+  for (const e of Array.isArray(fs.entries) ? fs.entries : []) {
+    const entry = obj(e);
+    const where = obj(entry.path);
+    const target = str(where.path) ?? str(where.pattern) ?? str(where.value) ?? '';
+    const access = str(entry.access) ?? 'read';
+    lines.push(`${access === 'write' ? 'Write' : access === 'deny' ? 'No access to' : 'Read'} ${target}`);
+  }
+  const reason = str(params.reason);
+  return [...(reason ? [reason] : []), ...lines].join('\n');
+}
+
+// The fields of an MCP form, from its JSON schema (MCP elicitation's subset:
+// strings, numbers, booleans, single and multiple choices).
+function formFields(schema: unknown): Field[] | null {
+  const s = obj(schema);
+  const props = obj(s.properties);
+  const required = new Set(
+    Array.isArray(s.required) ? s.required.filter((x): x is string => typeof x === 'string') : [],
+  );
+  const fields: Field[] = [];
+  for (const [id, raw] of Object.entries(props)) {
+    const f = obj(raw);
+    const label = str(f.title) ?? id;
+    const hint = str(f.description);
+    const base = { id, label, hint, required: required.has(id) };
+    const titled = (list: unknown): Choice[] =>
+      (Array.isArray(list) ? list : []).map((o) => ({
+        value: str(obj(o).const) ?? '',
+        label: str(obj(o).title) ?? str(obj(o).const) ?? '',
+      }));
+    const plain = (list: unknown, names?: unknown): Choice[] =>
+      (Array.isArray(list) ? list : []).map((v, i) => ({
+        value: String(v),
+        label: Array.isArray(names) && typeof names[i] === 'string' ? (names[i] as string) : String(v),
+      }));
+    if (f.type === 'boolean')
+      fields.push({
+        ...base,
+        type: 'boolean',
+        options: [],
+        default: typeof f.default === 'boolean' ? f.default : null,
+      });
+    else if (f.type === 'number' || f.type === 'integer')
+      fields.push({ ...base, type: 'number', options: [], default: typeof f.default === 'number' ? f.default : null });
+    else if (f.type === 'array') {
+      const items = obj(f.items);
+      const options = Array.isArray(items.anyOf) ? titled(items.anyOf) : plain(items.enum);
+      fields.push({
+        ...base,
+        type: 'multi',
+        options,
+        default: Array.isArray(f.default) ? (f.default as string[]) : null,
+      });
+    } else if (f.type === 'string' && (Array.isArray(f.oneOf) || Array.isArray(f.enum)))
+      fields.push({
+        ...base,
+        type: 'choice',
+        options: Array.isArray(f.oneOf) ? titled(f.oneOf) : plain(f.enum, f.enumNames),
+        default: str(f.default),
+      });
+    else if (f.type === 'string') fields.push({ ...base, type: 'text', options: [], default: str(f.default) });
+    else return null;
+  }
+  return fields;
+}
+
+const MCP_FORM: Choice[] = [
+  { value: 'accept', label: 'Submit' },
+  { value: 'decline', label: 'Decline' },
+];
+const MCP_LINK: Choice[] = [
+  { value: 'accept', label: 'Done' },
+  { value: 'decline', label: 'Decline' },
+];
+
 function describeCodex(
   method: string,
   params: Record<string, unknown>,
 ): Omit<Pending, 'id' | 'profileId' | 'vendor' | 'sessionId' | 'createdAt'> | null {
+  const none = { questions: [], fields: [], url: null };
+  if (method === 'item/permissions/requestApproval')
+    return {
+      ...none,
+      kind: 'approval',
+      title: 'Get more access',
+      detail: permissionsText(params),
+      choices: CODEX_PERMISSIONS,
+    };
+  if (method === 'mcpServer/elicitation/request') {
+    const server = str(params.serverName) ?? 'A connector';
+    const message = str(params.message) ?? '';
+    if (params.mode === 'url' && str(params.url))
+      return {
+        ...none,
+        kind: 'form',
+        title: `${server} asks you to open a link`,
+        detail: message,
+        choices: MCP_LINK,
+        url: str(params.url),
+      };
+    if (params.mode === 'form' || params.mode === 'openai/form' || params.mode === 'openaiForm') {
+      const fields = formFields(params.requestedSchema);
+      // A form the phone cannot draw, or a device check, stays on the Mac.
+      if (!fields) return null;
+      return { ...none, kind: 'form', title: `${server} asks for details`, detail: message, choices: MCP_FORM, fields };
+    }
+    return null;
+  }
   if (method === 'item/commandExecution/requestApproval')
     return {
+      ...none,
       kind: 'approval',
       title: 'Run a command',
       detail: str(params.command) ?? '',
       choices: CODEX_APPROVAL,
-      questions: [],
     };
   if (method === 'item/fileChange/requestApproval')
     return {
+      ...none,
       kind: 'approval',
       title: 'Change files',
       detail: str(params.reason) ?? str(params.grantRoot) ?? 'Apply the proposed edits',
       choices: CODEX_APPROVAL,
-      questions: [],
     };
   if (method === 'item/tool/requestUserInput') {
     const questions = (Array.isArray(params.questions) ? params.questions : []).map((q, i) => {
@@ -229,9 +366,24 @@ function describeCodex(
     });
     // A secret answer is typed on the Mac.
     if ((Array.isArray(params.questions) ? params.questions : []).some((q) => obj(q).isSecret === true)) return null;
-    return { kind: 'question', title: 'A question for you', detail: '', choices: [], questions };
+    return { ...none, kind: 'question', title: 'A question for you', detail: '', choices: [], questions };
   }
   return null;
+}
+
+// The engine's answer for a decision, in the shape its request asked for.
+function codexResult(held: Held, decision: Decision): unknown {
+  if ('answers' in decision)
+    return { answers: Object.fromEntries(Object.entries(decision.answers).map(([q, a]) => [q, { answers: a }])) };
+  if (held.method === 'item/permissions/requestApproval')
+    return decision.choice === 'decline'
+      ? { permissions: {} }
+      : { permissions: obj(held.params?.permissions), scope: decision.choice };
+  if (held.method === 'mcpServer/elicitation/request')
+    return decision.choice === 'accept'
+      ? { action: 'accept', content: held.pending.url ? null : (decision.form ?? {}) }
+      : { action: decision.choice };
+  return { decision: decision.choice };
 }
 
 export interface ControlOptions {
@@ -285,7 +437,7 @@ export class Control {
     if (!held) throw new Error('no-such-request');
     const { pending } = held;
     if (
-      pending.kind === 'approval' &&
+      pending.kind !== 'question' &&
       !('choice' in decision && pending.choices.some((c) => c.value === decision.choice))
     )
       throw new Error('bad-choice');
@@ -294,11 +446,9 @@ export class Control {
     if (pending.vendor === 'claude') {
       this.settle(held, { status: 'decided', decision });
     } else {
-      const result =
-        'answers' in decision
-          ? { answers: Object.fromEntries(Object.entries(decision.answers).map(([q, a]) => [q, { answers: a }])) }
-          : { decision: decision.choice };
-      this.codex.get(pending.profileId)?.push({ type: 'answer', requestId: held.requestId!, result });
+      this.codex
+        .get(pending.profileId)
+        ?.push({ type: 'answer', requestId: held.requestId!, result: codexResult(held, decision) });
     }
     this.options.onChange();
   }
@@ -358,8 +508,15 @@ export class Control {
         if (!this.options.away()) return { route: 'desk' };
         const shown =
           ask.kind === 'question'
-            ? { title: 'A question for you', detail: '', choices: [], questions: claudeQuestions(ask.input) }
-            : { ...describeClaude(ask.tool, ask.input), choices: CLAUDE_ALLOW, questions: [] };
+            ? {
+                title: 'A question for you',
+                detail: '',
+                choices: [],
+                questions: claudeQuestions(ask.input),
+                fields: [],
+                url: null,
+              }
+            : { ...describeClaude(ask.tool, ask.input), choices: CLAUDE_ALLOW, questions: [], fields: [], url: null };
         const held = this.add({
           profileId: ask.profileId,
           vendor: 'claude',
@@ -417,7 +574,7 @@ export class Control {
         if (!shown || !threadId) return { ok: false };
         this.add(
           { profileId: req.profileId, vendor: 'codex', sessionId: threadId, ...shown },
-          { requestId: req.requestId, method: req.method },
+          { requestId: req.requestId, method: req.method, params: req.params },
         );
         return { ok: true };
       }

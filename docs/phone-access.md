@@ -141,6 +141,18 @@ phone ──reply / decide──▶ hub ◀──long poll── Claude plugin (
 - A profile's app has to be opened from Switchboard after phone access is
   turned on. One opened from the Dock can be read from the phone but not
   replied to, and the session screen says so.
+- Claude Desktop runs a session's engine, and with it the plugin, once the
+  session is used in that run of the app, and keeps it while the app is open.
+  After the app restarts, an older session can be replied to again once it
+  has been opened and used on the Mac. A Codex profile's whole thread list is
+  reachable as soon as the app is open.
+- An approval that Claude asks for because of an `ask` rule in your settings
+  stays on the Mac: Claude Code does not let a plugin lift a settings rule.
+  Approvals the session's mode asks for (Manual) go to the phone.
+- Codex also sends requests for more access (network, files outside the
+  workspace) and MCP prompts: forms the phone fills in, and links it opens.
+  Claude Code lets a plugin only refuse an MCP prompt, not fill it in, so
+  Claude's stay on the Mac.
 
 ## Notifications
 
@@ -193,9 +205,9 @@ mode 600.
 - Replying and approving need the profile's app opened from Switchboard with
   phone access on. A desktop app opened from the Dock still shows up here,
   because its session files are the same, but read-only.
-- Claude approvals reach the phone only while nobody is at the Mac. A Codex
-  approval that asks for wider permissions, and a question with a secret
-  answer, stay on the Mac.
+- Claude approvals reach the phone only while nobody is at the Mac, and
+  not when a settings rule asked for them. Claude's MCP prompts, a Codex
+  question with a secret answer and a Codex device check stay on the Mac.
 - Notifications need the Mac awake. A reply sent while a turn runs waits for
   it to end.
 - Session file formats belong to Anthropic and OpenAI and can change. The

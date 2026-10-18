@@ -8,9 +8,10 @@
 // shows on both, and whichever answers first wins.
 
 import { useMutation } from '@tanstack/react-query';
-import { ArrowUp } from 'lucide-react';
+import { ArrowUp, ExternalLink } from 'lucide-react';
 import { useState } from 'react';
-import type { Pending } from '../../remote/control';
+import type { Field, FieldValue, Pending } from '../../remote/control';
+import { Switch } from './ui/switch';
 import { cn } from '@/lib/cn';
 import { sessionHref, useTRPC } from '../data';
 import { Button } from './ui/button';
@@ -104,6 +105,110 @@ function Questions({ pending }: { pending: Pending }) {
   );
 }
 
+function FieldInput({ field, value, set }: { field: Field; value: FieldValue | undefined; set(v: FieldValue): void }) {
+  const box = 'h-10 rounded-xl border border-border bg-background px-3 text-[15px]';
+  if (field.type === 'boolean')
+    return <Switch checked={value === true} onCheckedChange={set} aria-label={field.label} />;
+  if (field.type === 'number')
+    return (
+      <input
+        type="number"
+        inputMode="decimal"
+        className={box}
+        value={typeof value === 'number' ? value : ''}
+        onChange={(e) => e.target.value !== '' && set(Number(e.target.value))}
+      />
+    );
+  if (field.type === 'choice' || field.type === 'multi') {
+    const picked = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
+    return (
+      <span className="flex flex-wrap gap-2">
+        {field.options.map((o) => {
+          const on = picked.includes(o.value);
+          return (
+            <button
+              key={o.value}
+              type="button"
+              aria-pressed={on}
+              onClick={() =>
+                set(
+                  field.type === 'multi' ? (on ? picked.filter((v) => v !== o.value) : [...picked, o.value]) : o.value,
+                )
+              }
+              className={cn(
+                'rounded-full border px-3 py-1.5 text-sm',
+                on ? 'border-primary bg-accent' : 'border-border',
+              )}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </span>
+    );
+  }
+  return <input className={box} value={typeof value === 'string' ? value : ''} onChange={(e) => set(e.target.value)} />;
+}
+
+// A form or a link from an MCP server.
+function Form({ pending }: { pending: Pending }) {
+  const decide = useDecide();
+  const [values, setValues] = useState<Record<string, FieldValue>>(() =>
+    Object.fromEntries(pending.fields.flatMap((f) => (f.default !== null ? [[f.id, f.default]] : []))),
+  );
+  const filled = (f: Field) => {
+    const v = values[f.id];
+    return v !== undefined && v !== '' && !(Array.isArray(v) && !v.length);
+  };
+  const ready = pending.fields.every((f) => !f.required || filled(f));
+  return (
+    <>
+      {pending.detail ? <span className="text-sm whitespace-pre-wrap">{pending.detail}</span> : null}
+      {pending.url ? (
+        <a
+          href={pending.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 self-start text-sm font-semibold text-foreground"
+        >
+          <ExternalLink size={14} aria-hidden />
+          {new URL(pending.url).host}
+        </a>
+      ) : null}
+      {pending.fields.map((f) => (
+        <label key={f.id} className="flex flex-col gap-1.5">
+          <span className="text-sm font-semibold">
+            {f.label}
+            {f.required ? '' : <span className="font-normal text-muted-foreground"> (optional)</span>}
+          </span>
+          {f.hint ? <span className="text-[12.5px] text-subtle">{f.hint}</span> : null}
+          <FieldInput field={f} value={values[f.id]} set={(v) => setValues((x) => ({ ...x, [f.id]: v }))} />
+        </label>
+      ))}
+      <span className="flex flex-wrap gap-2">
+        {pending.choices.map((c, i) => (
+          <Button
+            key={c.value}
+            size="sm"
+            variant={i === 0 ? 'default' : 'outline'}
+            disabled={decide.isPending || decide.isSuccess || (i === 0 && !ready)}
+            onClick={() =>
+              decide.mutate({
+                id: pending.id,
+                choice: c.value,
+                form: c.value === 'accept' && !pending.url ? values : undefined,
+              })
+            }
+          >
+            {c.label}
+          </Button>
+        ))}
+      </span>
+      <Outcome decide={decide} />
+    </>
+  );
+}
+
 function Outcome({ decide }: { decide: ReturnType<typeof useDecide> }) {
   if (decide.isSuccess) return <span className="text-[13px] text-run-text">Sent to your Mac</span>;
   if (decide.isError)
@@ -130,10 +235,16 @@ export function PendingCard({ pending, title }: { pending: Pending; title?: stri
           </a>
         ) : null}
         <span className="text-[13px] font-semibold text-warn-text">
-          {pending.kind === 'question' ? pending.title : `Wants to ${pending.title.toLowerCase()}`}
+          {pending.kind === 'approval' ? `Wants to ${pending.title.toLowerCase()}` : pending.title}
         </span>
       </span>
-      {pending.kind === 'question' ? <Questions pending={pending} /> : <Approval pending={pending} />}
+      {pending.kind === 'question' ? (
+        <Questions pending={pending} />
+      ) : pending.kind === 'form' ? (
+        <Form pending={pending} />
+      ) : (
+        <Approval pending={pending} />
+      )}
     </div>
   );
 }
@@ -154,7 +265,8 @@ export function Composer({
   if (!reachable)
     return (
       <div className="px-gutter pb-safe fixed inset-x-0 bottom-0 border-t border-border bg-background py-2.5 text-center text-xs text-muted-foreground">
-        To reply from here, open this profile from Switchboard while phone access is on.
+        Not reachable right now. Replies reach sessions the app has running, in profiles opened from Switchboard while
+        phone access is on.
       </div>
     );
   const send = () => {

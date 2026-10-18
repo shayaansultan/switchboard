@@ -233,3 +233,127 @@ test('a Codex question is answered by question id, and one with a secret answer 
   expect(control.pending()).toEqual([]);
   c.tap.stop();
 });
+
+test('a Codex request for more access is granted for the turn or the session, or declined with nothing', async () => {
+  const c = codex();
+  c.fromApp({ id: 'list:1', method: 'thread/list', params: {} });
+  await until(() => control.reachable().codex.includes('codex-work'));
+  const permissions = { network: { enabled: true }, fileSystem: { write: ['/Users/me/.cache'] } };
+  const ask = (id: number) => ({
+    method: 'item/permissions/requestApproval',
+    id,
+    params: {
+      threadId: 't1',
+      turnId: 'u',
+      itemId: 'i',
+      cwd: '/x',
+      startedAtMs: 0,
+      reason: 'Install packages',
+      permissions,
+    },
+  });
+  c.fromEngine(ask(11));
+  await until(() => control.pending().length === 1);
+  expect(control.pending()[0]).toMatchObject({
+    kind: 'approval',
+    title: 'Get more access',
+    detail: 'Install packages\nNetwork access\nWrite /Users/me/.cache',
+  });
+  control.decide(control.pending()[0].id, { choice: 'session' });
+  await until(() => c.toEngine().some((m) => m.id === 11));
+  expect(c.toEngine().find((m) => m.id === 11)).toEqual({ id: 11, result: { permissions, scope: 'session' } });
+
+  c.fromEngine(ask(12));
+  await until(() => control.pending().length === 1);
+  control.decide(control.pending()[0].id, { choice: 'decline' });
+  await until(() => c.toEngine().some((m) => m.id === 12));
+  expect(c.toEngine().find((m) => m.id === 12)).toEqual({ id: 12, result: { permissions: {} } });
+  c.tap.stop();
+});
+
+test('an MCP form is filled in on the phone, a link prompt is confirmed, and a device check stays on the Mac', async () => {
+  const c = codex();
+  c.fromApp({ id: 'list:1', method: 'thread/list', params: {} });
+  await until(() => control.reachable().codex.includes('codex-work'));
+  c.fromEngine({
+    method: 'mcpServer/elicitation/request',
+    id: 21,
+    params: {
+      threadId: 't1',
+      serverName: 'Linear',
+      mode: 'form',
+      message: 'Which team gets the issue?',
+      requestedSchema: {
+        type: 'object',
+        required: ['team'],
+        properties: {
+          team: {
+            type: 'string',
+            oneOf: [
+              { const: 'eng', title: 'Engineering' },
+              { const: 'ops', title: 'Operations' },
+            ],
+          },
+          urgent: { type: 'boolean', default: false },
+          estimate: { type: 'number', title: 'Estimate (days)' },
+          note: { type: 'string', description: 'Shown on the issue' },
+          labels: { type: 'array', items: { type: 'string', enum: ['bug', 'docs'] } },
+        },
+      },
+    },
+  });
+  await until(() => control.pending().length === 1);
+  const form = control.pending()[0];
+  expect(form).toMatchObject({ kind: 'form', title: 'Linear asks for details', detail: 'Which team gets the issue?' });
+  expect(form.fields.map((f) => [f.id, f.type, f.required])).toEqual([
+    ['team', 'choice', true],
+    ['urgent', 'boolean', false],
+    ['estimate', 'number', false],
+    ['note', 'text', false],
+    ['labels', 'multi', false],
+  ]);
+  expect(form.fields[0].options).toEqual([
+    { value: 'eng', label: 'Engineering' },
+    { value: 'ops', label: 'Operations' },
+  ]);
+  control.decide(form.id, { choice: 'accept', form: { team: 'ops', urgent: true, labels: ['bug'] } });
+  await until(() => c.toEngine().some((m) => m.id === 21));
+  expect(c.toEngine().find((m) => m.id === 21)).toEqual({
+    id: 21,
+    result: { action: 'accept', content: { team: 'ops', urgent: true, labels: ['bug'] } },
+  });
+
+  c.fromEngine({
+    method: 'mcpServer/elicitation/request',
+    id: 22,
+    params: {
+      threadId: 't1',
+      serverName: 'GitHub',
+      mode: 'url',
+      elicitationId: 'e',
+      message: 'Sign in',
+      url: 'https://github.com/login/device',
+    },
+  });
+  await until(() => control.pending().length === 1);
+  expect(control.pending()[0]).toMatchObject({ kind: 'form', url: 'https://github.com/login/device', fields: [] });
+  control.decide(control.pending()[0].id, { choice: 'accept' });
+  await until(() => c.toEngine().some((m) => m.id === 22));
+  expect(c.toEngine().find((m) => m.id === 22)).toEqual({ id: 22, result: { action: 'accept', content: null } });
+
+  c.fromEngine({
+    method: 'mcpServer/elicitation/request',
+    id: 23,
+    params: {
+      threadId: 't1',
+      serverName: 'X',
+      mode: 'openai/userVerification',
+      challenge: 'c',
+      title: 't',
+      description: 'd',
+    },
+  });
+  await new Promise((r) => setTimeout(r, 150));
+  expect(control.pending()).toEqual([]);
+  c.tap.stop();
+});
