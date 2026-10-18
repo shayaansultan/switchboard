@@ -62,7 +62,11 @@ manage what paired phones can see. Pairing codes and unpairing are the user's to
 hand a code to anyone else. Publishing on the tailnet is the user's `tailscale serve` command,
 which `remote status` prints; do not run it for them. Replying and approving happen on the
 phone itself; with phone access on, launch desktop profiles from Switchboard (`switchboard launch`)
-so the phone can reach their sessions. `remote notifications` lists what each phone is notified
+so the phone can reach their sessions. `remote status` lists running apps the phone can only watch
+(`unreachable`); `remote relaunch PROFILE` quits one and reopens it with the hook, which stops what
+it is running, so it is the user's to ask for. `settings set phoneDefaultClaude true` lets Default
+Claude take replies however it was opened, by adding two entries to `~/.claude/settings.json`; it
+is the user's choice, not a fix to apply for them. `remote notifications` lists what each phone is notified
 about; `remote notifications DEVICE_ID --kinds needs,finished,errored,limits`, `--sessions desktop|all`
 (whether terminal, IDE and scripted sessions notify; desktop only by default), `--off` and `--test`
 change one phone. A phone turns notifications on from its own Settings; changing or testing them is

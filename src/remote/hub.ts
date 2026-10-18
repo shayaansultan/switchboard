@@ -33,6 +33,8 @@ import { changes as noteChanges, emptyWatch, type Watch } from './notify';
 import { authenticate } from './pairing';
 import { anySubscribed, push } from './push';
 import { MAX_UPLOAD, saveUpload, sweepUploads } from './uploads';
+import type { Reach } from './reach';
+import { HOME } from '../store';
 import { SessionReader, watch, type ProfileHome, type SessionSummary } from './sessions';
 
 export const DEFAULT_PORT = 47821;
@@ -46,6 +48,9 @@ export interface HubProfile {
   // The name the phone shows: the profile's name, with its app added when
   // another profile has the same name (Default · Claude, Default · Codex).
   label: string;
+  // Whether the phone can act on its running app (reach.ts): null when the
+  // app is not running or phone access is off.
+  reach: Reach;
   vendor: Vendor;
   color: string;
   isDefault: boolean;
@@ -74,6 +79,8 @@ export interface HubSource {
   homes(): ProfileHome[];
   // Whether nobody is at the Mac (locked or idle). Without it, never.
   away?(): boolean;
+  // Quits a profile's app and opens it again with the phone's hook.
+  relaunch?(profileId: string): Promise<void>;
 }
 
 export interface Hub {
@@ -283,7 +290,12 @@ export function startHub(options: {
   const reader = new SessionReader();
   const signal = changeSignal(source);
   const away = () => source.away?.() ?? false;
-  const control = options.control === false ? undefined : new Control({ away, onChange: signal.emit });
+  // A Claude plugin that was not told its profile names its config dir.
+  const claudeProfile = (configDir: string | null) => {
+    const home = path.resolve(configDir || path.join(HOME, '.claude'));
+    return source.homes().find((h) => h.vendor === 'claude' && path.resolve(h.home) === home)?.id ?? null;
+  };
+  const control = options.control === false ? undefined : new Control({ away, onChange: signal.emit, claudeProfile });
   const look = () => overview(source, reader, control);
   const notes = notifier(look, signal.changes, away);
   sweepUploads();
@@ -293,6 +305,7 @@ export function startHub(options: {
     control,
     notificationsChanged: () => notes.sync(),
     vendorOf: (profileId) => source.profiles().find((p) => p.id === profileId)?.vendor ?? null,
+    relaunch: source.relaunch,
     transcript: (profileId, sessionId, before) => reader.transcript(source.homes(), profileId, sessionId, before),
     changes: signal.changes,
   });

@@ -175,7 +175,10 @@ pairing QR code with your phone. The phone app lists what needs you and what
 is working across every profile, each profile's usage, and each session's
 transcript with its steps, diffs and the PRs it opened. Reply in a session, answer its questions and
 approve its commands from the phone, and turn on notifications for when one needs you or finishes. It
-reads the session files the desktop apps already write, so the apps work exactly as before. Read
+reads the session files the desktop apps already write, so the apps work exactly as before. An app
+you opened from the Dock can be watched but not replied to until you relaunch it from the Phone tab
+or the phone; Default Claude can instead take replies however it was opened, with **Default Claude
+from the Dock** in the Phone tab. Read
 [Phone access](docs/phone-access.md) for setup and how it is secured.
 
 ## Keep the Mac awake

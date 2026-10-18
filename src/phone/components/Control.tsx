@@ -3,7 +3,9 @@
 // answer, and the reply box at the foot of a session.
 //
 // A reply needs the session's app to have been launched by Switchboard with
-// phone access on; the hub says which sessions it can reach. A Claude
+// phone access on; the hub says which sessions it can reach. When the app is
+// running without that hook (opened from the Dock), the reply box offers to
+// relaunch it, after a second tap, because quitting stops what it is doing. A Claude
 // approval reaches the phone only while nobody is at the Mac; a Codex one
 // shows on both, and whichever answers first wins.
 
@@ -12,10 +14,47 @@ import { ArrowUp, ClipboardPaste, ExternalLink, FileText, ImageIcon, Plus, X } f
 import { useEffect, useRef, useState } from 'react';
 import type { Field, FieldValue, Pending } from '../../remote/control';
 import type { EntryOf } from '../../remote/model';
+import type { Reach } from '../../remote/reach';
 import { Switch } from './ui/switch';
 import { cn } from '@/lib/cn';
 import { sessionHref, useTRPC } from '../data';
 import { Button } from './ui/button';
+
+// The app is running but was opened without the phone's hook. Relaunching
+// quits it and opens it again from Switchboard; the first tap only asks.
+function Relaunch({ profileId, app }: { profileId: string; app: string }) {
+  const trpc = useTRPC();
+  const [asking, setAsking] = useState(false);
+  const relaunch = useMutation(trpc.relaunch.mutationOptions({ onSettled: () => setAsking(false) }));
+  if (relaunch.isPending) return <p className="m-0 py-2">Relaunching {app}…</p>;
+  if (!asking)
+    return (
+      <div className="grid gap-2">
+        <p className="m-0">
+          {relaunch.isSuccess
+            ? `${app} is reopening. Replies work once it is back.`
+            : `${app} was opened outside Switchboard, so the phone can only watch it.`}
+        </p>
+        {relaunch.isSuccess ? null : (
+          <Button variant="outline" onClick={() => setAsking(true)}>
+            Relaunch {app} for phone control
+          </Button>
+        )}
+        {relaunch.error ? <p className="m-0 text-destructive">{relaunch.error.message}</p> : null}
+      </div>
+    );
+  return (
+    <div className="grid gap-2">
+      <p className="m-0 text-foreground">Quit {app} and open it again? Anything it is running now stops.</p>
+      <div className="grid grid-cols-2 gap-2">
+        <Button variant="outline" onClick={() => setAsking(false)}>
+          Cancel
+        </Button>
+        <Button onClick={() => relaunch.mutate({ profileId })}>Relaunch</Button>
+      </div>
+    </div>
+  );
+}
 
 function useDecide() {
   const trpc = useTRPC();
@@ -353,11 +392,16 @@ export function Composer({
   profileId,
   sessionId,
   reachable,
+  reach,
+  app,
   problem,
 }: {
   profileId: string;
   sessionId: string;
   reachable: boolean;
+  // Whether the profile's running app has the phone's hook, and its name.
+  reach: Reach;
+  app: string;
   // Why the last reply did not go through, when the app said so.
   problem: string | null;
 }) {
@@ -475,8 +519,19 @@ export function Composer({
         }}
         className="px-gutter pb-safe fixed inset-x-0 bottom-0 border-t border-border bg-background py-2.5 text-center text-xs text-muted-foreground"
       >
-        Not reachable right now. Replies reach sessions the app has running, in profiles opened from Switchboard while
-        phone access is on.
+        {reach === 'relaunch' ? (
+          <Relaunch profileId={profileId} app={app} />
+        ) : reach === 'ready' ? (
+          <>
+            {app} is ready for the phone, but this session is not running in it. Use it once on the Mac and replies will
+            reach it.
+          </>
+        ) : (
+          <>
+            Not reachable right now. Replies reach sessions the app has running, in profiles opened from Switchboard
+            while phone access is on.
+          </>
+        )}
       </div>
     );
 

@@ -38,6 +38,8 @@ import { resetsIn } from './shared/time';
 import { DEFAULT_PORT, startHub, type Hub, type HubProfile, type HubSource } from './remote/hub';
 import { clearHubStatus, pairing, phoneStatus, writeHubStatus } from './remote/status';
 import { revoke as revokeDevice } from './remote/pairing';
+import { controlSocket } from './remote/control';
+import { defaultClaudeLinked, hookedApps, linkDefaultClaude, reachOf, unlinkDefaultClaude } from './remote/reach';
 import type {
   AppState,
   CliStatus,
@@ -292,13 +294,47 @@ const hubSource: HubSource = {
         plan: l.usage?.plan ?? l.identity?.plan ?? null,
         app: l.app ?? null,
         windows: (l.usage?.windows ?? []).map((w) => ({ label: w.label, pct: w.pct, resetsAt: w.resetsAt })),
+        reach: reachOf(p, appHooks.get(p.id), !!data.settings.phoneAccess),
       };
     }),
   homes: () => data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, home: profiles.dirs(p).home })),
   // Approvals go to the phone while nobody is at the Mac: the screen is
   // locked, or there has been no input for AWAY_IDLE_S.
   away: () => screenLocked || powerMonitor.getSystemIdleTime() >= AWAY_IDLE_S,
+  relaunch: (profileId) => {
+    const p = data.profiles.find((x) => x.id === profileId);
+    if (!p) return Promise.reject(new Error('No such profile'));
+    return relaunchForPhone(p);
+  },
 };
+
+// Quits a profile's app and opens it again with the phone's hook, for an app
+// opened from the Dock or before phone access was on.
+async function relaunchForPhone(p: Profile): Promise<void> {
+  if (!data.settings.phoneAccess) throw new Error('Turn on phone access first');
+  const label = profiles.VENDORS[p.vendor].label;
+  if (launch.instanceFor(p, await launch.runningInstances())) {
+    await quitApp(p);
+    if (launch.instanceFor(p, await launch.runningInstances()))
+      throw new Error(`${label} for "${p.name}" did not quit. Quit it on the Mac, then open it from Switchboard.`);
+  }
+  await launchApp(p);
+}
+
+// Default Claude's settings entry follows the setting and phone access; any
+// other time the file is left alone. A failure is shown in the Phone tab.
+let defaultClaudeError: string | null = null;
+function syncDefaultClaude(): void {
+  const plugin = launch.remotePlugin();
+  try {
+    if (data.settings.phoneAccess && data.settings.phoneDefaultClaude && plugin)
+      linkDefaultClaude(plugin, controlSocket());
+    else if (defaultClaudeLinked()) unlinkDefaultClaude();
+    defaultClaudeError = null;
+  } catch (error) {
+    defaultClaudeError = (error as Error).message;
+  }
+}
 
 const AWAY_IDLE_S = 60;
 let screenLocked = false;
@@ -307,6 +343,7 @@ function applyPhoneAccess(): Promise<void> {
   // A lock pause was taken while phone access was off; with it on, the
   // phone needs fresh numbers even while the Mac is locked.
   if (data.settings.phoneAccess) void resumePolling('lock');
+  syncDefaultClaude();
   phoneAccessChange = phoneAccessChange.then(async () => {
     const port = data.settings.phoneAccess ? (data.settings.phonePort ?? DEFAULT_PORT) : null;
     if (hub && hub.port === port) return;
@@ -362,6 +399,12 @@ function desktopSupport(): DesktopSupport {
   return { helper: !!helper, accessibility };
 }
 
+// Each running profile's app process, from the last look, for whether the
+// phone can reach it (remote/reach.ts).
+// Whether each running app carries the phone's hook (src/remote/reach.ts),
+// by profile id; read only while phone access is on.
+let appHooks = new Map<string, boolean | null>();
+
 // Returns whether anything changed. A failed `ps` keeps the last answer
 // rather than calling every app off; a failed window count only loses the
 // distinction between running and background.
@@ -384,6 +427,11 @@ async function refreshRunning(): Promise<boolean> {
       for (const [id, pid] of pids) if (counts.get(pid) === 0) windowless.add(id);
     }
   } else accessibility = 'off';
+  const running = data.profiles.flatMap((p) =>
+    pids.has(p.id) ? [{ id: p.id, pid: pids.get(p.id)!, vendor: p.vendor }] : [],
+  );
+  const hooks = data.settings.phoneAccess ? await hookedApps(running) : new Map<number, boolean | null>();
+  appHooks = new Map(running.map((r) => [r.id, hooks.get(r.pid) ?? null]));
   const changed = appStates.observe(alive, windowless);
   applyAppStates();
   return changed || before !== accessibility;
@@ -1078,11 +1126,17 @@ ipcMain.handle('cli:install', () => {
 });
 ipcMain.handle('remote:status', async () => {
   await phoneAccessChange;
-  return phoneStatus(data.settings);
+  const status = await phoneStatus(data.settings, data.profiles);
+  return { ...status, defaultClaude: { ...status.defaultClaude, error: defaultClaudeError } };
 });
 ipcMain.handle('remote:pair', () => pairing());
 ipcMain.handle('remote:unpair', (_e, id: unknown) => {
   revokeDevice(z.string().min(1).parse(id));
+});
+ipcMain.handle('remote:relaunch', async (_e, id: unknown) => {
+  const p = data.profiles.find((x) => x.id === z.string().min(1).parse(id));
+  if (!p) throw new Error('No such profile');
+  await relaunchForPhone(p);
 });
 ipcMain.handle('profiles:move', (_e, id: string, delta: number) => {
   const moved = mutate(() => profiles.move(data, id, delta));
