@@ -88,7 +88,7 @@ function Questions({ pending }: { pending: Pending }) {
             value={typed[q.id] ?? ''}
             onChange={(e) => setTyped((t) => ({ ...t, [q.id]: e.target.value }))}
             placeholder={q.options.length ? 'Or type an answer' : 'Your answer'}
-            className="h-10 rounded-xl border border-border bg-background px-3 text-[15px]"
+            className="h-10 rounded-xl border border-border bg-background px-3"
           />
         </div>
       ))}
@@ -106,7 +106,7 @@ function Questions({ pending }: { pending: Pending }) {
 }
 
 function FieldInput({ field, value, set }: { field: Field; value: FieldValue | undefined; set(v: FieldValue): void }) {
-  const box = 'h-10 rounded-xl border border-border bg-background px-3 text-[15px]';
+  const box = 'h-10 rounded-xl border border-border bg-background px-3';
   if (field.type === 'boolean')
     return <Switch checked={value === true} onCheckedChange={set} aria-label={field.label} />;
   if (field.type === 'number')
@@ -287,7 +287,7 @@ export function Composer({
           rows={1}
           placeholder="Reply"
           aria-label="Reply"
-          className="field-sizing-content max-h-40 min-h-11 flex-1 resize-none rounded-[22px] border border-border bg-card px-4 py-2.5 text-[15px]"
+          className="field-sizing-content max-h-40 min-h-11 flex-1 resize-none rounded-[22px] border border-border bg-card px-4 py-2.5"
         />
         <Button
           type="submit"

@@ -55,6 +55,13 @@
   * {
     border-color: var(--line);
   }
+  /* iOS zooms the page into a field whose text is under 16px and leaves it
+     zoomed, so fields never go below 16px, whatever the text size setting. */
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1rem);
+  }
   html {
     -webkit-text-size-adjust: 100%;
     -webkit-tap-highlight-color: transparent;
