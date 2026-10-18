@@ -1,21 +1,22 @@
 // The notifications part of Settings. Turning them on asks iOS for
 // permission, subscribes this phone's service worker with the Mac's public
 // key, and hands the subscription to the Mac, which sends from then on
-// (src/remote/push.ts). Which kinds this phone hears about are kept on the
-// Mac, beside the subscription, because the Mac decides when to send.
+// (src/remote/push.ts). Which kinds this phone hears about, and whether
+// sessions outside the desktop apps count, are kept on the Mac beside the
+// subscription, because the Mac decides when to send.
 //
 // iOS only lets a web app add notifications once it is on the Home Screen,
 // and only from a tap, so the button is the only way in.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import type { PushPrefs } from '../../remote/push';
+import type { NoteKind } from '../../remote/push';
 import { Button } from '../components/ui/button';
 import { Switch } from '../components/ui/switch';
 import { SectionTitle } from '../components/bits';
 import { useTRPC } from '../data';
 
-const KINDS: [keyof PushPrefs, string, string][] = [
+const KINDS: [NoteKind, string, string][] = [
   ['needs', 'Needs you', 'A question or an approval is waiting'],
   ['finished', 'Long sessions finishing', 'After five minutes or more of work'],
   ['errored', 'Errors', 'A session stopped with an error'],
@@ -155,6 +156,22 @@ export function NotificationSettings() {
                 </label>
               </Row>
             ))}
+            <Row>
+              <label className="flex items-center justify-between gap-3">
+                <span className="flex flex-col">
+                  <span className="font-medium">All sessions</span>
+                  <span className="text-xs text-muted-foreground">
+                    Also terminal, IDE and scripted runs, which agents often start. Off, only desktop sessions notify.
+                  </span>
+                </span>
+                <Switch
+                  checked={state.data!.prefs.allSessions}
+                  disabled={prefs.isPending}
+                  onCheckedChange={(v) => prefs.mutate({ ...state.data!.prefs, allSessions: v })}
+                  aria-label="All sessions"
+                />
+              </label>
+            </Row>
             <Row>
               <span className="flex gap-2">
                 <Button variant="outline" className="flex-1" onClick={() => test.mutate()} disabled={test.isPending}>

@@ -11,7 +11,7 @@
 import { dirs, save } from '../store';
 import { DEFAULT_PORT } from '../remote/hub';
 import { listDevices, revoke } from '../remote/pairing';
-import { NoteKind, push, pushState, setPrefs, unsubscribe, type PushPrefs } from '../remote/push';
+import { NoteKind, push, pushState, setPrefs, unsubscribe } from '../remote/push';
 import { SessionReader } from '../remote/sessions';
 import { pairing, phoneStatus, serveCommand } from '../remote/status';
 import type { Context } from './context';
@@ -79,16 +79,24 @@ export async function remoteCommand(rest: string[], ctx: Context): Promise<void>
     case 'notifications': {
       const { values, positionals } = parse(args, {
         kinds: { type: 'string' },
+        sessions: { type: 'string' },
         off: { type: 'boolean' },
         test: { type: 'boolean' },
       });
       const devices = listDevices();
       const view = (d: (typeof devices)[number]) => {
         const state = pushState(d.id);
-        return { id: d.id, name: d.name, on: state.on, kinds: NoteKind.options.filter((k) => state.prefs[k]) };
+        return {
+          id: d.id,
+          name: d.name,
+          on: state.on,
+          kinds: NoteKind.options.filter((k) => state.prefs[k]),
+          // Desktop sessions only, or terminal, IDE and scripted runs too.
+          sessions: state.prefs.allSessions ? 'all' : 'desktop',
+        };
       };
       if (!positionals[0]) {
-        if (values.kinds || values.off || values.test)
+        if (values.kinds || values.sessions || values.off || values.test)
           throw usageError('Name the phone: switchboard remote notifications DEVICE_ID ...');
         ctx.out.result({ phones: devices.map(view) });
         return;
@@ -96,7 +104,7 @@ export async function remoteCommand(rest: string[], ctx: Context): Promise<void>
       const device = devices.find((d) => d.id === positionals[0]);
       if (!device) throw notFound('no-such-device', `No paired device ${positionals[0]}`, 'switchboard remote devices');
       if (values.off) unsubscribe(device.id);
-      else if (values.kinds !== undefined || values.test) {
+      else if (values.kinds !== undefined || values.sessions !== undefined || values.test) {
         if (!pushState(device.id).on)
           throw refused('not-on', 'Notifications are off on that phone; turn them on in its Settings first');
         if (values.kinds !== undefined) {
@@ -106,7 +114,15 @@ export async function remoteCommand(rest: string[], ctx: Context): Promise<void>
             .filter(Boolean);
           const bad = asked.filter((k) => !NoteKind.options.includes(k as NoteKind));
           if (bad.length) throw usageError(`Unknown kinds: ${bad.join(', ')}. Kinds: ${NoteKind.options.join(', ')}`);
-          setPrefs(device.id, Object.fromEntries(NoteKind.options.map((k) => [k, asked.includes(k)])) as PushPrefs);
+          setPrefs(device.id, {
+            ...pushState(device.id).prefs,
+            ...(Object.fromEntries(NoteKind.options.map((k) => [k, asked.includes(k)])) as Record<NoteKind, boolean>),
+          });
+        }
+        if (values.sessions !== undefined) {
+          if (values.sessions !== 'desktop' && values.sessions !== 'all')
+            throw usageError('--sessions must be desktop or all');
+          setPrefs(device.id, { ...pushState(device.id).prefs, allSessions: values.sessions === 'all' });
         }
         if (values.test) {
           const sent = await push(
