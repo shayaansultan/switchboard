@@ -1,6 +1,8 @@
 // When the Mac tells a phone something happened. The hub compares each new
 // overview with the one before and turns the changes worth a buzz into
-// notes; push.ts sends each note to the phones that want its kind.
+// notes; push.ts sends each note to the phones that want its kind, and for
+// a session outside the desktop apps, only to phones that asked for all
+// sessions.
 //
 // Only changes count, never a state the first look found: starting the app
 // does not replay everything that already needs you. A session that appears
@@ -62,7 +64,7 @@ export function changes(
     // A session first seen after startup counts only for what needs a look.
     if (!before && s.state !== 'needs-you' && s.state !== 'errored') continue;
     const who = label.get(s.profileId) ?? s.profileId;
-    const base = { tag: key, url: route(s.profileId, s.id) };
+    const base = { tag: key, url: route(s.profileId, s.id), origin: s.origin };
     if (s.state === 'needs-you')
       notes.push({ ...base, kind: 'needs', title: s.title, body: `${who} asks: ${s.needs ?? 'a question for you'}` });
     else if (s.state === 'errored')
@@ -81,16 +83,20 @@ export function changes(
       });
   }
 
+  const origin = new Map(overview.sessions.map((s) => [`${s.profileId}/${s.id}`, s.origin]));
   for (const a of asking) {
     next.asked.add(a.id);
     if (first || watch.asked.has(a.id)) continue;
     const who = label.get(a.profileId) ?? a.profileId;
+    const key = `${a.profileId}/${a.sessionId}`;
     notes.push({
       kind: 'needs',
       title: a.title,
       body: `${who} is waiting for you`,
-      tag: `${a.profileId}/${a.sessionId}`,
+      tag: key,
       url: route(a.profileId, a.sessionId),
+      // A session not listed yet is new; the desktop apps are where requests come from.
+      origin: origin.get(key) ?? 'desktop',
     });
   }
 

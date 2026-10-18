@@ -110,7 +110,7 @@ test('a note goes to the phones that want its kind; a gone subscription and an u
   if (!a.ok || !b.ok) throw new Error('pairing failed');
   subscribe(a.device.id, sub(1));
   subscribe(b.device.id, sub(2));
-  setPrefs(b.device.id, { needs: true, finished: false, errored: true, limits: false });
+  setPrefs(b.device.id, { needs: true, finished: false, errored: true, limits: false, allSessions: false });
 
   const sent: string[] = [];
   const ok: Sender = async (s) => (sent.push(s.endpoint), 201);
@@ -154,4 +154,57 @@ test('what the push service carries is encrypted for the phone, and the phone re
     authSecret: auth.toString('base64url'),
   });
   expect(JSON.parse(plain.toString('utf8'))).toEqual(note);
+});
+
+test('a note says where its session runs; a request for a session not listed yet counts as desktop', () => {
+  const cli = session('working', { id: 's2', origin: 'cli' });
+  let w = changes(emptyWatch(), overview([cli]), [], 0, true);
+  w = changes(w.watch, overview([{ ...cli, state: 'errored' }]), [], 1);
+  expect(w.notes).toMatchObject([{ kind: 'errored', origin: 'cli' }]);
+  const asking = [{ id: 'r9', profileId: 'claude-work', sessionId: 'new', title: 'Run a command' }];
+  expect(changes(w.watch, overview([]), asking, 2).notes).toMatchObject([{ kind: 'needs', origin: 'desktop' }]);
+});
+
+test('sessions outside the desktop apps reach only phones that asked for all sessions', async () => {
+  const a = pair(newCode().code, 'Desktop only');
+  const b = pair(newCode().code, 'Everything');
+  if (!a.ok || !b.ok) throw new Error('pairing failed');
+  subscribe(a.device.id, sub(1));
+  subscribe(b.device.id, sub(2), { needs: true, finished: true, errored: true, limits: true, allSessions: true });
+  expect(pushState(a.device.id).prefs.allSessions).toBe(false);
+
+  const sent: string[] = [];
+  const ok: Sender = async (s) => (sent.push(s.endpoint), 201);
+  const to = async (n: Note) => {
+    sent.length = 0;
+    await push(n, { sender: ok });
+    return [...sent].sort();
+  };
+  const both = ['https://push.example.com/1', 'https://push.example.com/2'];
+  // A `claude -p` an agent started, finishing and erroring.
+  expect(await to({ ...note, origin: 'cli' })).toEqual(['https://push.example.com/2']);
+  expect(await to({ ...note, kind: 'errored', origin: 'exec' })).toEqual(['https://push.example.com/2']);
+  expect(await to({ ...note, origin: 'desktop' })).toEqual(both);
+  // A profile running low is about no session.
+  setPrefs(a.device.id, { ...pushState(a.device.id).prefs, limits: true });
+  expect(await to({ ...note, kind: 'limits' })).toEqual(both);
+  // Asking for all sessions later takes effect at once.
+  setPrefs(a.device.id, { ...pushState(a.device.id).prefs, allSessions: true });
+  expect(await to({ ...note, origin: 'ide' })).toEqual(both);
+});
+
+test('a push.json written before the setting existed keeps its phones, desktop only', () => {
+  const a = pair(newCode().code, 'Old phone');
+  if (!a.ok) throw new Error('pairing failed');
+  subscribe(a.device.id, sub(1));
+  const file = `${remoteDir()}/push.json`;
+  const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const keys = stored.keys;
+  delete stored.phones[0].prefs.allSessions;
+  fs.writeFileSync(file, JSON.stringify(stored));
+  expect(pushState(a.device.id)).toEqual({
+    on: true,
+    prefs: { needs: true, finished: true, errored: true, limits: false, allSessions: false },
+  });
+  expect(JSON.parse(fs.readFileSync(file, 'utf8')).keys).toEqual(keys);
 });

@@ -163,6 +163,36 @@ try {
     await phone.getByRole('heading', { name: 'Settings' }).waitFor();
     await phone.getByText('Test phone').waitFor();
     await phone.screenshot({ path: path.join(output, 'phone-settings.png') });
+
+    // Notifications. This browser has no push service, so a subscription is
+    // stood in on both sides, the Mac's record of it and the browser's own,
+    // with the permission it would need.
+    const endpoint = 'https://push.example.com/demo';
+    await context.request.post(`http://localhost:${port}/api/trpc/push.subscribe`, {
+      data: { subscription: { endpoint, keys: { p256dh: 'p', auth: 'a' } } },
+    });
+    // Headless Chromium also answers "denied" for notifications.
+    await phone.addInitScript((endpoint) => {
+      Object.defineProperty(Notification, 'permission', { get: () => 'granted' });
+      PushManager.prototype.getSubscription = async () => ({
+        endpoint,
+        unsubscribe: async () => true,
+        toJSON: () => ({ endpoint, keys: { p256dh: 'p', auth: 'a' } }),
+      });
+    }, endpoint);
+    await phone.reload();
+    const allSessions = phone.getByRole('switch', { name: 'All sessions' });
+    await allSessions.waitFor();
+    // Desktop sessions only until the phone asks for more.
+    assert.equal((await api('push.state')).prefs.allSessions, false);
+    assert.equal(await allSessions.getAttribute('aria-checked'), 'false');
+    await allSessions.click();
+    for (let i = 0; i < 50 && !(await api('push.state')).prefs.allSessions; i++) await phone.waitForTimeout(100);
+    assert.equal((await api('push.state')).prefs.allSessions, true);
+    // Only the section: the rest of Settings names this Mac.
+    await phone
+      .locator('section', { has: phone.getByRole('switch', { name: 'All sessions' }) })
+      .screenshot({ path: path.join(output, 'phone-notifications.png') });
     await phone.goto(`http://localhost:${port}/#/s/codex-demo/thread-1`);
     await phone.getByText('Tests pass. Wiring the toggle into the header next.').waitFor();
     await phone.screenshot({ path: path.join(output, 'phone-session.png') });

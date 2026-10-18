@@ -176,6 +176,14 @@ What triggers one (`src/remote/notify.ts`), each a switch in Settings:
 Only changes count: turning the app on does not replay what already needs
 you. Notifications for one session replace each other.
 
+Subagents never notify on their own: neither app lists them as sessions,
+and a session stays working while its background subagents run, so it
+notifies once when the whole job ends. Separate runs that an agent or a
+script starts, like `claude -p` or `codex exec`, are sessions of their own,
+started outside the desktop apps. Those notify only with **All sessions**
+on in the phone's notification settings (off by default), the same split
+the inbox makes between desktop sessions and all sessions.
+
 ## From a terminal
 
 ```bash
@@ -186,6 +194,7 @@ switchboard remote devices
 switchboard remote unpair DEVICE_ID  # or --all --yes
 switchboard remote notifications     # what each phone is notified about
 switchboard remote notifications DEVICE_ID --kinds needs,errored   # or --off, --test
+switchboard remote notifications DEVICE_ID --sessions all   # terminal and scripted runs too; desktop is the default
 switchboard remote sessions --working --human
 switchboard remote session PROFILE SESSION_ID
 ```

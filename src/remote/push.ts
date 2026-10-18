@@ -10,12 +10,16 @@
 // paired devices, so unpairing a phone drops its subscription too.
 //
 // What each phone hears about is its own choice, stored here with its
-// subscription: the Mac decides when to send (notify.ts).
+// subscription: the Mac decides when to send (notify.ts). That is which
+// kinds, and whether sessions outside the desktop apps count too: runs in a
+// terminal, an IDE or a script, which agents start often and the phone's
+// inbox hides by default. Off, only desktop sessions buzz.
 
 import * as path from 'node:path';
 import webpush from 'web-push';
 import { z } from 'zod';
 import { readJson, writeJson } from '../storage';
+import type { Origin } from './model';
 import { listDevices, remoteDir } from './pairing';
 
 export const NoteKind = z.enum(['needs', 'finished', 'errored', 'limits']);
@@ -26,9 +30,17 @@ export const PushPrefs = z.object({
   finished: z.boolean(),
   errored: z.boolean(),
   limits: z.boolean(),
+  // Missing in a push.json written before it existed: desktop only.
+  allSessions: z.boolean().default(false),
 });
 export type PushPrefs = z.infer<typeof PushPrefs>;
-export const DEFAULT_PREFS: PushPrefs = { needs: true, finished: true, errored: true, limits: false };
+export const DEFAULT_PREFS: PushPrefs = {
+  needs: true,
+  finished: true,
+  errored: true,
+  limits: false,
+  allSessions: false,
+};
 
 export const Subscription = z.object({
   endpoint: z.url().max(2000),
@@ -115,7 +127,12 @@ export interface Note {
   tag: string;
   // Where tapping it opens, a route in the phone app.
   url: string;
+  // Where the session runs; none for a note about a profile.
+  origin?: Origin;
 }
+
+const wants = (prefs: PushPrefs, note: Note): boolean =>
+  prefs[note.kind] && (prefs.allSessions || !note.origin || note.origin === 'desktop');
 
 // The push service's answer for each phone; a gone subscription is dropped.
 export type Sender = (subscription: z.infer<typeof Subscription>, payload: string) => Promise<number>;
@@ -131,11 +148,11 @@ const send: Sender = async (subscription, payload) => {
   return result.statusCode;
 };
 
-// Sends `note` to every phone that wants its kind (or only `deviceId`).
+// Sends `note` to every phone that wants it (or only `deviceId`).
 // Returns how many push services accepted it.
 export async function push(note: Note, options: { deviceId?: string; sender?: Sender } = {}): Promise<number> {
   const sender = options.sender ?? send;
-  const targets = phones().filter((p) => (options.deviceId ? p.deviceId === options.deviceId : p.prefs[note.kind]));
+  const targets = phones().filter((p) => (options.deviceId ? p.deviceId === options.deviceId : wants(p.prefs, note)));
   const gone: string[] = [];
   let sent = 0;
   await Promise.all(

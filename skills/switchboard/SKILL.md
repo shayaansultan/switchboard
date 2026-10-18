@@ -63,7 +63,8 @@ hand a code to anyone else. Publishing on the tailnet is the user's `tailscale s
 which `remote status` prints; do not run it for them. Replying and approving happen on the
 phone itself; with phone access on, launch desktop profiles from Switchboard (`switchboard launch`)
 so the phone can reach their sessions. `remote notifications` lists what each phone is notified
-about; `remote notifications DEVICE_ID --kinds needs,finished,errored,limits`, `--off` and `--test`
+about; `remote notifications DEVICE_ID --kinds needs,finished,errored,limits`, `--sessions desktop|all`
+(whether terminal, IDE and scripted sessions notify; desktop only by default), `--off` and `--test`
 change one phone. A phone turns notifications on from its own Settings; changing or testing them is
 the user's to ask for.
 
