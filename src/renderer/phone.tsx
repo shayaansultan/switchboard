@@ -196,7 +196,8 @@ export function PhoneTab({ state }: { state: State }) {
                   <b>Default Claude from the Dock</b>
                   <span class="hint">
                     Adds Switchboard's plugin to ~/.claude/settings.json, so Default Claude takes replies and approvals
-                    however you open it. Turning this off takes exactly that back out.
+                    however you open it, while Switchboard runs. Turning this off, or quitting Switchboard, takes
+                    exactly that back out.
                   </span>
                   {status.defaultClaude.error ? <Note tone="warn">{status.defaultClaude.error}</Note> : null}
                 </span>

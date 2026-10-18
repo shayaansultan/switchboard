@@ -14,7 +14,8 @@
 // CLAUDE_CODE_PLUGIN_DIRS from the `env` block of ~/.claude/settings.json,
 // in Desktop sessions too, so with the opt-in "Default Claude from the Dock"
 // setting Switchboard adds the plugin and the control socket there, and
-// takes exactly those back out when the setting or phone access goes off.
+// takes exactly those back out when the setting or phone access goes off,
+// and when Switchboard quits (main.ts), since both point into it.
 // Nothing else in the file changes. The profile is not written: the plugin
 // works it out from CLAUDE_CONFIG_DIR, so a copy of the file in another
 // profile still reports the right one.

@@ -131,6 +131,7 @@ async function waitForHub() {
 }
 
 let app;
+let claudeSettings;
 try {
   app = await electron.launch({
     args: [root, `--user-data-dir=${path.join(home, 'electron')}`],
@@ -158,7 +159,7 @@ try {
   await page.locator('.phone-reach li').filter({ hasText: 'Demo' }).waitFor({ timeout: 15000 });
   // Default Claude from the Dock: the switch writes the two entries into this
   // home's ~/.claude/settings.json, and takes them out again.
-  const claudeSettings = path.join(home, '.claude', 'settings.json');
+  claudeSettings = path.join(home, '.claude', 'settings.json');
   await fs.mkdir(path.dirname(claudeSettings), { recursive: true });
   await fs.writeFile(claudeSettings, JSON.stringify({ theme: 'dark' }));
   await page.locator('.phone-default-claude .switch').click();
@@ -171,6 +172,10 @@ try {
   await page.locator('.phone-default-claude .switch').click();
   await page.locator('input[name=phoneDefaultClaude]:not(:checked)').waitFor({ state: 'attached' });
   assert.deepEqual(JSON.parse(await fs.readFile(claudeSettings, 'utf8')), { theme: 'dark' });
+  // On again, to see quitting Switchboard take it out (below).
+  await page.locator('.phone-default-claude .switch').click();
+  await page.locator('input[name=phoneDefaultClaude]:checked').waitFor({ state: 'attached' });
+  assert.ok(JSON.parse(await fs.readFile(claudeSettings, 'utf8')).env);
 
   // The phone pairs itself from the link, and keeps the hub's cookie.
   const browser = await chromium.launch();
@@ -334,6 +339,10 @@ try {
   // The Phone tab lists it, and drops the used code.
   await page.locator('.phones li').filter({ hasText: 'Test phone' }).waitFor();
   await page.locator('.pair-code').waitFor({ state: 'detached' });
+  // Quitting takes the Default Claude entry out: it points into the app.
+  await app.close();
+  app = null;
+  assert.deepEqual(JSON.parse(await fs.readFile(claudeSettings, 'utf8')), { theme: 'dark' });
   console.log(`phone access: ok (port ${port}); screenshots in ${path.relative(root, output)}`);
 } finally {
   await app?.close();

@@ -352,13 +352,18 @@ const MAX_FILE = 25 * 1024 * 1024;
 const MAX_FILES = 10;
 
 // A pasted screenshot arrives as "image.png", or with no name at all; give it
-// one that tells two of them apart in the reply.
+// one that tells it apart in the reply, numbered when several land in the
+// same second.
+const pastedAt = { stamp: '', count: 0 };
 function named(file: File): File {
   if (file.name && file.name !== 'blob' && !/^image\.\w+$/i.test(file.name)) return file;
   const ext = (file.type.split('/')[1] ?? 'bin').replace('jpeg', 'jpg').replace(/[+;].*/, '');
   const t = new Date();
   const stamp = [t.getHours(), t.getMinutes(), t.getSeconds()].map((n) => String(n).padStart(2, '0')).join('.');
-  return new File([file], `Pasted ${stamp}.${ext}`, { type: file.type, lastModified: file.lastModified });
+  pastedAt.count = pastedAt.stamp === stamp ? pastedAt.count + 1 : 1;
+  pastedAt.stamp = stamp;
+  const suffix = pastedAt.count > 1 ? ` (${pastedAt.count})` : '';
+  return new File([file], `Pasted ${stamp}${suffix}.${ext}`, { type: file.type, lastModified: file.lastModified });
 }
 
 // The files in a paste or a drop. A browser lists a pasted picture under

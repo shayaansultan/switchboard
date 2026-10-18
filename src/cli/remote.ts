@@ -144,14 +144,11 @@ export async function remoteCommand(rest: string[], ctx: Context): Promise<void>
       const profile = resolveProfile(ctx.data, required(args[0], 'Profile'));
       if (!ctx.data.settings.phoneAccess)
         throw refused('phone-access-off', 'Phone access is off', 'switchboard remote on');
-      if (await launch.quitDesktop(profile)) {
-        const until = Date.now() + 15_000;
-        while (launch.instanceFor(profile, await launch.runningInstances()) && Date.now() < until)
-          await new Promise((r) => setTimeout(r, 300));
-        if (launch.instanceFor(profile, await launch.runningInstances()))
-          throw refused('did-not-quit', `${profile.name} did not quit; quit it on the Mac, then relaunch`);
+      try {
+        await launch.relaunchForPhone(profile);
+      } catch (error) {
+        throw refused('did-not-quit', (error as Error).message);
       }
-      await launch.launchDesktop(profile, true);
       ctx.out.result({ profile: profile.id, relaunched: true });
       return;
     }

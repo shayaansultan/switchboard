@@ -152,8 +152,9 @@ phone ──reply / decide──▶ hub ◀──long poll── Claude plugin (
   Switchboard adds its plugin and the control socket to the `env` block of
   `~/.claude/settings.json`, so Default Claude takes replies and approvals
   however it was opened, once it starts after the change. Nothing else in
-  the file changes, and turning the setting or phone access off takes
-  exactly those two entries back out. It is off by default because it edits
+  the file changes, and turning the setting or phone access off, or quitting
+  Switchboard, takes exactly those two entries back out; the next start puts
+  them back. It is off by default because it edits
   your own settings file, and Claude Code in a terminal on the Default
   profile loads the plugin too. Default Codex has no such setting: the
   ChatGPT app finds its engine only through how it was launched, so it

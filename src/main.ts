@@ -312,29 +312,36 @@ const hubSource: HubSource = {
 // opened from the Dock or before phone access was on.
 async function relaunchForPhone(p: Profile): Promise<void> {
   if (!data.settings.phoneAccess) throw new Error('Turn on phone access first');
-  const label = profiles.VENDORS[p.vendor].label;
-  if (launch.instanceFor(p, await launch.runningInstances())) {
-    await quitApp(p);
-    if (launch.instanceFor(p, await launch.runningInstances()))
-      throw new Error(`${label} for "${p.name}" did not quit. Quit it on the Mac, then open it from Switchboard.`);
-  }
-  await launchApp(p);
+  await launch.relaunchForPhone(p, { quit: (x) => quitApp(x), open: launchApp });
 }
 
 // Default Claude's settings entry follows the setting and phone access; any
 // other time the file is left alone. A failure is shown in the Phone tab.
 let defaultClaudeError: string | null = null;
 function syncDefaultClaude(): void {
+  const wanted = !!data.settings.phoneAccess && !!data.settings.phoneDefaultClaude;
   const plugin = launch.remotePlugin();
   try {
-    if (data.settings.phoneAccess && data.settings.phoneDefaultClaude && plugin)
-      linkDefaultClaude(plugin, controlSocket());
+    if (wanted && plugin) linkDefaultClaude(plugin, controlSocket());
     else if (defaultClaudeLinked()) unlinkDefaultClaude();
-    defaultClaudeError = null;
+    defaultClaudeError =
+      wanted && !plugin ? 'This build of Switchboard is missing its phone plugin; reinstall it.' : null;
   } catch (error) {
     defaultClaudeError = (error as Error).message;
   }
 }
+
+// The entry points into this app's bundle and at its socket, both of which
+// are only there while Switchboard runs: take it out on quit, so a moved or
+// deleted Switchboard never leaves Claude a plugin folder that is gone. The
+// next start puts it back.
+app.on('will-quit', () => {
+  try {
+    if (defaultClaudeLinked()) unlinkDefaultClaude();
+  } catch {
+    // Left as it was; the next start reconciles it.
+  }
+});
 
 const AWAY_IDLE_S = 60;
 let screenLocked = false;
@@ -399,8 +406,6 @@ function desktopSupport(): DesktopSupport {
   return { helper: !!helper, accessibility };
 }
 
-// Each running profile's app process, from the last look, for whether the
-// phone can reach it (remote/reach.ts).
 // Whether each running app carries the phone's hook (src/remote/reach.ts),
 // by profile id; read only while phone access is on.
 let appHooks = new Map<string, boolean | null>();
