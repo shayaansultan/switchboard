@@ -89,3 +89,20 @@ credential-file reference instead of OAuth accounts. Its configured accounting
 allowances and equivalent usage are separate from subscription headroom. A
 **mutable model alias** is a service ID whose underlying model may change; it
 retains its exact ID and advertised metadata without claiming a stable identity.
+
+## Session
+
+One conversation with an agent in a profile: a Claude session or a Codex
+thread, started in the desktop app, a terminal or a script. A session is
+**working** while its latest turn has not ended, and **idle** otherwise.
+Phone access lists sessions and can reply in them; it does not start or own them.
+
+## Phone access
+
+Seeing a Mac's sessions from a phone. The **hub** is the part of Switchboard
+that serves the phone app on this Mac, published on the person's tailnet by
+`tailscale serve`. A phone is **paired** once with a one-time **pairing
+code**, and **unpaired** to shut it out. A **pending request** is an approval
+or a question a session is waiting on that the phone can answer; the **control
+socket** is how the Claude plugin and the Codex tap reach the hub. Say "phone access", not "remote" or
+"mobile", in the window and the docs; `switchboard remote` is the command.

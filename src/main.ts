@@ -34,6 +34,10 @@ import { DesktopWatch } from './desktop-watch';
 import { installShim, launcherScript } from './shim';
 import { INSTALLED_APP } from './buckets/runtime';
 import { HOME } from './store';
+import { resetsIn } from './shared/time';
+import { DEFAULT_PORT, startHub, type Hub, type HubProfile, type HubSource } from './remote/hub';
+import { clearHubStatus, pairing, phoneStatus, writeHubStatus } from './remote/status';
+import { revoke as revokeDevice } from './remote/pairing';
 import type {
   AppState,
   CliStatus,
@@ -185,6 +189,7 @@ function applyReload(next: Store): void {
     schedulePolling();
     applyLoginItem();
     applyAppearance();
+    void applyPhoneAccess();
   }
   broadcast();
   for (const id of diff.added) void refreshAll(id).catch(() => {});
@@ -263,6 +268,65 @@ function stateSnapshot(): State {
     cli: cliStatus(),
     desktop: desktopSupport(),
   };
+}
+
+// ---- phone access ----
+// The hub serves the phone app from this process, so it sees the same
+// profiles, app states and usage the window does. It follows the
+// phoneAccess and phonePort settings, which the CLI can change too, and
+// records whether it is listening for `switchboard remote status`.
+let hub: Hub | null = null;
+let phoneAccessChange: Promise<void> = Promise.resolve();
+
+const hubSource: HubSource = {
+  profiles: () =>
+    data.profiles.map((p): Omit<HubProfile, 'label'> => {
+      const l = live.get(p.id) ?? {};
+      return {
+        id: p.id,
+        name: p.name,
+        vendor: p.vendor,
+        color: p.color,
+        isDefault: p.isDefault,
+        email: l.identity?.email ?? null,
+        plan: l.usage?.plan ?? l.identity?.plan ?? null,
+        app: l.app ?? null,
+        windows: (l.usage?.windows ?? []).map((w) => ({ label: w.label, pct: w.pct, resetsAt: w.resetsAt })),
+      };
+    }),
+  homes: () => data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, home: profiles.dirs(p).home })),
+  // Approvals go to the phone while nobody is at the Mac: the screen is
+  // locked, or there has been no input for AWAY_IDLE_S.
+  away: () => screenLocked || powerMonitor.getSystemIdleTime() >= AWAY_IDLE_S,
+};
+
+const AWAY_IDLE_S = 60;
+let screenLocked = false;
+
+function applyPhoneAccess(): Promise<void> {
+  // A lock pause was taken while phone access was off; with it on, the
+  // phone needs fresh numbers even while the Mac is locked.
+  if (data.settings.phoneAccess) void resumePolling('lock');
+  phoneAccessChange = phoneAccessChange.then(async () => {
+    const port = data.settings.phoneAccess ? (data.settings.phonePort ?? DEFAULT_PORT) : null;
+    if (hub && hub.port === port) return;
+    if (hub) {
+      await hub.close();
+      hub = null;
+    }
+    if (port === null) {
+      clearHubStatus();
+      return;
+    }
+    try {
+      hub = await startHub({ source: hubSource, staticDir: path.join(__dirname, 'phone'), port });
+      writeHubStatus({ port: hub.port, error: null });
+    } catch (error) {
+      const busy = (error as NodeJS.ErrnoException).code === 'EADDRINUSE';
+      writeHubStatus({ port: null, error: busy ? `Port ${port} is in use by another program` : String(error) });
+    }
+  });
+  return phoneAccessChange;
 }
 
 function broadcast(): void {
@@ -350,7 +414,7 @@ async function expectApp(p: Profile, kind: 'starting' | 'quitting') {
 }
 
 async function launchApp(p: Profile): Promise<void> {
-  await launch.launchDesktop(p);
+  await launch.launchDesktop(p, !!data.settings.phoneAccess);
   const { failedToStart } = await expectApp(p, 'starting');
   if (failedToStart)
     throw new Error(
@@ -460,7 +524,7 @@ function windowBackground(): string {
 }
 
 // The Appearance setting drives Electron's theme source, which in turn
-// drives the prefers-color-scheme media query the stylesheet keys on.
+// sets the colour scheme the stylesheet's light-dark() tokens follow.
 function applyAppearance(): void {
   nativeTheme.themeSource = data.settings.appearance ?? 'system';
 }
@@ -696,13 +760,7 @@ function applyLoginItem(): void {
 
 // "in 54m", "in 6d", for the tray's window lines.
 function relTime(iso: string): string {
-  const ms = Date.parse(iso) - Date.now();
-  if (Number.isNaN(ms) || ms <= 0) return 'now';
-  const m = Math.round(ms / 60000);
-  if (m < 60) return `in ${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 48) return `in ${h}h ${m % 60}m`;
-  return `in ${Math.round(h / 24)}d`;
+  return resetsIn(iso).replace(/^resets /, '') || 'now';
 }
 
 // ---- IPC ----
@@ -1003,6 +1061,14 @@ ipcMain.handle('cli:install', () => {
   broadcast();
   return cliStatus();
 });
+ipcMain.handle('remote:status', async () => {
+  await phoneAccessChange;
+  return phoneStatus(data.settings);
+});
+ipcMain.handle('remote:pair', () => pairing());
+ipcMain.handle('remote:unpair', (_e, id: unknown) => {
+  revokeDevice(z.string().min(1).parse(id));
+});
 ipcMain.handle('profiles:move', (_e, id: string, delta: number) => {
   const moved = mutate(() => profiles.move(data, id, delta));
   if (moved) broadcast();
@@ -1020,6 +1086,7 @@ ipcMain.handle('settings:save', (_e, s: Partial<Settings>) => {
   schedulePolling();
   applyLoginItem();
   applyAppearance();
+  void applyPhoneAccess();
   broadcast();
 });
 ipcMain.handle('app:launch', (_e, id: string) => launchApp(byId(id)));
@@ -1079,10 +1146,18 @@ app.whenReady().then(async () => {
   void resumeInterruptedBuckets();
   // Asleep or locked, there is nobody to show numbers to.
   powerMonitor.on('suspend', () => pausePolling('sleep'));
-  powerMonitor.on('lock-screen', () => pausePolling('lock'));
+  // Locked, there is nobody at the Mac, but with phone access on the phone
+  // still shows usage and is told when a profile runs low.
+  powerMonitor.on('lock-screen', () => {
+    screenLocked = true;
+    if (!data.settings.phoneAccess) pausePolling('lock');
+  });
+  powerMonitor.on('unlock-screen', () => {
+    screenLocked = false;
+  });
   powerMonitor.on('resume', () => void resumePolling('sleep'));
   powerMonitor.on('unlock-screen', () => void resumePolling('lock'));
-  if (powerMonitor.getSystemIdleState(1) === 'locked') pollingPause.pause('lock');
+  if (powerMonitor.getSystemIdleState(1) === 'locked' && !data.settings.phoneAccess) pollingPause.pause('lock');
   desktopWatch.setPaused(pollingPause.paused);
   desktopWatch.start();
   app.on('will-quit', () => desktopWatch.stop());
@@ -1090,6 +1165,10 @@ app.whenReady().then(async () => {
   if (!pollingPause.paused) await refreshAll().catch(() => {});
   const stopWatching = profiles.watchStore(applyReload);
   app.on('will-quit', stopWatching);
+  void applyPhoneAccess();
+  app.on('will-quit', () => {
+    if (hub) clearHubStatus();
+  });
   // Dev aid: `electron . --screenshot=/tmp/x.png` captures the window and exits.
   const shot = process.argv.find((a) => a.startsWith('--screenshot='));
   if (shot) {

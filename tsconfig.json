@@ -13,5 +13,5 @@
     "moduleDetection": "legacy"
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/renderer"]
+  "exclude": ["src/renderer", "src/phone"]
 }

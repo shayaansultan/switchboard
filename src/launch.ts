@@ -12,7 +12,8 @@ import * as path from 'node:path';
 import { HOME, VENDORS, VENDOR_IDS, dirs, ensureDirs } from './store';
 import { shellQuote } from './shell';
 import type { Instance, Profile, Settings } from './types';
-import { desktopEnvironment } from './buckets/desktop';
+import { desktopEnvironment, remoteWrapper } from './buckets/desktop';
+import { controlSocket } from './remote/control';
 
 // What a failed command throws: the exec error plus whatever it printed.
 export interface RunError extends Error {
@@ -112,7 +113,9 @@ export function launchArgs(
   return ['-n', ...env, '--env', `${v.homeEnv}=${d.home}`, '-a', v.appPath, '--args', `--user-data-dir=${d.desktop}`];
 }
 
-export async function launchDesktop(profile: Profile): Promise<void> {
+// `phone` is the phone access setting: with it on, the launch carries what
+// lets the phone reply and approve (remoteEnvironment).
+export async function launchDesktop(profile: Profile, phone = false): Promise<void> {
   const v = VENDORS[profile.vendor];
   if (!fs.existsSync(v.appPath)) throw new Error(`${v.appPath} is not installed`);
   ensureDirs(profile);
@@ -121,10 +124,11 @@ export async function launchDesktop(profile: Profile): Promise<void> {
   // rewritten below, from changing under the app using them.
   if (already && profile.proxyBucket)
     throw new Error('Quit this desktop profile before launching with a proxy bucket.');
-  const environment = {
-    ...(await desktopEnvironment(profile, dirs(profile).home)),
-    ...profileBandEnvironment(profile),
-  };
+  const routed = await desktopEnvironment(profile, dirs(profile).home);
+  const environment = withPlugins(
+    { ...routed, ...profileBandEnvironment(profile) },
+    remoteEnvironment(profile, phone, !!routed.CODEX_CLI_PATH),
+  );
   try {
     await run('open', launchArgs(profile, already, environment));
   } catch (error) {
@@ -253,6 +257,44 @@ export function profileBandEnvironment(
     SWITCHBOARD_PROFILE_COLOR: profile.color,
     ...(command ? { SWITCHBOARD_COMMAND: command } : {}),
   };
+}
+
+// ---- replying and approving from the phone (src/remote/control.ts) ----
+
+// The Claude Code plugin that types replies in and answers approvals for the
+// phone, found as the profile band is.
+export function remotePlugin(): string | null {
+  const candidates = [
+    process.resourcesPath && path.join(process.resourcesPath, 'plugins', 'switchboard-remote'),
+    path.join(__dirname, '..', 'plugins', 'switchboard-remote'),
+  ];
+  return candidates.find((dir) => dir && fs.existsSync(path.join(dir, '.claude-plugin', 'plugin.json'))) || null;
+}
+
+// What a launch carries so the phone can reach the profile's sessions: the
+// control socket and which profile this is, plus the Claude plugin, or for
+// Codex the wrapper with the tap (unless a bucket's wrapper already has it).
+// Every profile Switchboard launches gets it, the Default ones included;
+// a desktop app opened from the Dock does not, and stays read-only.
+export function remoteEnvironment(
+  profile: Profile,
+  phone: boolean,
+  routed: boolean,
+  plugin: string | null = remotePlugin(),
+  wrapper: (profile: Profile) => string | null = remoteWrapper,
+): Record<string, string> {
+  if (!phone) return {};
+  const base = { SWITCHBOARD_PROFILE: profile.id, SWITCHBOARD_CONTROL_SOCKET: controlSocket() };
+  if (profile.vendor === 'claude') return plugin ? { ...base, CLAUDE_CODE_PLUGIN_DIRS: plugin } : {};
+  if (routed) return base;
+  const file = wrapper(profile);
+  return file ? { ...base, CODEX_CLI_PATH: file } : {};
+}
+
+// Merges launch environments, joining plugin folders rather than replacing.
+export function withPlugins(a: Record<string, string>, b: Record<string, string>): Record<string, string> {
+  const dirs = [a.CLAUDE_CODE_PLUGIN_DIRS, b.CLAUDE_CODE_PLUGIN_DIRS].filter(Boolean);
+  return { ...a, ...b, ...(dirs.length ? { CLAUDE_CODE_PLUGIN_DIRS: dirs.join(path.delimiter) } : {}) };
 }
 
 // How many windows each process has open, or null without Accessibility

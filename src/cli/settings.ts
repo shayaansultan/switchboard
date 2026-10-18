@@ -40,6 +40,12 @@ const PARSERS: Record<keyof Settings, Parser> = {
   view: oneOf('cards', 'list'),
   // Only records the choice: the app asks for Accessibility itself.
   noticeClosedWindows: bool('noticeClosedWindows'),
+  phoneAccess: bool('phoneAccess'),
+  phonePort: (text) => {
+    const n = Number(text);
+    if (!Number.isInteger(n) || n < 1024 || n > 65535) throw usageError('phonePort must be a port from 1024 to 65535');
+    return n;
+  },
 };
 
 const isKey = (key: string): key is keyof Settings => key in PARSERS;

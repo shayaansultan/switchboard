@@ -122,7 +122,7 @@ function InstallButton({ cli }: { cli: CliStatus }) {
 
 // Copies on click and flips its icon to a tick for a moment. The label never
 // changes, so nothing around it moves.
-function CopyButton({ text, label, title }: { text: string; label?: string; title: string }) {
+export function CopyButton({ text, label, title }: { text: string; label?: string; title: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <TipBtn

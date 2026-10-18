@@ -7,6 +7,7 @@ import { Profiles } from './profiles';
 import { KeepAwake } from './awake';
 import { Buckets } from './buckets';
 import { Cli } from './cli';
+import { PhoneTab } from './phone';
 import { AddDialog, BucketDialog, SettingsDialog, type SetupRequest } from './dialogs';
 import { ResetsDialog } from './resets';
 import { act, type ProfilesView, type ProfileView, type ResetTarget, type State, type Vendor } from './lib';
@@ -14,7 +15,7 @@ import { ActionsCtx } from './ui/actions';
 import { OverlayProvider, useOverlays } from './ui/overlays';
 import { Icon, TipBtn, type IconName } from './ui/primitives';
 
-type Tab = 'profiles' | 'buckets' | 'cli';
+type Tab = 'profiles' | 'buckets' | 'cli' | 'phone';
 
 export function App() {
   const [state, setState] = useState<State | null>(null);
@@ -103,12 +104,17 @@ function Shell({ state }: { state: State | null }) {
         <TabButton id="tab-cli" icon="terminal" on={tab === 'cli'} onClick={() => setTab('cli')}>
           CLI
         </TabButton>
+        <TabButton id="tab-phone" icon="phone" on={tab === 'phone'} onClick={() => setTab('phone')}>
+          Phone
+        </TabButton>
       </nav>
       <main id="root" role="tabpanel">
         {!state ? null : tab === 'profiles' ? (
           <Profiles state={state} view={view} setView={setView} />
         ) : tab === 'buckets' ? (
           <Buckets state={state} />
+        ) : tab === 'phone' ? (
+          <PhoneTab state={state} />
         ) : (
           <Cli state={state} />
         )}
