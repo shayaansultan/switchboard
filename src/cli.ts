@@ -100,6 +100,7 @@ Phone access
   switchboard remote unpair DEVICE_ID | --all --yes
   switchboard remote notifications [DEVICE_ID [--kinds needs,finished,errored,limits] [--off] [--test]]
                                             What each phone is notified about; phones turn them on themselves
+  switchboard remote relaunch PROFILE         Quit an app the phone can't reach and reopen it with the phone's hook
   switchboard remote sessions [PROFILE...] [--all] [--working]
                                             Recent sessions as the phone sees them (desktop only unless --all)
   switchboard remote session PROFILE SESSION_ID [--before N]

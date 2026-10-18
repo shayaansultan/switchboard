@@ -104,5 +104,8 @@ that serves the phone app on this Mac, published on the person's tailnet by
 `tailscale serve`. A phone is **paired** once with a one-time **pairing
 code**, and **unpaired** to shut it out. A **pending request** is an approval
 or a question a session is waiting on that the phone can answer; the **control
-socket** is how the Claude plugin and the Codex tap reach the hub. Say "phone access", not "remote" or
+socket** is how the Claude plugin and the Codex tap reach the hub. An app the
+phone can **reach** was launched with that hook; one opened from the Dock is
+**relaunched for phone control**, which quits it and opens it again from
+Switchboard. Say "phone access", not "remote" or
 "mobile", in the window and the docs; `switchboard remote` is the command.

@@ -22,7 +22,14 @@ beforeEach(async () => {
   away = true;
   changes = 0;
   socket = path.join(os.tmpdir(), `sb-control-${process.pid}-${Date.now()}.sock`);
-  control = new Control({ away: () => away, onChange: () => changes++, socket, holdMs: 1000 });
+  control = new Control({
+    away: () => away,
+    onChange: () => changes++,
+    socket,
+    holdMs: 1000,
+    claudeProfile: (configDir) =>
+      configDir === null ? 'claude-default' : configDir.endsWith('/work') ? 'claude-work' : null,
+  });
   await control.listen();
 });
 afterEach(async () => {
@@ -48,6 +55,24 @@ test('a reply reaches the polling Claude session, and only a session that polls 
   // Delivered once: the next poll has nothing.
   expect(await post(socket, '/claude/poll', claude)).toEqual({ commands: [] });
   expect(fs.statSync(socket).mode & 0o777).toBe(0o600);
+});
+
+test('a Claude session that was not told its profile is known by its config dir', async () => {
+  // Default Claude opened from the Dock: no SWITCHBOARD_PROFILE, no CLAUDE_CONFIG_DIR.
+  const poll = post(socket, '/claude/poll', { profileId: '', sessionId: 's2' });
+  await until(() => control.reachable().claude.includes('claude-default/s2'));
+  control.reply('claude', 'claude-default', 's2', 'From the Dock');
+  expect(await poll).toEqual({ commands: [{ type: 'prompt', text: 'From the Dock' }] });
+
+  const work = post(socket, '/claude/poll', { profileId: '', sessionId: 's3', configDir: '/Users/someone/work' });
+  await until(() => control.reachable().claude.includes('claude-work/s3'));
+  control.reply('claude', 'claude-work', 's3', 'hi');
+  expect(await work).toEqual({ commands: [{ type: 'prompt', text: 'hi' }] });
+
+  // A config dir no profile owns is refused rather than guessed.
+  expect(await post(socket, '/claude/poll', { profileId: '', sessionId: 's4', configDir: '/elsewhere' })).toEqual({
+    error: 'unknown-profile',
+  });
 });
 
 test('a Claude approval goes to the phone only while nobody is at the Mac, and the answer waits to be collected', async () => {

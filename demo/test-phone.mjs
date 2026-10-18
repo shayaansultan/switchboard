@@ -4,9 +4,15 @@
 // an isolated HOME and one non-default Codex profile, whose sign-in is a
 // file, so nothing touches this Mac's keychain or real profiles.
 //
+// The profile's ChatGPT is a stand-in process named like the app, with the
+// profile's folder and no phone hook, as an app opened from the Dock looks:
+// the window and the phone offer to relaunch it (src/remote/reach.ts). Nothing
+// here presses the relaunch itself, which would quit the stand-in.
+//
 // Leaves screenshots of the Settings section and the phone app in
 // docs/.work/phone/.
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -75,6 +81,18 @@ await fs.writeFile(
   JSON.stringify({ id: 'thread-1', thread_name: 'Dark mode toggle' }) + '\n',
 );
 
+// Not a system binary: macOS hides the environment of its own, and the hook
+// is read from the environment.
+const standIn = spawn(
+  process.execPath,
+  [
+    '-e',
+    'setTimeout(() => {}, 600000)',
+    `--user-data-dir=${path.join(home, '.switchboard', 'codex', 'codex-demo', 'desktop')}`,
+  ],
+  { argv0: '/Applications/ChatGPT.app/Contents/MacOS/ChatGPT', env: { HOME: home }, stdio: 'ignore' },
+);
+
 const base = `http://127.0.0.1:${port}`;
 async function waitForHub() {
   for (let i = 0; i < 50; i++) {
@@ -106,6 +124,24 @@ try {
   const code = await page.locator('.pair-code').textContent();
   assert.match(code ?? '', /^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
   await page.locator('.phone-tab').screenshot({ path: path.join(output, 'phone-tab.png') });
+
+  // The stand-in shows as an app the phone can only watch.
+  await page.locator('.phone-reach li').filter({ hasText: 'Demo' }).waitFor({ timeout: 15000 });
+  // Default Claude from the Dock: the switch writes the two entries into this
+  // home's ~/.claude/settings.json, and takes them out again.
+  const claudeSettings = path.join(home, '.claude', 'settings.json');
+  await fs.mkdir(path.dirname(claudeSettings), { recursive: true });
+  await fs.writeFile(claudeSettings, JSON.stringify({ theme: 'dark' }));
+  await page.locator('.phone-default-claude .switch').click();
+  await page.locator('input[name=phoneDefaultClaude]:checked').waitFor({ state: 'attached' });
+  const linked = JSON.parse(await fs.readFile(claudeSettings, 'utf8'));
+  assert.equal(linked.theme, 'dark');
+  assert.match(linked.env.CLAUDE_CODE_PLUGIN_DIRS, /switchboard-remote$/);
+  assert.equal(linked.env.SWITCHBOARD_CONTROL_SOCKET, path.join(home, '.switchboard', 'remote', 'control.sock'));
+  await page.locator('.phone-main').screenshot({ path: path.join(output, 'phone-tab-reach.png') });
+  await page.locator('.phone-default-claude .switch').click();
+  await page.locator('input[name=phoneDefaultClaude]:not(:checked)').waitFor({ state: 'attached' });
+  assert.deepEqual(JSON.parse(await fs.readFile(claudeSettings, 'utf8')), { theme: 'dark' });
 
   // The phone pairs itself from the link, and keeps the hub's cookie.
   const browser = await chromium.launch();
@@ -166,6 +202,14 @@ try {
     await phone.goto(`http://localhost:${port}/#/s/codex-demo/thread-1`);
     await phone.getByText('Tests pass. Wiring the toggle into the header next.').waitFor();
     await phone.screenshot({ path: path.join(output, 'phone-session.png') });
+    // The app is running without the hook: the reply box offers a relaunch,
+    // and asks before it quits anything.
+    await phone.getByText('ChatGPT was opened outside Switchboard, so the phone can only watch it.').waitFor();
+    await phone.screenshot({ path: path.join(output, 'phone-watch-only.png') });
+    await phone.getByRole('button', { name: 'Relaunch ChatGPT for phone control' }).click();
+    await phone.getByText('Quit ChatGPT and open it again? Anything it is running now stops.').waitFor();
+    await phone.screenshot({ path: path.join(output, 'phone-relaunch.png') });
+    await phone.getByRole('button', { name: 'Cancel' }).click();
   } finally {
     await browser.close();
   }
@@ -177,6 +221,7 @@ try {
   console.log(`phone access: ok (port ${port}); screenshots in ${path.relative(root, output)}`);
 } finally {
   await app?.close();
+  standIn.kill();
   await fs.rm(home, { recursive: true, force: true });
 }
 

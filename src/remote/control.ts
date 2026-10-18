@@ -148,7 +148,13 @@ class Inbox<T> {
   }
 }
 
-const ClaudeHello = z.object({ profileId: z.string().min(1).max(200), sessionId: z.string().min(1).max(200) });
+// profileId is empty from a Claude app Switchboard did not launch (Default
+// Claude reading the socket from its settings); configDir names it then.
+const ClaudeHello = z.object({
+  profileId: z.string().max(200),
+  sessionId: z.string().min(1).max(200),
+  configDir: z.string().max(1000).optional(),
+});
 const ClaudeAsk = ClaudeHello.extend({
   kind: z.enum(['approval', 'question']),
   tool: z.string().max(200),
@@ -414,6 +420,9 @@ export interface ControlOptions {
   socket?: string;
   // How long a long poll is held; tests shorten it.
   holdMs?: number;
+  // The Claude profile whose home is this config dir (null: the Default
+  // home), for a plugin that was not told its profile.
+  claudeProfile?(configDir: string | null): string | null;
 }
 
 export class Control {
@@ -550,17 +559,25 @@ export class Control {
 
   // `gone` says whether the asker's connection has closed, so a long poll
   // that outlived its client hands its commands back instead of losing them.
+  // Fills in the profile a Claude plugin did not know, from its config dir.
+  private claudeHello<T extends { profileId: string; configDir?: string }>(hello: T): T {
+    if (hello.profileId) return hello;
+    const profileId = this.options.claudeProfile?.(hello.configDir || null);
+    if (!profileId) throw Object.assign(new Error('unknown-profile'), { status: 404 });
+    return { ...hello, profileId };
+  }
+
   private async route(pathname: string, body: unknown, gone: () => boolean = () => false): Promise<unknown> {
     switch (pathname) {
       case '/claude/poll': {
-        const hello = ClaudeHello.parse(body);
+        const hello = this.claudeHello(ClaudeHello.parse(body));
         const inbox = this.inbox(this.claude, `${hello.profileId}/${hello.sessionId}`);
         const commands = await inbox.take(this.options.holdMs ?? HOLD_MS);
         if (gone() && commands.length) inbox.restore(commands);
         return { commands };
       }
       case '/claude/ask': {
-        const ask = ClaudeAsk.parse(body);
+        const ask = this.claudeHello(ClaudeAsk.parse(body));
         this.inbox(this.claude, `${ask.profileId}/${ask.sessionId}`).seenAt = Date.now();
         if (!this.options.away()) return { route: 'desk' };
         const shown =

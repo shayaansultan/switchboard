@@ -10,6 +10,7 @@
 
 import { dirs, save } from '../store';
 import { DEFAULT_PORT } from '../remote/hub';
+import * as launch from '../launch';
 import { listDevices, revoke } from '../remote/pairing';
 import { NoteKind, push, pushState, setPrefs, unsubscribe, type PushPrefs } from '../remote/push';
 import { SessionReader } from '../remote/sessions';
@@ -19,7 +20,7 @@ import { parse, required } from './context';
 import { notFound, refused, usageError } from './output';
 import { mutateStore, resolveProfile } from './resolve';
 
-const SUBCOMMANDS = 'status, on, off, pair, devices, unpair, notifications, sessions, session';
+const SUBCOMMANDS = 'status, on, off, pair, devices, unpair, notifications, relaunch, sessions, session';
 
 function homes(ctx: Context) {
   return ctx.data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, home: dirs(p).home }));
@@ -38,7 +39,7 @@ export async function remoteCommand(rest: string[], ctx: Context): Promise<void>
   switch (sub) {
     case 'status':
     case undefined:
-      ctx.out.result(await phoneStatus(ctx.data.settings));
+      ctx.out.result(await phoneStatus(ctx.data.settings, ctx.data.profiles));
       return;
     case 'on': {
       const { values } = parse(args, { port: { type: 'string' } });
@@ -118,6 +119,24 @@ export async function remoteCommand(rest: string[], ctx: Context): Promise<void>
         }
       }
       ctx.out.result(view(device));
+      return;
+    }
+    case 'relaunch': {
+      // Quit a profile's app and open it again with the phone's hook: for one
+      // opened from the Dock or before phone access was on. Anything it is
+      // running stops, so this is the user's to ask for.
+      const profile = resolveProfile(ctx.data, required(args[0], 'Profile'));
+      if (!ctx.data.settings.phoneAccess)
+        throw refused('phone-access-off', 'Phone access is off', 'switchboard remote on');
+      if (await launch.quitDesktop(profile)) {
+        const until = Date.now() + 15_000;
+        while (launch.instanceFor(profile, await launch.runningInstances()) && Date.now() < until)
+          await new Promise((r) => setTimeout(r, 300));
+        if (launch.instanceFor(profile, await launch.runningInstances()))
+          throw refused('did-not-quit', `${profile.name} did not quit; quit it on the Mac, then relaunch`);
+      }
+      await launch.launchDesktop(profile, true);
+      ctx.out.result({ profile: profile.id, relaunched: true });
       return;
     }
     case 'sessions': {

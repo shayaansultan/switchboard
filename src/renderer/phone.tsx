@@ -4,6 +4,11 @@
 // checks are real: the tab asks the main process every few seconds, which
 // probes the hub on this Mac and at its tailnet address.
 //
+// It also names running apps the phone can only watch, because they were
+// opened from the Dock or before phone access was on, with a Relaunch for
+// each, and holds the opt-in for Default Claude opened from the Dock
+// (src/remote/reach.ts).
+//
 // The same operations are `switchboard remote ...` in the CLI.
 
 import qrcode from 'qrcode-generator';
@@ -154,6 +159,59 @@ export function PhoneTab({ state }: { state: State }) {
                   </span>
                 </Step>
               </ol>
+            ) : null}
+            {on && status?.unreachable.length ? (
+              <div class="phone-reach">
+                <b>The phone can only watch these apps</b>
+                <span class="hint">
+                  They were opened from the Dock or before phone access was on. Relaunching quits the app, so anything
+                  it is running stops, and opens it again ready for replies and approvals.
+                </span>
+                <ul class="phones">
+                  {status.unreachable.map((u) => (
+                    <li key={u.id}>
+                      <span class="phone-name">
+                        <b>{u.name}</b>
+                        <span class="hint">{u.vendor === 'claude' ? 'Claude' : 'ChatGPT'}</span>
+                      </span>
+                      <Btn
+                        variant="secondary"
+                        onClick={() =>
+                          void act(async () => {
+                            await window.sb.relaunchForPhone(u.id);
+                            await load();
+                          })
+                        }
+                      >
+                        Relaunch
+                      </Btn>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {on && status ? (
+              <div class="phone-default-claude">
+                <span class="phone-name">
+                  <b>Default Claude from the Dock</b>
+                  <span class="hint">
+                    Adds Switchboard's plugin to ~/.claude/settings.json, so Default Claude takes replies and approvals
+                    however you open it. Turning this off takes exactly that back out.
+                  </span>
+                  {status.defaultClaude.error ? <Note tone="warn">{status.defaultClaude.error}</Note> : null}
+                </span>
+                <Switch
+                  name="phoneDefaultClaude"
+                  checked={status.defaultClaude.on}
+                  label="Default Claude from the Dock"
+                  onChange={(v) =>
+                    void act(async () => {
+                      await window.sb.saveSettings({ phoneDefaultClaude: v });
+                      await load();
+                    })
+                  }
+                />
+              </div>
             ) : null}
           </div>
         </Panel>

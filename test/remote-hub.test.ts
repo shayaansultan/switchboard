@@ -11,6 +11,8 @@ import * as path from 'node:path';
 import { createTRPCClient, httpLink, TRPCClientError } from '@trpc/client';
 import { sandboxHome } from './setup';
 import { labelled, startHub, type Hub, type HubSource } from '../src/remote/hub';
+import { post } from '../src/remote/codex-tap';
+import { controlSocket } from '../src/remote/control';
 import type { ApiRouter } from '../src/remote/api';
 import { authenticate, CODE_TTL_MS, newCode, pair, remoteDir, revoke } from '../src/remote/pairing';
 
@@ -31,6 +33,7 @@ const source: HubSource = {
       plan: 'Max',
       app: 'running',
       windows: [],
+      reach: 'ready',
     },
   ],
   homes: () => [{ id: 'claude-work', vendor: 'claude', home: claudeHome }],
@@ -257,4 +260,27 @@ test('only a paired phone can upload, an upload is kept owner-only, and a reply 
   expect(dots.name).toBe('file');
   // Known file, but nothing in that session is polling.
   expect(await reply([up.id])).toBe('not-reachable');
+});
+
+test('a Claude plugin that names only its config dir reaches the profile that owns it', async () => {
+  const phone = client();
+  await phone.trpc.pair.mutate({ code: newCode().code, name: 'Phone' });
+  // As Default Claude reports itself when opened from the Dock: no profile id.
+  const poll = post(controlSocket(), '/claude/poll', { profileId: '', sessionId: 's9', configDir: `${claudeHome}/` });
+  // The reply is refused until that poll has reached the hub.
+  const end = Date.now() + 3000;
+  while (
+    await phone.trpc.reply.mutate({ profileId: 'claude-work', sessionId: 's9', text: 'hi' }).then(
+      () => false,
+      () => true,
+    )
+  ) {
+    if (Date.now() > end) throw new Error('timed out');
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  expect(await poll).toEqual({ commands: [{ type: 'prompt', text: 'hi' }] });
+  // ~/.claude belongs to no profile here.
+  expect(await post(controlSocket(), '/claude/poll', { profileId: '', sessionId: 's9' })).toEqual({
+    error: 'unknown-profile',
+  });
 });

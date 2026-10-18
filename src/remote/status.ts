@@ -14,9 +14,11 @@ import * as path from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { readJson, writeJson } from '../storage';
-import type { PhonePairing, PhoneStatus, Settings } from '../types';
+import { instanceFor, runningInstances } from '../launch';
+import type { PhonePairing, PhoneStatus, Profile, Settings } from '../types';
 import { DEFAULT_PORT } from './hub';
 import { listDevices, newCode, remoteDir } from './pairing';
+import { defaultClaudeLinked, hookedApps, reachOf } from './reach';
 
 const execute = promisify(execFile);
 
@@ -89,8 +91,9 @@ export async function publishedAt(name: string, timeoutMs = 4000): Promise<boole
 // The command that publishes the hub on the tailnet, for people to run.
 export const serveCommand = (port: number): string => `tailscale serve --bg --https=443 http://127.0.0.1:${port}`;
 
-// Everything the window and the CLI report about phone access.
-export async function phoneStatus(settings: Settings): Promise<PhoneStatus> {
+// Everything the window and the CLI report about phone access. `profiles`
+// lets it name the running apps the phone cannot act on.
+export async function phoneStatus(settings: Settings, profiles: Profile[] = []): Promise<PhoneStatus> {
   const port = settings.phonePort ?? DEFAULT_PORT;
   const enabled = !!settings.phoneAccess;
   const listening = enabled && (await probe(port));
@@ -105,7 +108,21 @@ export async function phoneStatus(settings: Settings): Promise<PhoneStatus> {
     url: name ? `https://${name}/` : null,
     serve: serveCommand(port),
     devices: listDevices(),
+    unreachable: enabled ? await unreachable(profiles) : [],
+    defaultClaude: { on: !!settings.phoneDefaultClaude, linked: defaultClaudeLinked(), error: null },
   };
+}
+
+async function unreachable(profiles: Profile[]): Promise<PhoneStatus['unreachable']> {
+  const instances = await runningInstances().catch(() => []);
+  const running = profiles.flatMap((p) => {
+    const inst = instanceFor(p, instances);
+    return inst ? [{ profile: p, pid: inst.pid, vendor: p.vendor }] : [];
+  });
+  const hooks = await hookedApps(running);
+  return running
+    .filter((r) => reachOf(r.profile, hooks.get(r.pid) ?? null, true) === 'relaunch')
+    .map(({ profile: p }) => ({ id: p.id, name: p.name, vendor: p.vendor }));
 }
 
 // A fresh pairing code, with the address that opens the phone app already filled in.
