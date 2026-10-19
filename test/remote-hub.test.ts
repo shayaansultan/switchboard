@@ -10,7 +10,8 @@ import * as net from 'node:net';
 import * as path from 'node:path';
 import { createTRPCClient, httpLink, TRPCClientError } from '@trpc/client';
 import { sandboxHome } from './setup';
-import { labelled, startHub, type Hub, type HubSource } from '../src/remote/hub';
+import { labelled, startHub, type Hub, type HubSource, type Overview } from '../src/remote/hub';
+import { apply, type LiveMessage } from '../src/remote/live';
 import { post } from '../src/remote/codex-tap';
 import { controlSocket } from '../src/remote/control';
 import type { ApiRouter } from '../src/remote/api';
@@ -160,8 +161,11 @@ test('the live stream sends the overview, then again when a session file changes
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  // The overview as the phone rebuilds it from the stream's messages.
+  let current: Overview | undefined;
+  const messages: LiveMessage[] = [];
   const overviews = async (n: number, timeoutMs: number) => {
-    const found: { sessions: { title: string }[] }[] = [];
+    const found: Overview[] = [];
     const deadline = Date.now() + timeoutMs;
     while (found.length < n && Date.now() < deadline) {
       const { value, done } = await Promise.race([
@@ -182,8 +186,12 @@ test('the live stream sends the overview, then again when a session file changes
           .join('');
         buffer = buffer.slice(at + 2);
         try {
-          const parsed = JSON.parse(data);
-          if (Array.isArray(parsed?.sessions)) found.push(parsed);
+          const parsed = JSON.parse(data) as LiveMessage;
+          if (parsed && ('full' in parsed || 'patch' in parsed)) {
+            messages.push(parsed);
+            current = apply(current, parsed);
+            if (current) found.push(current);
+          }
         } catch {
           // A ping or the connection event.
         }
@@ -206,6 +214,9 @@ test('the live stream sends the overview, then again when a session file changes
   // A file event arrives within moments; the 5 s timer is the fallback, so allow for it.
   const [second] = await overviews(1, 7000);
   expect(second.sessions.map((s) => s.title)).toEqual(['Ship the stream']);
+  // The whole overview once, then only the session that changed.
+  expect(Object.keys(messages[0])).toEqual(['full']);
+  expect(messages[1]).toMatchObject({ patch: { sessions: [{ id: 'live1' }] } });
 
   // Unpaired from the Mac while the stream is open: nothing more reaches it.
   revoke(paired.device.id);
@@ -307,4 +318,48 @@ test('while nobody is at the Mac, an auto-mode session keeps its approvals and a
   expect(await ask('auto-1')).toEqual({ route: 'desk' });
   expect(await ask('manual-1')).toMatchObject({ route: 'phone' });
   away = false;
+});
+
+test('a long output comes as its first lines, and Show all fetches the whole step; the stream is gzipped', async () => {
+  const phone = client();
+  await phone.trpc.pair.mutate({ code: newCode().code, name: 'Phone' });
+  const output = Array.from({ length: 400 }, (_, i) => `line ${i + 1}`).join('\n');
+  const rec = (r: object) => JSON.stringify({ sessionId: 'long1', cwd: '/x', timestamp: '2026-10-19T01:00:00Z', ...r });
+  fs.writeFileSync(
+    path.join(claudeHome, 'projects', 'p', 'long1.jsonl'),
+    [
+      rec({ type: 'user', message: { role: 'user', content: 'Run it' } }),
+      rec({
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'make' } }],
+        },
+      }),
+      rec({
+        type: 'user',
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: output }] },
+        toolUseResult: { stdout: output, stderr: '' },
+      }),
+    ].join('\n') + '\n',
+  );
+  const page = await phone.trpc.session.query({ profileId: 'claude-work', sessionId: 'long1' });
+  const call = page.entries.flatMap((e) => (e.kind === 'steps' ? e.calls : []))[0]!;
+  expect(call.output).toBe(output.split('\n').slice(0, 12).join('\n'));
+  expect(call.cut).toEqual({ cursor: null });
+  const whole = await phone.trpc.step.query({ profileId: 'claude-work', sessionId: 'long1', id: call.id });
+  expect(whole.output).toBe(output);
+  expect(whole.cut).toBeUndefined();
+
+  // What the phone downloads is gzipped when it asks.
+  const res = await fetch(`${base()}/api/trpc/overview`, {
+    headers: { cookie: phone.jar.cookie, 'accept-encoding': 'gzip' },
+    decompress: false,
+  } as RequestInit);
+  expect(res.headers.get('content-encoding')).toBe('gzip');
+  const plain = await fetch(`${base()}/api/trpc/overview`, {
+    headers: { cookie: phone.jar.cookie, 'accept-encoding': 'identity' },
+  });
+  expect(plain.headers.get('content-encoding')).toBeNull();
+  expect((await plain.json()).result.data.sessions.length).toBeGreaterThan(0);
 });

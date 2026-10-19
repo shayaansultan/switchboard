@@ -13,6 +13,7 @@ import { createTRPCContext, useSubscription } from '@trpc/tanstack-react-query';
 import { useEffect, useState } from 'react';
 import type { ApiRouter } from '../remote/api';
 import type { Overview } from '../remote/hub';
+import { apply } from '../remote/live';
 
 export const { TRPCProvider, useTRPC } = createTRPCContext<ApiRouter>();
 
@@ -50,7 +51,8 @@ export function useOverview(): { overview: Overview | undefined; link: Link; unp
   const query = useQuery(trpc.overview.queryOptions());
   const sub = useSubscription(
     trpc.live.subscriptionOptions(undefined, {
-      onData: (o) => queryClient.setQueryData(trpc.overview.queryKey(), o),
+      // The stream sends the overview once, then what changed (live.ts).
+      onData: (m) => queryClient.setQueryData(trpc.overview.queryKey(), (o) => apply(o, m)),
     }),
   );
   const link: Link =
