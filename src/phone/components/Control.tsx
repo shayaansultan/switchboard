@@ -3,19 +3,58 @@
 // answer, and the reply box at the foot of a session.
 //
 // A reply needs the session's app to have been launched by Switchboard with
-// phone access on; the hub says which sessions it can reach. A Claude
+// phone access on; the hub says which sessions it can reach. When the app is
+// running without that hook (opened from the Dock), the reply box offers to
+// relaunch it, after a second tap, because quitting stops what it is doing. A Claude
 // approval reaches the phone only while nobody is at the Mac; a Codex one
 // shows on both, and whichever answers first wins.
 
 import { useMutation } from '@tanstack/react-query';
-import { ArrowUp, ExternalLink, FileText, Plus, X } from 'lucide-react';
+import { ArrowUp, ClipboardPaste, ExternalLink, FileText, ImageIcon, Plus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { Field, FieldValue, Pending } from '../../remote/control';
 import type { EntryOf } from '../../remote/model';
+import type { Reach } from '../../remote/reach';
 import { Switch } from './ui/switch';
 import { cn } from '@/lib/cn';
 import { sessionHref, useTRPC } from '../data';
 import { Button } from './ui/button';
+
+// The app is running but was opened without the phone's hook. Relaunching
+// quits it and opens it again from Switchboard; the first tap only asks.
+function Relaunch({ profileId, app }: { profileId: string; app: string }) {
+  const trpc = useTRPC();
+  const [asking, setAsking] = useState(false);
+  const relaunch = useMutation(trpc.relaunch.mutationOptions({ onSettled: () => setAsking(false) }));
+  if (relaunch.isPending) return <p className="m-0 py-2">Relaunching {app}…</p>;
+  if (!asking)
+    return (
+      <div className="grid gap-2">
+        <p className="m-0">
+          {relaunch.isSuccess
+            ? `${app} is reopening. Replies work once it is back.`
+            : `${app} was opened outside Switchboard, so the phone can only watch it.`}
+        </p>
+        {relaunch.isSuccess ? null : (
+          <Button variant="outline" onClick={() => setAsking(true)}>
+            Relaunch {app} for phone control
+          </Button>
+        )}
+        {relaunch.error ? <p className="m-0 text-destructive">{relaunch.error.message}</p> : null}
+      </div>
+    );
+  return (
+    <div className="grid gap-2">
+      <p className="m-0 text-foreground">Quit {app} and open it again? Anything it is running now stops.</p>
+      <div className="grid grid-cols-2 gap-2">
+        <Button variant="outline" onClick={() => setAsking(false)}>
+          Cancel
+        </Button>
+        <Button onClick={() => relaunch.mutate({ profileId })}>Relaunch</Button>
+      </div>
+    </div>
+  );
+}
 
 function useDecide() {
   const trpc = useTRPC();
@@ -298,7 +337,7 @@ export function NextStep({
 }
 
 // A picture or file on its way into a reply: uploaded to the Mac as soon as
-// it is picked (/api/upload), sent by id with the reply.
+// it is picked, pasted or dropped (/api/upload), sent by id with the reply.
 interface Attachment {
   key: string;
   name: string;
@@ -306,6 +345,41 @@ interface Attachment {
   id: string | null;
   failed: boolean;
 }
+
+// The hub's limits (src/remote/uploads.ts MAX_UPLOAD), checked here first so
+// an oversized file fails at once instead of after its upload.
+const MAX_FILE = 25 * 1024 * 1024;
+const MAX_FILES = 10;
+
+// A pasted screenshot arrives as "image.png", or with no name at all; give it
+// one that tells it apart in the reply, numbered when several land in the
+// same second.
+const pastedAt = { stamp: '', count: 0 };
+function named(file: File): File {
+  if (file.name && file.name !== 'blob' && !/^image\.\w+$/i.test(file.name)) return file;
+  const ext = (file.type.split('/')[1] ?? 'bin').replace('jpeg', 'jpg').replace(/[+;].*/, '');
+  const t = new Date();
+  const stamp = [t.getHours(), t.getMinutes(), t.getSeconds()].map((n) => String(n).padStart(2, '0')).join('.');
+  pastedAt.count = pastedAt.stamp === stamp ? pastedAt.count + 1 : 1;
+  pastedAt.stamp = stamp;
+  const suffix = pastedAt.count > 1 ? ` (${pastedAt.count})` : '';
+  return new File([file], `Pasted ${stamp}${suffix}.${ext}`, { type: file.type, lastModified: file.lastModified });
+}
+
+// The files in a paste or a drop. A browser lists a pasted picture under
+// both `items` and `files`; `items` alone, so it is not added twice.
+function transferFiles(data: DataTransfer | null): File[] {
+  if (!data) return [];
+  const out: File[] = [];
+  for (const item of Array.from(data.items ?? []))
+    if (item.kind === 'file') {
+      const f = item.getAsFile();
+      if (f) out.push(f);
+    }
+  return out.length ? out : Array.from(data.files ?? []);
+}
+
+const canReadClipboard = () => typeof navigator.clipboard?.read === 'function';
 
 async function upload(file: File): Promise<string> {
   const res = await fetch('/api/upload', {
@@ -323,11 +397,16 @@ export function Composer({
   profileId,
   sessionId,
   reachable,
+  reach,
+  app,
   problem,
 }: {
   profileId: string;
   sessionId: string;
   reachable: boolean;
+  // Whether the profile's running app has the phone's hook, and its name.
+  reach: Reach;
+  app: string;
   // Why the last reply did not go through, when the app said so.
   problem: string | null;
 }) {
@@ -339,6 +418,14 @@ export function Composer({
   // once would move the buttons out from under the finger.
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
+  // The attach menu: the photo library and files, or the clipboard.
+  const [menu, setMenu] = useState(false);
+  // Something to say about the last paste or pick that is not an error.
+  const [notice, setNotice] = useState<string | null>(null);
+  // Attachments so far, for a paste handled outside React's render.
+  const count = useRef(0);
+  count.current = files.length;
   // The box's height, for the session screen to keep its last lines clear.
   const box = useRef<HTMLElement | null>(null);
   useEffect(() => {
@@ -359,9 +446,76 @@ export function Composer({
         setText('');
         for (const f of files) if (f.image) URL.revokeObjectURL(f.image);
         setFiles([]);
+        setNotice(null);
       },
     }),
   );
+
+  const add = (list: File[]) => {
+    setNotice(null);
+    const room = MAX_FILES - count.current;
+    if (list.length > room)
+      setNotice(
+        room > 0
+          ? `Up to ${MAX_FILES} attachments a reply; added the first ${room}.`
+          : `Up to ${MAX_FILES} attachments a reply.`,
+      );
+    for (const raw of list.slice(0, Math.max(0, room))) {
+      const file = named(raw);
+      count.current++;
+      const key = `${file.name}-${file.size}-${Math.random()}`;
+      const image = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+      const tooBig = file.size > MAX_FILE;
+      setFiles((all) => [...all, { key, name: file.name, image, id: null, failed: tooBig }]);
+      if (tooBig) continue;
+      upload(file).then(
+        (id) => setFiles((all) => all.map((f) => (f.key === key ? { ...f, id } : f))),
+        () => setFiles((all) => all.map((f) => (f.key === key ? { ...f, failed: true } : f))),
+      );
+    }
+  };
+
+  // A picture or file pasted anywhere on the session screen joins the reply.
+  // Text in the same paste still goes into the reply box as usual; a paste
+  // into some other field, like a form on an approval card, is its own.
+  useEffect(() => {
+    if (!reachable) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const pasted = transferFiles(e.clipboardData);
+      if (!pasted.length) return;
+      const target = e.target as HTMLElement | null;
+      const elsewhere =
+        target !== field.current &&
+        (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable);
+      if (elsewhere) return;
+      add(pasted);
+      if (!e.clipboardData?.types.includes('text/plain')) e.preventDefault();
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [reachable]);
+
+  // The attach menu's "Paste", for a picture a long press on the reply box
+  // does not offer to paste. iOS asks before a page reads the clipboard.
+  const pasteClipboard = async () => {
+    setMenu(false);
+    setNotice(null);
+    try {
+      const found: File[] = [];
+      let pastedText = '';
+      for (const item of await navigator.clipboard.read()) {
+        const type = item.types.find((t) => !t.startsWith('text/'));
+        if (type) found.push(new File([await item.getType(type)], '', { type }));
+        else if (item.types.includes('text/plain')) pastedText += await (await item.getType('text/plain')).text();
+      }
+      if (found.length) add(found);
+      else if (pastedText) setText((t) => (t ? `${t} ${pastedText}` : pastedText));
+      else setNotice('Nothing to paste: the clipboard is empty.');
+    } catch {
+      setNotice("Couldn't read the clipboard. Tap Allow Paste when your phone asks.");
+    }
+  };
+
   if (!reachable)
     return (
       <div
@@ -370,22 +524,22 @@ export function Composer({
         }}
         className="px-gutter pb-safe fixed inset-x-0 bottom-0 border-t border-border bg-background py-2.5 text-center text-xs text-muted-foreground"
       >
-        Not reachable right now. Replies reach sessions the app has running, in profiles opened from Switchboard while
-        phone access is on.
+        {reach === 'relaunch' ? (
+          <Relaunch profileId={profileId} app={app} />
+        ) : reach === 'ready' ? (
+          <>
+            {app} is ready for the phone, but this session is not running in it. Use it once on the Mac and replies will
+            reach it.
+          </>
+        ) : (
+          <>
+            Not reachable right now. Replies reach sessions the app has running, in profiles opened from Switchboard
+            while phone access is on.
+          </>
+        )}
       </div>
     );
 
-  const add = (list: FileList | null) => {
-    for (const file of Array.from(list ?? []).slice(0, 10 - files.length)) {
-      const key = `${file.name}-${file.size}-${Math.random()}`;
-      const image = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
-      setFiles((all) => [...all, { key, name: file.name, image, id: null, failed: false }]);
-      upload(file).then(
-        (id) => setFiles((all) => all.map((f) => (f.key === key ? { ...f, id } : f))),
-        () => setFiles((all) => all.map((f) => (f.key === key ? { ...f, failed: true } : f))),
-      );
-    }
-  };
   const uploading = files.some((f) => !f.id && !f.failed);
   const ready = files.filter((f) => f.id);
   const canSend = (text.trim() || ready.length) && !uploading && !reply.isPending;
@@ -404,6 +558,16 @@ export function Composer({
       onSubmit={(e) => {
         e.preventDefault();
         send();
+      }}
+      // Dropped files, on an iPad or a computer's browser.
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('Files')) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        const dropped = transferFiles(e.dataTransfer);
+        if (!dropped.length) return;
+        e.preventDefault();
+        add(dropped);
       }}
     >
       {files.length ? (
@@ -429,7 +593,10 @@ export function Composer({
               <button
                 type="button"
                 aria-label={`Remove ${f.name}`}
-                onClick={() => setFiles((all) => all.filter((x) => x.key !== f.key))}
+                onClick={() => {
+                  if (f.image) URL.revokeObjectURL(f.image);
+                  setFiles((all) => all.filter((x) => x.key !== f.key));
+                }}
                 className="absolute top-0.5 right-0.5 grid size-5 place-items-center rounded-full bg-foreground/70 text-background"
               >
                 <X size={12} aria-hidden />
@@ -445,21 +612,62 @@ export function Composer({
           multiple
           className="hidden"
           onChange={(e) => {
-            add(e.target.files);
+            add(Array.from(e.target.files ?? []));
             e.target.value = '';
           }}
         />
-        <Button
-          type="button"
-          size="icon"
-          variant="outline"
-          className="shrink-0 rounded-full"
-          aria-label="Attach pictures or files"
-          onClick={() => picker.current?.click()}
-        >
-          <Plus size={18} aria-hidden />
-        </Button>
+        <span className="relative shrink-0">
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            className="rounded-full"
+            aria-label="Attach pictures or files"
+            aria-haspopup={canReadClipboard() ? 'menu' : undefined}
+            aria-expanded={canReadClipboard() ? menu : undefined}
+            onClick={() => (canReadClipboard() ? setMenu((m) => !m) : picker.current?.click())}
+          >
+            <Plus size={18} aria-hidden />
+          </Button>
+          {menu ? (
+            <>
+              <button
+                type="button"
+                aria-label="Close menu"
+                className="fixed inset-0 z-10 cursor-default"
+                onClick={() => setMenu(false)}
+              />
+              <span
+                role="menu"
+                className="absolute bottom-full left-0 z-20 mb-2 flex w-56 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-md"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex items-center gap-2.5 px-3.5 py-3 text-left hover:bg-accent"
+                  onClick={() => {
+                    setMenu(false);
+                    picker.current?.click();
+                  }}
+                >
+                  <ImageIcon size={17} aria-hidden className="text-subtle" />
+                  Photos or files
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex items-center gap-2.5 border-t border-border px-3.5 py-3 text-left hover:bg-accent"
+                  onClick={() => void pasteClipboard()}
+                >
+                  <ClipboardPaste size={17} aria-hidden className="text-subtle" />
+                  Paste from clipboard
+                </button>
+              </span>
+            </>
+          ) : null}
+        </span>
         <textarea
+          ref={field}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onFocus={() => {
@@ -478,6 +686,7 @@ export function Composer({
           <ArrowUp size={18} aria-hidden />
         </Button>
       </span>
+      {notice ? <span className="text-xs text-muted-foreground">{notice}</span> : null}
       {problem && !reply.isPending ? (
         <span className="text-xs text-bad-text">Your last reply didn't go through: {problem}</span>
       ) : null}

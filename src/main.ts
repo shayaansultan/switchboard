@@ -36,8 +36,10 @@ import { INSTALLED_APP } from './buckets/runtime';
 import { HOME } from './store';
 import { resetsIn } from './shared/time';
 import { DEFAULT_PORT, startHub, type Hub, type HubProfile, type HubSource } from './remote/hub';
-import { clearHubStatus, pairing, phoneStatus, writeHubStatus } from './remote/status';
+import { clearHubStatus, pairing, phoneStatus, publish, writeHubStatus } from './remote/status';
 import { revoke as revokeDevice } from './remote/pairing';
+import { controlSocket } from './remote/control';
+import { defaultClaudeLinked, hookedApps, linkDefaultClaude, reachOf, unlinkDefaultClaude } from './remote/reach';
 import type {
   AppState,
   CliStatus,
@@ -292,13 +294,55 @@ const hubSource: HubSource = {
         plan: l.usage?.plan ?? l.identity?.plan ?? null,
         app: l.app ?? null,
         windows: (l.usage?.windows ?? []).map((w) => ({ label: w.label, pct: w.pct, resetsAt: w.resetsAt })),
+        reach: reachOf(p, appHooks.get(p.id), !!data.settings.phoneAccess),
       };
     }),
   homes: () => data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, home: profiles.dirs(p).home })),
   // Approvals go to the phone while nobody is at the Mac: the screen is
   // locked, or there has been no input for AWAY_IDLE_S.
   away: () => screenLocked || powerMonitor.getSystemIdleTime() >= AWAY_IDLE_S,
+  relaunch: (profileId) => {
+    const p = data.profiles.find((x) => x.id === profileId);
+    if (!p) return Promise.reject(new Error('No such profile'));
+    return relaunchForPhone(p);
+  },
 };
+
+// Quits a profile's app and opens it again with the phone's hook, for an app
+// opened from the Dock or before phone access was on.
+async function relaunchForPhone(p: Profile): Promise<void> {
+  if (!data.settings.phoneAccess) throw new Error('Turn on phone access first');
+  await launch.relaunchForPhone(p, { quit: (x) => quitApp(x), open: launchApp });
+}
+
+// Default Claude's settings entry follows the setting and phone access, and
+// goes when Switchboard quits (below); any other time the file is left
+// alone. A failure is shown in the Phone tab.
+let defaultClaudeError: string | null = null;
+function syncDefaultClaude(): void {
+  const wanted = !!data.settings.phoneAccess && !!data.settings.phoneDefaultClaude;
+  const plugin = launch.remotePlugin();
+  try {
+    if (wanted && plugin) linkDefaultClaude(plugin, controlSocket());
+    else if (defaultClaudeLinked()) unlinkDefaultClaude();
+    defaultClaudeError =
+      wanted && !plugin ? 'This build of Switchboard is missing its phone plugin; reinstall it.' : null;
+  } catch (error) {
+    defaultClaudeError = (error as Error).message;
+  }
+}
+
+// The entry points into this app's bundle and at its socket, both of which
+// are only there while Switchboard runs: take it out on quit, so a moved or
+// deleted Switchboard never leaves Claude a plugin folder that is gone. The
+// next start puts it back.
+app.on('will-quit', () => {
+  try {
+    if (defaultClaudeLinked()) unlinkDefaultClaude();
+  } catch {
+    // Left as it was; the next start reconciles it.
+  }
+});
 
 const AWAY_IDLE_S = 60;
 let screenLocked = false;
@@ -307,6 +351,7 @@ function applyPhoneAccess(): Promise<void> {
   // A lock pause was taken while phone access was off; with it on, the
   // phone needs fresh numbers even while the Mac is locked.
   if (data.settings.phoneAccess) void resumePolling('lock');
+  syncDefaultClaude();
   phoneAccessChange = phoneAccessChange.then(async () => {
     const port = data.settings.phoneAccess ? (data.settings.phonePort ?? DEFAULT_PORT) : null;
     if (hub && hub.port === port) return;
@@ -362,6 +407,10 @@ function desktopSupport(): DesktopSupport {
   return { helper: !!helper, accessibility };
 }
 
+// Whether each running app carries the phone's hook (src/remote/reach.ts),
+// by profile id; read only while phone access is on.
+let appHooks = new Map<string, boolean | null>();
+
 // Returns whether anything changed. A failed `ps` keeps the last answer
 // rather than calling every app off; a failed window count only loses the
 // distinction between running and background.
@@ -384,6 +433,11 @@ async function refreshRunning(): Promise<boolean> {
       for (const [id, pid] of pids) if (counts.get(pid) === 0) windowless.add(id);
     }
   } else accessibility = 'off';
+  const running = data.profiles.flatMap((p) =>
+    pids.has(p.id) ? [{ id: p.id, pid: pids.get(p.id)!, vendor: p.vendor }] : [],
+  );
+  const hooks = data.settings.phoneAccess ? await hookedApps(running) : new Map<number, boolean | null>();
+  appHooks = new Map(running.map((r) => [r.id, hooks.get(r.pid) ?? null]));
   const changed = appStates.observe(alive, windowless);
   applyAppStates();
   return changed || before !== accessibility;
@@ -532,8 +586,16 @@ nativeTheme.on('updated', () => {
   if (win && !win.isDestroyed()) win.setBackgroundColor(windowBackground());
 });
 
+// For the UI tests (demo/): the window is never shown, the app never becomes
+// the active one and puts nothing in the Dock or the menu bar, so a test run
+// does not take the screen, or the Space, someone is working in. Playwright
+// drives and captures the page all the same.
+const BACKGROUND = process.env.SWITCHBOARD_BACKGROUND === '1';
+if (BACKGROUND && process.platform === 'darwin') app.setActivationPolicy('accessory');
+
 function createWindow(): BrowserWindow {
   const w = new BrowserWindow({
+    show: !BACKGROUND,
     width: 760,
     height: 640,
     minWidth: 560,
@@ -544,7 +606,13 @@ function createWindow(): BrowserWindow {
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 20, y: 19 },
     backgroundColor: windowBackground(),
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      // Hidden, the page would otherwise be throttled like a background tab.
+      backgroundThrottling: !BACKGROUND,
+    },
   });
   w.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   w.on('closed', () => {
@@ -574,6 +642,7 @@ function createWindow(): BrowserWindow {
 
 function showWindow(): void {
   const w = win ?? createWindow();
+  if (BACKGROUND) return;
   w.show();
   w.focus();
 }
@@ -1063,11 +1132,26 @@ ipcMain.handle('cli:install', () => {
 });
 ipcMain.handle('remote:status', async () => {
   await phoneAccessChange;
-  return phoneStatus(data.settings);
+  const status = await phoneStatus(data.settings, data.profiles);
+  return { ...status, defaultClaude: { ...status.defaultClaude, error: defaultClaudeError } };
 });
 ipcMain.handle('remote:pair', () => pairing());
 ipcMain.handle('remote:unpair', (_e, id: unknown) => {
   revokeDevice(z.string().min(1).parse(id));
+});
+// Publish in the Phone tab. When Tailscale first wants Serve or HTTPS allowed
+// on the tailnet, its page opens in the browser: the person clicked Publish,
+// and that page is the rest of it.
+ipcMain.handle('remote:publish', async () => {
+  if (!data.settings.phoneAccess) throw new Error('Turn on phone access first');
+  const result = await publish(data.settings.phonePort ?? DEFAULT_PORT);
+  if (result.enableUrl) await shell.openExternal(result.enableUrl);
+  return result;
+});
+ipcMain.handle('remote:relaunch', async (_e, id: unknown) => {
+  const p = data.profiles.find((x) => x.id === z.string().min(1).parse(id));
+  if (!p) throw new Error('No such profile');
+  await relaunchForPhone(p);
 });
 ipcMain.handle('profiles:move', (_e, id: string, delta: number) => {
   const moved = mutate(() => profiles.move(data, id, delta));
@@ -1134,7 +1218,7 @@ app.whenReady().then(async () => {
   if (!app.isPackaged) app.dock?.setIcon(path.join(__dirname, '..', 'build', 'icon-1024.png'));
   await launch.adoptLoginShellPath();
   applyAppearance();
-  createTray();
+  if (!BACKGROUND) createTray();
   void awake.refresh();
   // Reads only. The toggle remains a macOS setting when Switchboard exits.
   const awakePoll = setInterval(() => void awake.refresh(), 15_000);

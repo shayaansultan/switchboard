@@ -117,6 +117,12 @@ bun run cli -- list --human     # the CLI straight from source
   (`bun run test:claude-pty`) because it drives a real PTY.
 - For UI work, run the Playwright scripts in `demo/` against the built
   window rather than trusting a screenshot of one state.
+- Those scripts start the app with `SWITCHBOARD_BACKGROUND=1`: the window is
+  never shown, and the app stays out of the Dock and the menu bar and never
+  becomes the active app, so a run does not take the screen or the Space
+  someone is working in. Playwright still clicks, screenshots and records
+  it. Set `SWITCHBOARD_BACKGROUND=0` to watch a run. A new script that
+  launches the app passes the same variable.
 
 ## Running from a checkout
 

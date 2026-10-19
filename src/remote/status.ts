@@ -14,9 +14,11 @@ import * as path from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { readJson, writeJson } from '../storage';
-import type { PhonePairing, PhoneStatus, Settings } from '../types';
+import { instanceFor, runningInstances } from '../launch';
+import type { PhonePairing, PhonePublish, PhoneStatus, Profile, Settings } from '../types';
 import { DEFAULT_PORT } from './hub';
 import { listDevices, newCode, remoteDir } from './pairing';
+import { defaultClaudeLinked, hookedApps, reachOf } from './reach';
 
 const execute = promisify(execFile);
 
@@ -60,12 +62,19 @@ export function probe(port: number, timeoutMs = 1500): Promise<boolean> {
 }
 
 const TAILSCALE = ['tailscale', '/Applications/Tailscale.app/Contents/MacOS/Tailscale'];
+// The app's binary answers as the command line only when it can tell it was
+// run from one: a terminal's TERM, or this. Switchboard opened at login has
+// launchd's environment and no TERM, and without it the binary tries to open
+// the Tailscale app instead, so the Phone tab said this Mac was not on the
+// tailnet while phones reached it fine. Read at each call: the app adopts
+// the login shell's PATH after this module loads.
+const tailscaleEnv = () => ({ ...process.env, TAILSCALE_BE_CLI: '1' });
 
 // This Mac's MagicDNS name, such as "studio.tail1234.ts.net", or null.
 export async function tailnetName(): Promise<string | null> {
   for (const binary of TAILSCALE) {
     try {
-      const { stdout } = await execute(binary, ['status', '--json'], { timeout: 5000 });
+      const { stdout } = await execute(binary, ['status', '--json'], { timeout: 5000, env: tailscaleEnv() });
       const name = (JSON.parse(stdout) as { Self?: { DNSName?: string } }).Self?.DNSName?.replace(/\.$/, '');
       if (name) return name;
     } catch {
@@ -89,8 +98,35 @@ export async function publishedAt(name: string, timeoutMs = 4000): Promise<boole
 // The command that publishes the hub on the tailnet, for people to run.
 export const serveCommand = (port: number): string => `tailscale serve --bg --https=443 http://127.0.0.1:${port}`;
 
-// Everything the window and the CLI report about phone access.
-export async function phoneStatus(settings: Settings): Promise<PhoneStatus> {
+// Publishes the hub on this Mac's tailnet: the same `tailscale serve` people
+// can run themselves, for the Phone tab's Publish button and `switchboard
+// remote publish`. A tailnet that has not allowed Serve or HTTPS makes
+// Tailscale print a link to allow it and wait; the wait is cut short and the
+// link comes back, for the person to open and then publish again.
+export async function publish(port: number, timeoutMs = 20_000): Promise<PhonePublish> {
+  const args = ['serve', '--bg', '--https=443', `http://127.0.0.1:${port}`];
+  for (const binary of TAILSCALE) {
+    try {
+      await execute(binary, args, { timeout: timeoutMs, env: tailscaleEnv() });
+      return { published: true, enableUrl: null, error: null };
+    } catch (error) {
+      const e = error as { code?: string; killed?: boolean; stdout?: string; stderr?: string; message: string };
+      if (e.code === 'ENOENT') continue;
+      const text = `${e.stdout ?? ''}\n${e.stderr ?? ''}`;
+      const enableUrl = /https:\/\/login\.tailscale\.com\/\S+/.exec(text)?.[0] ?? null;
+      const said = text.replace(/\s+/g, ' ').trim();
+      const fallback = e.killed
+        ? `Tailscale did not answer within ${timeoutMs / 1000} seconds. Check that it is signed in, then publish again.`
+        : e.message;
+      return { published: false, enableUrl, error: enableUrl ? null : (said || fallback).slice(0, 300) };
+    }
+  }
+  return { published: false, enableUrl: null, error: 'Tailscale is not installed on this Mac' };
+}
+
+// Everything the window and the CLI report about phone access. `profiles`
+// lets it name the running apps the phone cannot act on.
+export async function phoneStatus(settings: Settings, profiles: Profile[] = []): Promise<PhoneStatus> {
   const port = settings.phonePort ?? DEFAULT_PORT;
   const enabled = !!settings.phoneAccess;
   const listening = enabled && (await probe(port));
@@ -105,7 +141,21 @@ export async function phoneStatus(settings: Settings): Promise<PhoneStatus> {
     url: name ? `https://${name}/` : null,
     serve: serveCommand(port),
     devices: listDevices(),
+    unreachable: enabled ? await unreachable(profiles) : [],
+    defaultClaude: { on: !!settings.phoneDefaultClaude, linked: defaultClaudeLinked(), error: null },
   };
+}
+
+async function unreachable(profiles: Profile[]): Promise<PhoneStatus['unreachable']> {
+  const instances = await runningInstances().catch(() => []);
+  const running = profiles.flatMap((p) => {
+    const inst = instanceFor(p, instances);
+    return inst ? [{ profile: p, pid: inst.pid, vendor: p.vendor }] : [];
+  });
+  const hooks = await hookedApps(running);
+  return running
+    .filter((r) => reachOf(r.profile, hooks.get(r.pid) ?? null, true) === 'relaunch')
+    .map(({ profile: p }) => ({ id: p.id, name: p.name, vendor: p.vendor }));
 }
 
 // A fresh pairing code, with the address that opens the phone app already filled in.

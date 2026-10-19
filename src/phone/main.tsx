@@ -66,13 +66,17 @@ function App() {
     document.documentElement.style.fontSize = TEXT_SIZE[prefs.text];
   }, [prefs.text]);
   useEffect(() => applyTheme(prefs.theme), [prefs.theme]);
-  // Remember when the app was put away, for "since you left".
+  // Remember when the app was put away, for "since you left". Opening it
+  // clears its notifications: the inbox shows what still needs you, and a
+  // request settled meanwhile would otherwise sit on the Lock Screen.
   useEffect(() => {
-    const away = () => {
+    const seen = () => {
       if (document.visibilityState === 'hidden') setPrefs({ lastSeen: Date.now() });
+      else void clearNotifications();
     };
-    document.addEventListener('visibilitychange', away);
-    return () => document.removeEventListener('visibilitychange', away);
+    void clearNotifications();
+    document.addEventListener('visibilitychange', seen);
+    return () => document.removeEventListener('visibilitychange', seen);
   }, []);
   if (me.isPending)
     return <main className="grid min-h-dvh place-items-center text-muted-foreground">Connecting to your Mac…</main>;
@@ -84,6 +88,16 @@ function App() {
       </main>
     );
   return <Paired />;
+}
+
+async function clearNotifications(): Promise<void> {
+  try {
+    const registration = await navigator.serviceWorker?.getRegistration();
+    for (const n of (await registration?.getNotifications()) ?? []) n.close();
+    await (navigator as { clearAppBadge?: () => Promise<void> }).clearAppBadge?.();
+  } catch {
+    // Not supported here; nothing to clear.
+  }
 }
 
 function Root() {

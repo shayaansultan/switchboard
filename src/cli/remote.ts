@@ -10,16 +10,17 @@
 
 import { dirs, save } from '../store';
 import { DEFAULT_PORT } from '../remote/hub';
+import * as launch from '../launch';
 import { listDevices, revoke } from '../remote/pairing';
-import { NoteKind, push, pushState, setPrefs, unsubscribe, type PushPrefs } from '../remote/push';
+import { NoteKind, push, pushState, setPrefs, unsubscribe } from '../remote/push';
 import { SessionReader } from '../remote/sessions';
-import { pairing, phoneStatus, serveCommand } from '../remote/status';
+import { pairing, phoneStatus, publish, serveCommand } from '../remote/status';
 import type { Context } from './context';
 import { parse, required } from './context';
 import { notFound, refused, usageError } from './output';
 import { mutateStore, resolveProfile } from './resolve';
 
-const SUBCOMMANDS = 'status, on, off, pair, devices, unpair, notifications, sessions, session';
+const SUBCOMMANDS = 'status, on, off, publish, pair, devices, unpair, notifications, relaunch, sessions, session';
 
 function homes(ctx: Context) {
   return ctx.data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, home: dirs(p).home }));
@@ -38,8 +39,22 @@ export async function remoteCommand(rest: string[], ctx: Context): Promise<void>
   switch (sub) {
     case 'status':
     case undefined:
-      ctx.out.result(await phoneStatus(ctx.data.settings));
+      ctx.out.result(await phoneStatus(ctx.data.settings, ctx.data.profiles));
       return;
+    case 'publish': {
+      // `tailscale serve` for the hub, as the Phone tab's Publish button runs it.
+      if (!ctx.data.settings.phoneAccess)
+        throw refused('phone-access-off', 'Phone access is off', 'switchboard remote on');
+      const result = await publish(ctx.data.settings.phonePort ?? DEFAULT_PORT);
+      if (result.enableUrl)
+        throw refused(
+          'serve-not-allowed',
+          `Tailscale wants Serve or HTTPS allowed on your tailnet first: open ${result.enableUrl}, then publish again`,
+        );
+      if (!result.published) throw refused('publish-failed', result.error ?? 'tailscale serve failed');
+      ctx.out.result({ published: true, serve: serveCommand(ctx.data.settings.phonePort ?? DEFAULT_PORT) });
+      return;
+    }
     case 'on': {
       const { values } = parse(args, { port: { type: 'string' } });
       const port = values.port === undefined ? undefined : Number(values.port);
@@ -79,16 +94,24 @@ export async function remoteCommand(rest: string[], ctx: Context): Promise<void>
     case 'notifications': {
       const { values, positionals } = parse(args, {
         kinds: { type: 'string' },
+        sessions: { type: 'string' },
         off: { type: 'boolean' },
         test: { type: 'boolean' },
       });
       const devices = listDevices();
       const view = (d: (typeof devices)[number]) => {
         const state = pushState(d.id);
-        return { id: d.id, name: d.name, on: state.on, kinds: NoteKind.options.filter((k) => state.prefs[k]) };
+        return {
+          id: d.id,
+          name: d.name,
+          on: state.on,
+          kinds: NoteKind.options.filter((k) => state.prefs[k]),
+          // Desktop sessions only, or terminal, IDE and scripted runs too.
+          sessions: state.prefs.allSessions ? 'all' : 'desktop',
+        };
       };
       if (!positionals[0]) {
-        if (values.kinds || values.off || values.test)
+        if (values.kinds || values.sessions || values.off || values.test)
           throw usageError('Name the phone: switchboard remote notifications DEVICE_ID ...');
         ctx.out.result({ phones: devices.map(view) });
         return;
@@ -96,7 +119,7 @@ export async function remoteCommand(rest: string[], ctx: Context): Promise<void>
       const device = devices.find((d) => d.id === positionals[0]);
       if (!device) throw notFound('no-such-device', `No paired device ${positionals[0]}`, 'switchboard remote devices');
       if (values.off) unsubscribe(device.id);
-      else if (values.kinds !== undefined || values.test) {
+      else if (values.kinds !== undefined || values.sessions !== undefined || values.test) {
         if (!pushState(device.id).on)
           throw refused('not-on', 'Notifications are off on that phone; turn them on in its Settings first');
         if (values.kinds !== undefined) {
@@ -106,7 +129,15 @@ export async function remoteCommand(rest: string[], ctx: Context): Promise<void>
             .filter(Boolean);
           const bad = asked.filter((k) => !NoteKind.options.includes(k as NoteKind));
           if (bad.length) throw usageError(`Unknown kinds: ${bad.join(', ')}. Kinds: ${NoteKind.options.join(', ')}`);
-          setPrefs(device.id, Object.fromEntries(NoteKind.options.map((k) => [k, asked.includes(k)])) as PushPrefs);
+          setPrefs(device.id, {
+            ...pushState(device.id).prefs,
+            ...(Object.fromEntries(NoteKind.options.map((k) => [k, asked.includes(k)])) as Record<NoteKind, boolean>),
+          });
+        }
+        if (values.sessions !== undefined) {
+          if (values.sessions !== 'desktop' && values.sessions !== 'all')
+            throw usageError('--sessions must be desktop or all');
+          setPrefs(device.id, { ...pushState(device.id).prefs, allSessions: values.sessions === 'all' });
         }
         if (values.test) {
           const sent = await push(
@@ -118,6 +149,23 @@ export async function remoteCommand(rest: string[], ctx: Context): Promise<void>
         }
       }
       ctx.out.result(view(device));
+      return;
+    }
+    case 'relaunch': {
+      // Quit a profile's app and open it again with the phone's hook: for one
+      // opened from the Dock or before phone access was on. Anything it is
+      // running stops, so this is the user's to ask for.
+      const profile = resolveProfile(ctx.data, required(args[0], 'Profile'));
+      if (!ctx.data.settings.phoneAccess)
+        throw refused('phone-access-off', 'Phone access is off', 'switchboard remote on');
+      try {
+        await launch.relaunchForPhone(profile);
+      } catch (error) {
+        if ((error as { code?: string }).code === 'did-not-quit')
+          throw refused('did-not-quit', (error as Error).message);
+        throw error;
+      }
+      ctx.out.result({ profile: profile.id, relaunched: true });
       return;
     }
     case 'sessions': {

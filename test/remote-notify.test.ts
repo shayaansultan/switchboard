@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import { sandboxHome } from './setup';
 import type { Overview } from '../src/remote/hub';
 import type { SessionSummary } from '../src/remote/model';
-import { changes, emptyWatch, LONG_RUN_MS } from '../src/remote/notify';
+import { ASK_GRACE_MS, changes, emptyWatch, LONG_RUN_MS, plainText } from '../src/remote/notify';
 import { newCode, pair, remoteDir, revoke } from '../src/remote/pairing';
 import { push, pushState, setPrefs, subscribe, type Note, type Sender } from '../src/remote/push';
 
@@ -90,11 +90,11 @@ test('a session that first appears already needing you is news; one that appears
 });
 
 test('a held request is announced once, and a profile running low warns once per window', () => {
-  const asking = [{ id: 'r1', profileId: 'claude-work', sessionId: 's1', title: 'Run a command: bun test' }];
+  const asking = [{ id: 'r1', profileId: 'claude-work', sessionId: 's1', title: 'Run a command: bun test', since: 0 }];
   let w = changes(emptyWatch(), overview([]), [], 0, true);
-  w = changes(w.watch, overview([]), asking, 1);
+  w = changes(w.watch, overview([]), asking, ASK_GRACE_MS + 1);
   expect(w.notes).toMatchObject([{ kind: 'needs', title: 'Run a command: bun test' }]);
-  expect(changes(w.watch, overview([]), asking, 2).notes).toEqual([]);
+  expect(changes(w.watch, overview([]), asking, ASK_GRACE_MS + 2).notes).toEqual([]);
 
   w = changes(w.watch, overview([], 92), [], 3);
   expect(w.notes).toMatchObject([{ kind: 'limits', title: 'Work is running low', url: '#/accounts' }]);
@@ -110,7 +110,7 @@ test('a note goes to the phones that want its kind; a gone subscription and an u
   if (!a.ok || !b.ok) throw new Error('pairing failed');
   subscribe(a.device.id, sub(1));
   subscribe(b.device.id, sub(2));
-  setPrefs(b.device.id, { needs: true, finished: false, errored: true, limits: false });
+  setPrefs(b.device.id, { needs: true, finished: false, errored: true, limits: false, allSessions: false });
 
   const sent: string[] = [];
   const ok: Sender = async (s) => (sent.push(s.endpoint), 201);
@@ -154,4 +154,100 @@ test('what the push service carries is encrypted for the phone, and the phone re
     authSecret: auth.toString('base64url'),
   });
   expect(JSON.parse(plain.toString('utf8'))).toEqual(note);
+});
+
+test('a note says where its session runs; a request for a session not listed yet counts as desktop', () => {
+  const cli = session('working', { id: 's2', origin: 'cli' });
+  let w = changes(emptyWatch(), overview([cli]), [], 0, true);
+  w = changes(w.watch, overview([{ ...cli, state: 'errored' }]), [], 1);
+  expect(w.notes).toMatchObject([{ kind: 'errored', origin: 'cli' }]);
+  const asking = [{ id: 'r9', profileId: 'claude-work', sessionId: 'new', title: 'Run a command', since: 2 }];
+  expect(changes(w.watch, overview([]), asking, 2 + ASK_GRACE_MS).notes).toMatchObject([
+    { kind: 'needs', origin: 'desktop' },
+  ]);
+});
+
+test('sessions outside the desktop apps reach only phones that asked for all sessions', async () => {
+  const a = pair(newCode().code, 'Desktop only');
+  const b = pair(newCode().code, 'Everything');
+  if (!a.ok || !b.ok) throw new Error('pairing failed');
+  subscribe(a.device.id, sub(1));
+  subscribe(b.device.id, sub(2), { needs: true, finished: true, errored: true, limits: true, allSessions: true });
+  expect(pushState(a.device.id).prefs.allSessions).toBe(false);
+
+  const sent: string[] = [];
+  const ok: Sender = async (s) => (sent.push(s.endpoint), 201);
+  const to = async (n: Note) => {
+    sent.length = 0;
+    await push(n, { sender: ok });
+    return [...sent].sort();
+  };
+  const both = ['https://push.example.com/1', 'https://push.example.com/2'];
+  // A `claude -p` an agent started, finishing and erroring.
+  expect(await to({ ...note, origin: 'cli' })).toEqual(['https://push.example.com/2']);
+  expect(await to({ ...note, kind: 'errored', origin: 'exec' })).toEqual(['https://push.example.com/2']);
+  expect(await to({ ...note, origin: 'desktop' })).toEqual(both);
+  // A profile running low is about no session.
+  setPrefs(a.device.id, { ...pushState(a.device.id).prefs, limits: true });
+  expect(await to({ ...note, kind: 'limits' })).toEqual(both);
+  // Asking for all sessions later takes effect at once.
+  setPrefs(a.device.id, { ...pushState(a.device.id).prefs, allSessions: true });
+  expect(await to({ ...note, origin: 'ide' })).toEqual(both);
+});
+
+test('a push.json written before the setting existed keeps its phones, desktop only', () => {
+  const a = pair(newCode().code, 'Old phone');
+  if (!a.ok) throw new Error('pairing failed');
+  subscribe(a.device.id, sub(1));
+  const file = `${remoteDir()}/push.json`;
+  const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const keys = stored.keys;
+  delete stored.phones[0].prefs.allSessions;
+  fs.writeFileSync(file, JSON.stringify(stored));
+  expect(pushState(a.device.id)).toEqual({
+    on: true,
+    prefs: { needs: true, finished: true, errored: true, limits: false, allSessions: false },
+  });
+  expect(JSON.parse(fs.readFileSync(file, 'utf8')).keys).toEqual(keys);
+});
+
+test('a request that settles within the grace period never buzzes; one still waiting after it does, once', () => {
+  const ask = (id: string, since: number) => ({
+    id,
+    profileId: 'claude-work',
+    sessionId: 's1',
+    title: 'Run a command',
+    since,
+  });
+  let w = changes(emptyWatch(), overview([]), [], 0, true);
+  // Auto mode: the classifier allows the call two seconds after it asked.
+  w = changes(w.watch, overview([]), [ask('auto', 1000)], 1000);
+  expect(w.notes).toEqual([]);
+  expect(w.wakeIn).toBe(ASK_GRACE_MS);
+  w = changes(w.watch, overview([]), [], 3000);
+  expect(w.notes).toEqual([]);
+  expect(w.wakeIn).toBeNull();
+  // Nobody answers: announced when the grace period is up, and only then.
+  w = changes(w.watch, overview([]), [ask('real', 10_000)], 10_000);
+  expect(w.notes).toEqual([]);
+  w = changes(w.watch, overview([]), [ask('real', 10_000)], 10_000 + ASK_GRACE_MS - 1);
+  expect(w.notes).toEqual([]);
+  expect(w.wakeIn).toBe(1);
+  w = changes(w.watch, overview([]), [ask('real', 10_000)], 10_000 + ASK_GRACE_MS);
+  expect(w.notes).toMatchObject([{ kind: 'needs', title: 'Run a command' }]);
+  expect(changes(w.watch, overview([]), [ask('real', 10_000)], 40_000).notes).toEqual([]);
+  // Waiting since before someone left the Mac: due at once.
+  expect(changes(w.watch, overview([]), [ask('old', 0)], 60_000).notes).toHaveLength(1);
+});
+
+test('a finished note reads as plain text, not Markdown', () => {
+  expect(
+    plainText(
+      'Fixed in draft PR [shayaansultan/switchboard#32](https://github.com/x/y/pull/32). The **UI tests** now run `bun test`.\n\n- one\n- two',
+    ),
+  ).toBe('Fixed in draft PR shayaansultan/switchboard#32. The UI tests now run bun test. one two');
+  let w = changes(emptyWatch(), overview([session('working')]), [], 0, true);
+  w = changes(w.watch, overview([session('working')]), [], LONG_RUN_MS);
+  const done = session('finished', { lastMessage: { role: 'assistant', text: 'See [the PR](https://x.y/1).' } });
+  expect(changes(w.watch, overview([done]), [], LONG_RUN_MS + 1).notes[0]?.body).toBe('Work: See the PR.');
 });

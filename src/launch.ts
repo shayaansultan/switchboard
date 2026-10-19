@@ -181,6 +181,37 @@ export function instanceFor(profile: Profile, instances: Instance[]): Instance |
   return instances.find((i) => owns(profile, i));
 }
 
+// Quits a profile's app and opens it again with the phone's hook, for one
+// opened from the Dock or before phone access was on (src/remote/reach.ts).
+// The window, the phone and `switchboard remote relaunch` all come here; the
+// app passes its own quit and open, which also track the app's state.
+export async function relaunchForPhone(
+  profile: Profile,
+  steps: { quit(p: Profile): Promise<void>; open(p: Profile): Promise<void> } = {
+    quit: quitAndWait,
+    open: (p) => launchDesktop(p, true),
+  },
+): Promise<void> {
+  if (instanceFor(profile, await runningInstances())) {
+    await steps.quit(profile);
+    if (instanceFor(profile, await runningInstances()))
+      throw Object.assign(
+        new Error(
+          `${VENDORS[profile.vendor].label} for "${profile.name}" did not quit. Quit it on the Mac, then open it from Switchboard.`,
+        ),
+        { code: 'did-not-quit' },
+      );
+  }
+  await steps.open(profile);
+}
+
+async function quitAndWait(profile: Profile, waitMs = 15_000): Promise<void> {
+  if (!(await quitDesktop(profile))) return;
+  const until = Date.now() + waitMs;
+  while (instanceFor(profile, await runningInstances()) && Date.now() < until)
+    await new Promise((r) => setTimeout(r, 300));
+}
+
 export async function quitDesktop(profile: Profile): Promise<boolean> {
   const inst = instanceFor(profile, await runningInstances());
   if (!inst) return false;

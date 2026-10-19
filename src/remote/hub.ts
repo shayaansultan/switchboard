@@ -33,6 +33,8 @@ import { changes as noteChanges, emptyWatch, type Watch } from './notify';
 import { authenticate } from './pairing';
 import { anySubscribed, push } from './push';
 import { MAX_UPLOAD, saveUpload, sweepUploads } from './uploads';
+import type { Reach } from './reach';
+import { HOME } from '../store';
 import { SessionReader, watch, type ProfileHome, type SessionSummary } from './sessions';
 
 export const DEFAULT_PORT = 47821;
@@ -46,6 +48,9 @@ export interface HubProfile {
   // The name the phone shows: the profile's name, with its app added when
   // another profile has the same name (Default · Claude, Default · Codex).
   label: string;
+  // Whether the phone can act on its running app (reach.ts): null when the
+  // app is not running or phone access is off.
+  reach: Reach;
   vendor: Vendor;
   color: string;
   isDefault: boolean;
@@ -74,6 +79,8 @@ export interface HubSource {
   homes(): ProfileHome[];
   // Whether nobody is at the Mac (locked or idle). Without it, never.
   away?(): boolean;
+  // Quits a profile's app and opens it again with the phone's hook.
+  relaunch?(profileId: string): Promise<void>;
 }
 
 export interface Hub {
@@ -161,6 +168,8 @@ export function overview(source: HubSource, reader: SessionReader, control?: Con
 function notifier(look: () => Overview, changes: EventEmitter, away: () => boolean): { sync(): void; stop(): void } {
   let watch: Watch | null = null;
   let busy = false;
+  // Looks again when a held request has waited long enough to announce.
+  let due: ReturnType<typeof setTimeout> | null = null;
   const check = () => {
     if (busy) return;
     busy = true;
@@ -168,10 +177,19 @@ function notifier(look: () => Overview, changes: EventEmitter, away: () => boole
       const o = look();
       // A Codex approval also shows on the desktop; buzz the phone for it only
       // while nobody is at the Mac. Claude's only reach the phone then anyway.
-      const asking = away() ? o.pending.map((p) => ({ ...p, title: `${p.title}: ${p.detail}`.slice(0, 120) })) : [];
+      const asking = away()
+        ? o.pending.map((p) => ({
+            ...p,
+            title: `${p.title}: ${p.detail}`.slice(0, 120),
+            since: Date.parse(p.createdAt) || Date.now(),
+          }))
+        : [];
       const result = noteChanges(watch ?? emptyWatch(), o, asking, Date.now(), watch === null);
       watch = result.watch;
       for (const note of result.notes) void push(note).catch(() => {});
+      if (due) clearTimeout(due);
+      due = result.wakeIn === null ? null : setTimeout(check, result.wakeIn + 50);
+      due?.unref?.();
     } catch {
       // A file vanished mid-read; the next change looks again.
     } finally {
@@ -190,10 +208,12 @@ function notifier(look: () => Overview, changes: EventEmitter, away: () => boole
       } else {
         changes.off('quiet', check);
         watch = null;
+        if (due) clearTimeout(due);
       }
     },
     stop() {
       changes.off('quiet', check);
+      if (due) clearTimeout(due);
       on = false;
     },
   };
@@ -270,7 +290,12 @@ export function startHub(options: {
   const reader = new SessionReader();
   const signal = changeSignal(source);
   const away = () => source.away?.() ?? false;
-  const control = options.control === false ? undefined : new Control({ away, onChange: signal.emit });
+  // A Claude plugin that was not told its profile names its config dir.
+  const claudeProfile = (configDir: string | null) => {
+    const home = path.resolve(configDir || path.join(HOME, '.claude'));
+    return source.homes().find((h) => h.vendor === 'claude' && path.resolve(h.home) === home)?.id ?? null;
+  };
+  const control = options.control === false ? undefined : new Control({ away, onChange: signal.emit, claudeProfile });
   const look = () => overview(source, reader, control);
   const notes = notifier(look, signal.changes, away);
   sweepUploads();
@@ -280,6 +305,7 @@ export function startHub(options: {
     control,
     notificationsChanged: () => notes.sync(),
     vendorOf: (profileId) => source.profiles().find((p) => p.id === profileId)?.vendor ?? null,
+    relaunch: source.relaunch,
     transcript: (profileId, sessionId, before) => reader.transcript(source.homes(), profileId, sessionId, before),
     changes: signal.changes,
   });
@@ -305,7 +331,11 @@ export function startHub(options: {
       ...(ext === '.html' ? { 'content-security-policy': CSP } : {}),
     });
     if (req.method === 'HEAD') res.end();
-    else fs.createReadStream(file).pipe(res);
+    else
+      // A rebuild can remove the file after it was found.
+      fs.createReadStream(file)
+        .on('error', () => res.destroy())
+        .pipe(res);
   }
 
   // A picture or file a session refers to, by the signed id its transcript
@@ -328,16 +358,14 @@ export function startHub(options: {
       'content-security-policy': active ? HTML_POLICY : "default-src 'none'; sandbox",
       ...(active ? { 'x-frame-options': 'SAMEORIGIN' } : {}),
     });
-    if (req.method === 'HEAD') {
-      if ('destroy' in media.body) media.body.destroy();
-      return void res.end();
-    }
+    if (req.method === 'HEAD') return void res.end();
     if (Buffer.isBuffer(media.body)) res.end(media.body);
     else {
       // The file can vanish or fail after it was found; an error on the
       // stream would otherwise escape this handler.
-      media.body.on('error', () => res.destroy());
-      media.body.pipe(res);
+      const stream = media.body();
+      stream.on('error', () => res.destroy());
+      stream.pipe(res);
     }
   }
 

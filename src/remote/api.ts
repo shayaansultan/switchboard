@@ -82,6 +82,7 @@ export interface ApiDeps {
   vendorOf?(profileId: string): Vendor | null;
   // A phone turned notifications on or off.
   notificationsChanged?(): void;
+  relaunch?(profileId: string): Promise<void>;
 }
 
 // A control error as the phone reads it.
@@ -161,6 +162,18 @@ export function createRouter(deps: ApiDeps) {
         }
         return { sent: true };
       }),
+
+    // Quits a profile's app and opens it again with the phone's hook, for an
+    // app opened outside Switchboard (reach.ts). Anything it runs stops.
+    relaunch: paired.input(z.object({ profileId: z.string().min(1).max(200) })).mutation(async ({ input }) => {
+      if (!deps.relaunch) throw new TRPCError({ code: 'NOT_FOUND', message: 'not-available' });
+      try {
+        await deps.relaunch(input.profileId);
+      } catch (error) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: (error as Error).message.slice(0, 200) });
+      }
+      return { relaunched: true };
+    }),
 
     // Answers a request waiting on the person: an approval or a question.
     decide: paired

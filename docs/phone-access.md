@@ -55,24 +55,27 @@ Claude and Codex apps ──write──▶ session files in each profile's home
 ## Setting it up
 
 Everything is in Switchboard's **Phone** tab, which checks each step for real
-and ticks it off.
+and ticks it off. Once all three steps are done they fold into one line, the
+address and how many phones are paired, with **Show setup** to open them
+again.
 
 1. Turn on **Phone access**, or run `switchboard remote on`.
 2. Connect Tailscale on the Mac, and install it on the phone with the same
    account.
-3. Publish the hub on your tailnet once. The tab shows the command, with a
-   copy button:
+3. Press **Publish**, or run `switchboard remote publish`. Both run, once:
 
    ```bash
    tailscale serve --bg --https=443 http://127.0.0.1:47821
    ```
 
-   If Tailscale asks you to enable Serve or HTTPS certificates for your
-   tailnet, follow its link and run it again. `tailscale serve --https=443 off`
-   undoes it. The tab ticks this off once the hub answers at the tailnet
-   address.
+   The tab also shows that command under **Or run it in Terminal yourself**.
+   If your tailnet has not allowed Serve or HTTPS certificates yet, Tailscale
+   asks first: its page opens in the browser, and you publish again once it
+   is allowed. `tailscale serve --https=443 off` undoes it. The tab ticks
+   this off once the hub answers at the tailnet address.
 
-4. Choose **Show pairing code** and scan the QR code with the phone's camera.
+4. Choose **Show pairing code** in the third step and scan the QR code with
+   the phone's camera.
    It opens the phone app with the code filled in. Or run
    `switchboard remote pair` and open the link it prints.
 5. In Safari, **Share → Add to Home Screen** installs it as an app.
@@ -139,8 +142,26 @@ phone ──reply / decide──▶ hub ◀──long poll── Claude plugin (
   nobody is at the Mac (the screen is locked, or no input for a minute), and
   goes back to the app as soon as someone is.
 - A profile's app has to be opened from Switchboard after phone access is
-  turned on. One opened from the Dock can be read from the phone but not
-  replied to, and the session screen says so.
+  turned on. One opened from the Dock, or before phone access was on, can be
+  read from the phone but not replied to. Switchboard notices (it reads the
+  hook from the app's launch environment, which macOS shows to its owner), and the Phone tab, the session
+  screen on the phone and `switchboard remote relaunch PROFILE` offer
+  **Relaunch for phone control**: it quits the app, so anything it is
+  running stops, and opens it again from Switchboard.
+- Only the Default profiles can be opened from the Dock at all; every other
+  profile needs Switchboard to open it in its own folder. Default Claude has
+  a second way in: turn on **Default Claude from the Dock** in the Phone
+  tab (or `switchboard settings set phoneDefaultClaude true`) and
+  Switchboard adds its plugin and the control socket to the `env` block of
+  `~/.claude/settings.json`, so Default Claude takes replies and approvals
+  however it was opened, once it starts after the change. Nothing else in
+  the file changes, and turning the setting or phone access off, or quitting
+  Switchboard, takes exactly those two entries back out; the next start puts
+  them back. It is off by default because it edits
+  your own settings file, and Claude Code in a terminal on the Default
+  profile loads the plugin too. Default Codex has no such setting: the
+  ChatGPT app finds its engine only through how it was launched, so it
+  needs the relaunch.
 - Claude Desktop runs a session's engine, and with it the plugin, once the
   session is used in that run of the app, and keeps it while the app is open.
   After the app restarts, an older session can be replied to again once it
@@ -153,6 +174,17 @@ phone ──reply / decide──▶ hub ◀──long poll── Claude plugin (
   workspace) and MCP prompts: forms the phone fills in, and links it opens.
   Claude Code lets a plugin only refuse an MCP prompt, not fill it in, so
   Claude's stay on the Mac.
+
+## Pictures and files in a reply
+
+The reply box's **+** offers **Photos or files** and **Paste from
+clipboard**. Pasting into the reply box works too, and so does dropping
+files on it from an iPad or a computer's browser. Each picture or file
+uploads to the Mac as soon as it is added, up to 10 a reply and 25 MB each.
+A pasted screenshot gets a name like `Pasted 18.00.47.png`, not
+`image.png`. When a long press on the reply box doesn't offer Paste for a
+copied picture, **Paste from clipboard** reads it directly; iOS asks before
+the page reads the clipboard.
 
 ## Notifications
 
@@ -174,18 +206,37 @@ What triggers one (`src/remote/notify.ts`), each a switch in Settings:
 | Usage running low       | A profile passes 90% of a usage window, once per window       | Off     |
 
 Only changes count: turning the app on does not replay what already needs
-you. Notifications for one session replace each other.
+you. Notifications for one session replace each other, and opening the
+phone app clears them, since its inbox shows what still needs you.
+
+An approval or question held for the phone notifies only once it has
+waited 15 seconds. Many settle sooner on their own: in auto mode Claude's
+classifier allows a call a moment after it asks, and someone back at the
+Mac answers there. Notifying at once would buzz for requests that are gone
+by the time the phone opens.
+
+Subagents never notify on their own: neither app lists them as sessions,
+and a session stays working while its background subagents run, so it
+notifies once when the whole job ends. Separate runs that an agent or a
+script starts, like `claude -p` or `codex exec`, are sessions of their own,
+started outside the desktop apps. Those notify only with **All sessions**
+on in the phone's notification settings (off by default), the same split
+the inbox makes between desktop sessions and all sessions.
 
 ## From a terminal
 
 ```bash
 switchboard remote status            # on or off, listening or not, the phone's address
 switchboard remote on | off
+switchboard remote publish           # tailscale serve for the hub, as the Publish button runs it
 switchboard remote pair              # a one-time code and a link with it filled in
 switchboard remote devices
 switchboard remote unpair DEVICE_ID  # or --all --yes
 switchboard remote notifications     # what each phone is notified about
 switchboard remote notifications DEVICE_ID --kinds needs,errored   # or --off, --test
+switchboard remote notifications DEVICE_ID --sessions all   # terminal and scripted runs too; desktop is the default
+switchboard remote relaunch PROFILE  # quit an app the phone can only watch, reopen it with the hook
+switchboard settings set phoneDefaultClaude true   # Default Claude from the Dock
 switchboard remote sessions --working --human
 switchboard remote session PROFILE SESSION_ID
 ```
@@ -199,14 +250,17 @@ Under `~/.switchboard/remote/`: `devices.json` (paired phones, with token
 hashes), `pairing.json` (the hash of the one live code) and `hub.json`
 (whether the app's hub is listening, for `remote status`), `media.key` (signs
 picture and file ids), `push.json` (the push key pair and each phone's
-subscription and choices) and `control.sock` (the control socket). All are
-mode 600.
+subscription and choices) and `control.sock` (the control socket). All are mode 600. With **Default Claude from the Dock** on,
+`~/.claude/settings.json` also carries `CLAUDE_CODE_PLUGIN_DIRS` (with the
+plugin's folder added to any you listed) and `SWITCHBOARD_CONTROL_SOCKET` in
+its `env` block.
 
 ## Limits
 
 - Replying and approving need the profile's app opened from Switchboard with
-  phone access on. A desktop app opened from the Dock still shows up here,
-  because its session files are the same, but read-only.
+  phone access on, or for Default Claude, the Dock setting. A desktop app
+  opened from the Dock still shows up here, because its session files are
+  the same, but read-only until it is relaunched.
 - Claude approvals reach the phone only while nobody is at the Mac, and
   not when a settings rule asked for them. Claude's MCP prompts, a Codex
   question with a secret answer and a Codex device check stay on the Mac.

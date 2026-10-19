@@ -1,8 +1,9 @@
 // A Claude Code mod that lets Switchboard's phone app act in this session.
 // Switchboard passes it to every Claude profile it launches while phone
 // access is on (CLAUDE_CODE_PLUGIN_DIRS, see src/launch.ts), with the
-// control socket and the profile's id in the environment; without them it
-// does nothing.
+// control socket and the profile's id in the environment, and Default Claude
+// reads the same from ~/.claude/settings.json when that is switched on
+// (src/remote/reach.ts). Without the socket it does nothing.
 //
 // - A reply typed on the phone comes in as the person's own prompt
 //   ($.prompt.submit with asUser), a turn of its own once the session is
@@ -31,7 +32,11 @@ type Outcome =
 
 interface Link {
   socket: string;
+  // Empty when the app was not launched by Switchboard (Default Claude
+  // opened from the Dock, reading the socket from settings.json): the hub
+  // then works the profile out from configDir.
   profileId: string;
+  configDir: string;
   sessionId: string;
 }
 
@@ -58,6 +63,7 @@ async function poll($: EngineInterface): Promise<void> {
   try {
     const reply = await call<{ commands: { type: string; text?: string }[] }>($, '/claude/poll', {
       profileId: link.profileId,
+      configDir: link.configDir,
       sessionId: link.sessionId,
     });
     for (const c of reply?.commands ?? [])
@@ -80,6 +86,7 @@ async function viaPhone(
   try {
     const ask = await call<Ask>($, '/claude/ask', {
       profileId: link.profileId,
+      configDir: link.configDir,
       sessionId: link.sessionId,
       kind,
       tool,
@@ -104,9 +111,13 @@ async function viaPhone(
 export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
     const socket = await $.env.get('SWITCHBOARD_CONTROL_SOCKET');
-    const profileId = await $.env.get('SWITCHBOARD_PROFILE');
-    if (socket && profileId) {
-      link = { socket, profileId, sessionId: await $.session.id() };
+    if (socket) {
+      link = {
+        socket,
+        profileId: (await $.env.get('SWITCHBOARD_PROFILE')) ?? '',
+        configDir: (await $.env.get('CLAUDE_CONFIG_DIR')) ?? '',
+        sessionId: await $.session.id(),
+      };
       $.clock.every(1000, () => {
         if (polling) return;
         polling = true;

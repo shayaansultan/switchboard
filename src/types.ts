@@ -50,6 +50,9 @@ export interface Settings {
   // `tailscale serve` to publish on the tailnet. See src/remote/hub.ts.
   phoneAccess?: boolean;
   phonePort?: number;
+  // With phone access on, let Default Claude opened from the Dock reach the
+  // phone by adding the plugin to ~/.claude/settings.json (remote/reach.ts).
+  phoneDefaultClaude?: boolean;
 }
 
 export interface Store {
@@ -292,10 +295,21 @@ export interface SwitchboardApi {
   phoneStatus(): Promise<PhoneStatus>;
   pairPhone(): Promise<PhonePairing>;
   unpairPhone(id: string): Promise<void>;
+  relaunchForPhone(profileId: string): Promise<void>;
+  publishPhone(): Promise<PhonePublish>;
   onState(fn: (s: State) => void): void;
 }
 
 // Phone access as the Settings dialog and `switchboard remote status` show it.
+// What publishing the hub on the tailnet came to (src/remote/status.ts).
+export interface PhonePublish {
+  published: boolean;
+  // Tailscale's page for allowing Serve or HTTPS on the tailnet, when it
+  // asked for that first.
+  enableUrl: string | null;
+  error: string | null;
+}
+
 export interface PhoneStatus {
   enabled: boolean;
   port: number;
@@ -308,6 +322,12 @@ export interface PhoneStatus {
   published: boolean;
   serve: string;
   devices: { id: string; name: string; createdAt: string; lastSeenAt: string | null }[];
+  // Running apps the phone cannot act on: opened from the Dock or before
+  // phone access was on. Relaunching from Switchboard fixes each.
+  unreachable: { id: string; name: string; vendor: Vendor }[];
+  // The opt-in plugin entry in ~/.claude/settings.json for Default Claude
+  // opened from the Dock; `linked` is whether the file has it now.
+  defaultClaude: { on: boolean; linked: boolean; error: string | null };
 }
 
 export interface PhonePairing {

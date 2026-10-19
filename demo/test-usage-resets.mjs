@@ -81,6 +81,9 @@ try {
       PATH: process.env.PATH,
       TMPDIR: os.tmpdir(),
       ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
+      // Drive the window without showing it, so a run never takes the screen
+      // (src/main.ts). SWITCHBOARD_BACKGROUND=0 shows it, to watch a run.
+      SWITCHBOARD_BACKGROUND: process.env.SWITCHBOARD_BACKGROUND ?? '1',
     },
     timeout: 20000,
   });

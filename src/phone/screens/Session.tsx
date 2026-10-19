@@ -293,6 +293,8 @@ export function Session({
         profileId={profileId}
         sessionId={sessionId}
         reachable={reachable}
+        reach={profile?.reach ?? null}
+        app={profile?.vendor === 'codex' ? 'ChatGPT' : 'Claude'}
         problem={overview?.failures[`${profileId}/${sessionId}`] ?? null}
       />
     </main>

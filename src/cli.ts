@@ -98,8 +98,11 @@ Phone access
   switchboard remote pair                     A one-time code for pairing a phone
   switchboard remote devices                  Paired phones
   switchboard remote unpair DEVICE_ID | --all --yes
-  switchboard remote notifications [DEVICE_ID [--kinds needs,finished,errored,limits] [--off] [--test]]
-                                            What each phone is notified about; phones turn them on themselves
+  switchboard remote notifications [DEVICE_ID [--kinds needs,finished,errored,limits] [--sessions desktop|all] [--off] [--test]]
+                                            What each phone is notified about, and whether terminal, IDE and
+                                            scripted sessions count; phones turn them on themselves
+  switchboard remote publish                  Publish phone access on this Mac's tailnet (runs tailscale serve)
+  switchboard remote relaunch PROFILE         Quit an app the phone can't reach and reopen it with the phone's hook
   switchboard remote sessions [PROFILE...] [--all] [--working]
                                             Recent sessions as the phone sees them (desktop only unless --all)
   switchboard remote session PROFILE SESSION_ID [--before N]
