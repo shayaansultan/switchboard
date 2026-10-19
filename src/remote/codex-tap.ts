@@ -90,6 +90,9 @@ export function post(
         socketPath: socket,
         path,
         method: 'POST',
+        // A fresh connection each time: a pooled one outlives a hub that
+        // restarted (a port change, a reinstall) and fails its next write.
+        agent: false,
         headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) },
         timeout: timeoutMs,
         signal,

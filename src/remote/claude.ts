@@ -65,6 +65,46 @@ export function claudeFiles(home: string, since: number): FileInfo[] {
   return files;
 }
 
+// The permission mode a session's file last recorded: every prompt record
+// carries the mode it was sent in (`default`, `auto`, ...). Read backwards a
+// chunk at a time, since a long run of tool output can sit after the last
+// prompt, up to `limit` bytes. null when the file is not found or records
+// none within that.
+const MODE = /"permissionMode":"([A-Za-z]+)"/g;
+export function sessionMode(
+  home: string,
+  sessionId: string,
+  chunk = 1024 * 1024,
+  limit = 16 * 1024 * 1024,
+): string | null {
+  const projects = path.join(home, 'projects');
+  for (const project of listDir(projects)) {
+    let fd: number;
+    try {
+      fd = fs.openSync(path.join(projects, project, `${sessionId}.jsonl`), 'r');
+    } catch {
+      continue;
+    }
+    try {
+      const size = fs.fstatSync(fd).size;
+      // Each window overlaps the one after it, so a match cut by a boundary
+      // is whole in one of them.
+      for (let end = size; end > 0 && size - end < limit; end -= chunk) {
+        const start = Math.max(0, end - chunk);
+        const length = Math.min(end + 64, size) - start;
+        const buf = Buffer.alloc(length);
+        fs.readSync(fd, buf, 0, length, start);
+        const found = [...buf.toString('utf8').matchAll(MODE)].at(-1)?.[1];
+        if (found) return found;
+      }
+      return null;
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+  return null;
+}
+
 const isTurn = (r: Rec): boolean =>
   (r.type === 'user' || r.type === 'assistant') && r.isSidechain !== true && r.isMeta !== true;
 

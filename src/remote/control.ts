@@ -21,7 +21,13 @@
 // answers. A Claude plugin has to hold the call to wait for the phone, which
 // would hide the desktop's own dialog, so it only routes a call to the phone
 // while the Mac is away (locked or idle), and hands it back to the desktop
-// the moment someone is at the Mac again.
+// the moment someone is at the Mac again. It never holds one a person would
+// not decide: in auto mode Claude's classifier answers an "ask" only after
+// the plugin hands it back, so holding it stopped unattended work, scheduled
+// tasks included, until someone answered on the phone.
+
+// Modes whose "ask" is not put to a person (claude.ts sessionMode).
+const NOBODY_DECIDES = new Set(['auto', 'dontAsk', 'bypassPermissions']);
 
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -206,6 +212,9 @@ function describeClaude(tool: string, input: unknown): { title: string; detail: 
       detail: str(i.file_path) ?? str(i.notebook_path) ?? '',
     };
   if (tool === 'WebFetch') return { title: 'Fetch a page', detail: str(i.url) ?? '' };
+  if (tool === 'Read') return { title: 'Read a file', detail: str(i.file_path) ?? '' };
+  if (tool === 'Grep' || tool === 'Glob')
+    return { title: 'Search files', detail: [str(i.pattern), str(i.path)].filter(Boolean).join(' in ') };
   if (tool.startsWith('mcp__')) {
     const [, server, name] = tool.split('__');
     return {
@@ -420,6 +429,8 @@ export interface ControlOptions {
   socket?: string;
   // How long a long poll is held; tests shorten it.
   holdMs?: number;
+  // The permission mode a Claude session last recorded, if known.
+  claudeMode?(profileId: string, sessionId: string): string | null;
   // The Claude profile whose home is this config dir (null: the Default
   // home), for a plugin that was not told its profile.
   claudeProfile?(configDir: string | null): string | null;
@@ -580,6 +591,11 @@ export class Control {
         const ask = this.claudeHello(ClaudeAsk.parse(body));
         this.inbox(this.claude, `${ask.profileId}/${ask.sessionId}`).seenAt = Date.now();
         if (!this.options.away()) return { route: 'desk' };
+        if (
+          ask.kind === 'approval' &&
+          NOBODY_DECIDES.has(this.options.claudeMode?.(ask.profileId, ask.sessionId) ?? '')
+        )
+          return { route: 'desk' };
         const shown =
           ask.kind === 'question'
             ? {
