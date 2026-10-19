@@ -85,3 +85,16 @@ test.skipIf(process.platform === 'win32')('any other refusal comes back as what 
   });
   fs.rmSync(t.dir, { recursive: true, force: true });
 });
+
+test.skipIf(process.platform === 'win32')(
+  'a Tailscale that waits without saying why is cut short and says so',
+  async () => {
+    const t = standIn('sleep 30');
+    expect(await publish(47821, 500)).toEqual({
+      published: false,
+      enableUrl: null,
+      error: 'Tailscale did not answer within 0.5 seconds. Check that it is signed in, then publish again.',
+    });
+    fs.rmSync(t.dir, { recursive: true, force: true });
+  },
+);

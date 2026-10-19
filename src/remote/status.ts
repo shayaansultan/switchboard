@@ -110,12 +110,15 @@ export async function publish(port: number, timeoutMs = 20_000): Promise<PhonePu
       await execute(binary, args, { timeout: timeoutMs, env: tailscaleEnv() });
       return { published: true, enableUrl: null, error: null };
     } catch (error) {
-      const e = error as { code?: string; stdout?: string; stderr?: string; message: string };
+      const e = error as { code?: string; killed?: boolean; stdout?: string; stderr?: string; message: string };
       if (e.code === 'ENOENT') continue;
       const text = `${e.stdout ?? ''}\n${e.stderr ?? ''}`;
       const enableUrl = /https:\/\/login\.tailscale\.com\/\S+/.exec(text)?.[0] ?? null;
       const said = text.replace(/\s+/g, ' ').trim();
-      return { published: false, enableUrl, error: enableUrl ? null : (said || e.message).slice(0, 300) };
+      const fallback = e.killed
+        ? `Tailscale did not answer within ${timeoutMs / 1000} seconds. Check that it is signed in, then publish again.`
+        : e.message;
+      return { published: false, enableUrl, error: enableUrl ? null : (said || fallback).slice(0, 300) };
     }
   }
   return { published: false, enableUrl: null, error: 'Tailscale is not installed on this Mac' };

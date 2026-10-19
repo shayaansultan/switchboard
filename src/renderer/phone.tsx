@@ -96,6 +96,7 @@ export function PhoneTab({ state }: { state: State }) {
 
   useEffect(() => {
     void load();
+    setPublished(null);
     const t = setInterval(() => {
       void load();
       setNow(Date.now());
