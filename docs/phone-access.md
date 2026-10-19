@@ -36,10 +36,16 @@ Claude and Codex apps ──write──▶ session files in each profile's home
   Phone access is on and Switchboard is running.
 - **The API.** A tRPC router (`src/remote/api.ts`) under `/api/trpc/`, which
   the phone calls with types shared from the same code. `live` is a
-  server-sent-events subscription: it sends the overview when it starts and
-  again whenever something on it changes, driven by the file events plus a
-  five-second check for what is not a file (an app starting, new usage
-  numbers). Calls from another origin are refused.
+  server-sent-events subscription: it sends the whole overview when it
+  starts, then only what changed (`src/remote/live.ts`), driven by the file
+  events plus a five-second check for what is not a file (an app starting,
+  new usage numbers). Calls from another origin are refused.
+- **Keeping it light.** A phone often reaches the Mac through a Tailscale
+  relay, where every byte costs time. So everything the phone downloads is
+  gzipped, the live stream sends only the sessions that changed (under a
+  kilobyte, against about 90 KB for the whole list), and a transcript page
+  carries only the first 12 lines of a long command output, the lines the
+  phone shows; **Show all output** fetches the rest of that one step.
 - **Tailscale.** `tailscale serve` publishes the hub on your tailnet (your
   private Tailscale network) over HTTPS, with a certificate Tailscale
   provides. Nothing is reachable from the internet, and the phone needs

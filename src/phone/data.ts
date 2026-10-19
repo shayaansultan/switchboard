@@ -7,6 +7,7 @@
 // The live overview is one query kept current by the `live` subscription,
 // which writes each overview it receives into that query's cache.
 
+import { apply } from '../remote/live';
 import { QueryClient, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createTRPCClient, httpBatchLink, httpSubscriptionLink, splitLink, TRPCClientError } from '@trpc/client';
 import { createTRPCContext, useSubscription } from '@trpc/tanstack-react-query';
@@ -50,7 +51,8 @@ export function useOverview(): { overview: Overview | undefined; link: Link; unp
   const query = useQuery(trpc.overview.queryOptions());
   const sub = useSubscription(
     trpc.live.subscriptionOptions(undefined, {
-      onData: (o) => queryClient.setQueryData(trpc.overview.queryKey(), o),
+      // The stream sends the overview once, then what changed (live.ts).
+      onData: (m) => queryClient.setQueryData(trpc.overview.queryKey(), (o) => apply(o, m)),
     }),
   );
   const link: Link =

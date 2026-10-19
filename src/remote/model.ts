@@ -59,6 +59,9 @@ export const ToolCall = z.object({
   // Pictures the tool returned (a screenshot), as media ids for /api/media/.
   images: z.array(z.string()),
   at: z.string().nullable(),
+  // Set when a transcript page carries only the start of a long output
+  // (api.ts): the whole call comes from the page at this cursor.
+  cut: z.object({ cursor: z.number().nullable() }).optional(),
 });
 export type ToolCall = z.infer<typeof ToolCall>;
 

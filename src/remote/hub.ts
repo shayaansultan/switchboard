@@ -17,6 +17,10 @@
 // It also runs the control socket (control.ts) the Claude plugin and the
 // Codex wrapper reply and approve through, and sends notifications
 // (notify.ts, push.ts) when the overview changes in a way a phone asked about.
+//
+// A phone often reaches the Mac through a Tailscale relay, where every byte
+// costs time, so the API, the live stream and the app's files go out gzipped
+// (`gzipping`).
 
 import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
@@ -24,6 +28,7 @@ import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as zlib from 'node:zlib';
 import { createHTTPHandler } from '@trpc/server/adapters/standalone';
 import type { AppState, Vendor } from '../types';
 import { createContext, createRouter, tokenFrom } from './api';
@@ -111,6 +116,46 @@ const SECURITY_HEADERS = {
 const CSP =
   "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; " +
   "manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'";
+
+// Gzips what a handler writes, when the phone accepts it and the type is
+// text: JSON, the live stream, the app's scripts and styles. Each write is
+// flushed as it comes, so a live event still reaches the phone at once.
+// Pictures and files keep their own encoding.
+const COMPRESSIBLE = /^(application\/(json|javascript|manifest\+json)|text\/|image\/svg)/;
+export function gzipping(req: http.IncomingMessage, res: http.ServerResponse): void {
+  if (req.method === 'HEAD' || !/\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) return;
+  const write = res.write.bind(res) as (chunk: unknown) => boolean;
+  const end = res.end.bind(res) as (chunk?: unknown) => http.ServerResponse;
+  // Decided at the first write, once the handler has set its content type.
+  let gzip: zlib.Gzip | null | undefined;
+  const start = (): zlib.Gzip | null => {
+    if (gzip !== undefined) return gzip;
+    const type = String(res.getHeader('content-type') ?? '');
+    if (res.headersSent || res.getHeader('content-encoding') || !COMPRESSIBLE.test(type)) return (gzip = null);
+    res.removeHeader('content-length');
+    res.setHeader('content-encoding', 'gzip');
+    res.setHeader('vary', 'accept-encoding');
+    gzip = zlib.createGzip({ flush: zlib.constants.Z_SYNC_FLUSH });
+    gzip.on('data', (c: Buffer) => write(c));
+    gzip.on('end', () => end());
+    gzip.on('error', () => res.destroy());
+    return gzip;
+  };
+  res.write = ((chunk: unknown, ...rest: unknown[]) => {
+    const g = start();
+    if (!g) return (write as (...a: unknown[]) => boolean)(chunk, ...rest);
+    g.write(chunk as Buffer | string);
+    return true;
+  }) as typeof res.write;
+  res.end = ((chunk?: unknown, ...rest: unknown[]) => {
+    if (typeof chunk === 'function') chunk = undefined;
+    const g = start();
+    if (!g) return (end as (...a: unknown[]) => http.ServerResponse)(chunk, ...rest);
+    if (chunk !== undefined && chunk !== null) g.end(chunk as Buffer | string);
+    else g.end();
+    return res;
+  }) as typeof res.end;
+}
 
 function send(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, {
@@ -331,12 +376,15 @@ export function startHub(options: {
     // The page and the worker must never go stale on the phone; the rest is
     // named by the build and can be cached briefly.
     const fresh = ext === '.html' || rel === 'sw.js' || ext === '.webmanifest';
-    res.writeHead(200, {
+    // Set one by one rather than through writeHead, so gzipping sees the type.
+    const headers: Record<string, string> = {
       ...SECURITY_HEADERS,
       'content-type': TYPES[ext] ?? 'application/octet-stream',
       'cache-control': fresh ? 'no-cache' : 'max-age=300',
       ...(ext === '.html' ? { 'content-security-policy': CSP } : {}),
-    });
+    };
+    res.statusCode = 200;
+    for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
     if (req.method === 'HEAD') res.end();
     else
       // A rebuild can remove the file after it was found.
@@ -414,6 +462,7 @@ export function startHub(options: {
     const url = new URL(req.url ?? '/', `http://${host}`);
     if (!url.pathname.startsWith('/api/')) {
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'method' });
+      gzipping(req, res);
       return serveStatic(req, res, url.pathname);
     }
     // A cross-site page can send a request; it cannot make it look same-origin.
@@ -423,6 +472,7 @@ export function startHub(options: {
     if (url.pathname.startsWith('/api/media/')) return serveMedia(req, res, url.pathname.slice('/api/media/'.length));
     if (url.pathname === '/api/upload') return receiveUpload(req, res);
     if (url.pathname.startsWith(API_BASE)) {
+      gzipping(req, res);
       res.setHeader('cache-control', 'no-store');
       for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
       return void api(req, res);

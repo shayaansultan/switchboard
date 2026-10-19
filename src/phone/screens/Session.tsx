@@ -15,7 +15,7 @@ import type { Entry, FileChange } from '../../remote/model';
 import { ago } from '../../shared/time';
 import { backgroundText, PulseDot, ProfileTag, StateText, project } from '../components/bits';
 import { Composer, NextStep, PendingCard } from '../components/Control';
-import { EntryView, MadeFiles } from '../components/Entries';
+import { EntryView, MadeFiles, SessionScope } from '../components/Entries';
 import { Button } from '../components/ui/button';
 import { sessionHref, useNow, useTRPC } from '../data';
 import { cn } from '@/lib/cn';
@@ -84,6 +84,7 @@ export function Session({
   const summary = overview?.sessions.find((s) => s.profileId === profileId && s.id === sessionId) ?? pages[0]?.session;
   const profile = overview?.profiles.find((p) => p.id === profileId);
   const reachable = !!overview?.reachable.includes(`${profileId}/${sessionId}`);
+  const scope = useMemo(() => ({ profileId, sessionId }), [profileId, sessionId]);
   const bottom = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
   const [fresh, setFresh] = useState(false);
@@ -244,19 +245,21 @@ export function Session({
           <p className="m-0 text-sm text-muted-foreground">No messages yet.</p>
         ) : null}
 
-        {entries.map((e, i) =>
-          e.kind === 'next' ? (
-            <NextStep
-              key={i}
-              entry={e}
-              profileId={profileId}
-              sessionId={sessionId}
-              live={i === entries.length - 1 && reachable && summary?.state !== 'working'}
-            />
-          ) : (
-            <EntryView key={i} entry={e} />
-          ),
-        )}
+        <SessionScope.Provider value={scope}>
+          {entries.map((e, i) =>
+            e.kind === 'next' ? (
+              <NextStep
+                key={i}
+                entry={e}
+                profileId={profileId}
+                sessionId={sessionId}
+                live={i === entries.length - 1 && reachable && summary?.state !== 'working'}
+              />
+            ) : (
+              <EntryView key={i} entry={e} />
+            ),
+          )}
+        </SessionScope.Provider>
 
         {overview?.pending
           .filter((p) => p.profileId === profileId && p.sessionId === sessionId)

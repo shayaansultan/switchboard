@@ -14,6 +14,7 @@
 // when to look (file events, plus a timer for app state and usage); this
 // only skips sending an overview identical to the last one.
 
+import { diff, type LiveMessage, type Sent } from './live';
 import { on } from 'node:events';
 import type { EventEmitter } from 'node:events';
 import type * as http from 'node:http';
@@ -25,7 +26,7 @@ import { findUpload, type Upload } from './uploads';
 import type { Overview } from './hub';
 import { pushState, PushPrefs, publicKey, push, setPrefs, Subscription, subscribe, unsubscribe } from './push';
 import { authenticate, listDevices, pair, revoke, type DeviceView } from './pairing';
-import type { Transcript } from './model';
+import type { ToolCall, Transcript } from './model';
 
 export const COOKIE = 'sb_device';
 // Chrome caps cookie lifetimes at 400 days; unpairing ends it sooner.
@@ -92,9 +93,38 @@ function controlError(error: unknown): never {
   throw new TRPCError({ code, message });
 }
 
-// What the phone should hear about; generatedAt always differs.
-const fingerprint = (o: Overview): string =>
-  JSON.stringify({ p: o.profiles, s: o.sessions, q: o.pending, r: o.reachable, f: o.failures });
+// How much of a long tool output or background notice a transcript page
+// carries. An output keeps what the phone shows before "Show all", its first
+// OUTPUT_LINES lines (src/phone/components/Entries.tsx), and the rest comes
+// with "Show all" (`step`), so a page of a busy session stays small over a
+// slow link. Messages are never cut, nor diffs: the Files screen builds each
+// file's whole diff from them.
+export const OUTPUT_LINES = 12;
+export const OUTPUT_KEEP = 1500;
+export const NOTICE_KEEP = 4000;
+
+function head(text: string): string {
+  let end = 0;
+  for (let i = 0; i < OUTPUT_LINES && end >= 0; i++) end = text.indexOf('\n', end + (i ? 1 : 0));
+  return text.slice(0, Math.min(end < 0 ? text.length : end, OUTPUT_KEEP));
+}
+
+export function trimPage(t: Transcript, cursor: number | null): Transcript {
+  const trimCall = (c: ToolCall): ToolCall => {
+    if (!c.output) return c;
+    const kept = head(c.output);
+    return kept.length < c.output.length ? { ...c, output: kept, cut: { cursor } } : c;
+  };
+  return {
+    ...t,
+    entries: t.entries.map((e) => {
+      if (e.kind === 'steps') return { ...e, calls: e.calls.map(trimCall) };
+      if (e.kind === 'event' && e.body && e.body.length > NOTICE_KEEP)
+        return { ...e, body: `${e.body.slice(0, NOTICE_KEEP)}…` };
+      return e;
+    }),
+  };
+}
 
 export function createRouter(deps: ApiDeps) {
   return t.router({
@@ -135,7 +165,26 @@ export function createRouter(deps: ApiDeps) {
       .query(({ input }) => {
         const transcript = deps.transcript(input.profileId, input.sessionId, input.cursor ?? null);
         if (!transcript) throw new TRPCError({ code: 'NOT_FOUND', message: 'no-such-session' });
-        return transcript;
+        return trimPage(transcript, input.cursor ?? null);
+      }),
+
+    // One step whole, for a page that carried only the start of its output.
+    step: paired
+      .input(
+        z.object({
+          profileId: z.string().min(1).max(200),
+          sessionId: z.string().min(1).max(200),
+          cursor: z.number().int().positive().nullish(),
+          id: z.string().min(1).max(200),
+        }),
+      )
+      .query(({ input }) => {
+        const transcript = deps.transcript(input.profileId, input.sessionId, input.cursor ?? null);
+        const call = transcript?.entries
+          .flatMap((e) => (e.kind === 'steps' ? e.calls : []))
+          .find((c) => c.id === input.id);
+        if (!call) throw new TRPCError({ code: 'NOT_FOUND', message: 'no-such-call' });
+        return call;
       }),
 
     // Types a reply into the session, as if at the Mac.
@@ -239,13 +288,14 @@ export function createRouter(deps: ApiDeps) {
     }),
 
     live: paired.subscription(async function* ({ signal, ctx }) {
-      let last = '';
+      // What this phone has, so each change sends only the difference (live.ts).
+      let sent: Sent | null = null;
       // A phone unpaired while its stream is open hears nothing more.
       const stillPaired = () => {
         if (!listDevices().some((d) => d.id === ctx.device.id))
           throw new TRPCError({ code: 'UNAUTHORIZED', message: 'not-paired' });
       };
-      const next = (): Overview | null => {
+      const next = (): LiveMessage | null => {
         let o: Overview;
         try {
           o = deps.overview();
@@ -253,10 +303,9 @@ export function createRouter(deps: ApiDeps) {
           // A file vanished mid-read; the next change reads it again.
           return null;
         }
-        const print = fingerprint(o);
-        if (print === last) return null;
-        last = print;
-        return o;
+        const d = diff(sent, o);
+        sent = d.sent;
+        return d.message;
       };
       // Listen before the first read, so a change between them is not lost.
       const changes = on(deps.changes, 'change', { signal });

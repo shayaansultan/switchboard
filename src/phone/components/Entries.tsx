@@ -19,15 +19,23 @@ import {
   Image,
   MessageSquareText,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { createContext, useContext, useState } from 'react';
 import type { Entry, EntryOf, FileChange, ToolCall, Transcript } from '../../remote/model';
 import { cn } from '@/lib/cn';
 import { usePrefs } from '../prefs';
 import { plain, PulseDot } from './bits';
 import { Markdown } from './Markdown';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+import { useTRPC } from '../data';
+
+// The session the entries belong to, for a step whose page carried only the
+// start of its output and fetches the rest when asked (api.ts `step`).
+export const SessionScope = createContext<{ profileId: string; sessionId: string } | null>(null);
 
 const LONG_REPLY = 1400;
+// The lines of a tool output shown before "Show all"; a transcript page
+// carries just these for a long one (src/remote/api.ts OUTPUT_LINES).
 const OUTPUT_LINES = 12;
 
 export const mediaUrl = (id: string): string => `/api/media/${encodeURIComponent(id)}`;
@@ -131,10 +139,28 @@ export function DiffLines({ change, limit }: { change: FileChange; limit?: numbe
   );
 }
 
-function Output({ text }: { text: string }) {
+// `more` is set when the page carried only the start of the output: "Show
+// all" then fetches the rest.
+function Output({ text, more }: { text: string; more?: { load: () => void; loading: boolean; failed: boolean } }) {
   const [all, setAll] = useState(false);
   const lines = text.split('\n');
   const shown = all ? lines : lines.slice(0, OUTPUT_LINES);
+  if (more)
+    return (
+      <div className="mt-1.5 overflow-hidden rounded-lg bg-code-bg">
+        <pre className="m-0 max-h-[60vh] overflow-auto p-2.5 font-mono text-[11.5px] leading-[1.5] text-code-text">
+          {lines.slice(0, OUTPUT_LINES).join('\n')}
+        </pre>
+        <button
+          type="button"
+          onClick={more.load}
+          disabled={more.loading}
+          className="w-full border-t border-white/10 py-1.5 text-xs text-code-text/80"
+        >
+          {more.loading ? 'Loading…' : more.failed ? "Couldn't load it. Try again" : 'Show all output'}
+        </button>
+      </div>
+    );
   return (
     <div className="mt-1.5 overflow-hidden rounded-lg bg-code-bg">
       <pre className="m-0 max-h-[60vh] overflow-auto p-2.5 font-mono text-[11.5px] leading-[1.5] text-code-text">
@@ -153,8 +179,23 @@ function Output({ text }: { text: string }) {
   );
 }
 
-function Call({ call }: { call: ToolCall }) {
-  const [open, setOpen] = useState(call.failed);
+function Call({ call: page }: { call: ToolCall }) {
+  const [open, setOpen] = useState(page.failed);
+  const scope = useContext(SessionScope);
+  const trpc = useTRPC();
+  const [wantAll, setWantAll] = useState(false);
+  const whole = useQuery(
+    trpc.step.queryOptions(
+      {
+        profileId: scope?.profileId ?? '',
+        sessionId: scope?.sessionId ?? '',
+        cursor: page.cut?.cursor ?? undefined,
+        id: page.id,
+      },
+      { enabled: wantAll && !!page.cut && !!scope, staleTime: Infinity, retry: false },
+    ),
+  );
+  const call = whole.data ?? page;
   const more = !!(call.output || call.change || call.images.length);
   const head = (
     <span className="flex min-w-0 items-baseline gap-2 text-[12.5px]">
@@ -197,7 +238,20 @@ function Call({ call }: { call: ToolCall }) {
         {call.images.map((id, i) => (
           <Picture key={id} id={id} label={`Picture ${i + 1} from ${call.name}`} className="mt-1.5" />
         ))}
-        {call.output ? <Output text={call.output} /> : null}
+        {call.output ? (
+          <Output
+            text={call.output}
+            more={
+              call.cut && scope
+                ? {
+                    load: () => (wantAll ? void whole.refetch() : setWantAll(true)),
+                    loading: whole.isFetching,
+                    failed: whole.isError,
+                  }
+                : undefined
+            }
+          />
+        ) : null}
       </CollapsibleContent>
     </Collapsible>
   );

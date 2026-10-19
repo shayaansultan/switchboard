@@ -8,6 +8,7 @@
 // that something changed; the next `list` re-reads what did, by size and
 // modification time, and leaves the rest cached.
 
+import { byRecent } from './live';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Vendor } from '../types';
@@ -109,7 +110,7 @@ export class SessionReader {
       }
     }
     for (const file of this.cache.keys()) if (!seen.has(file)) this.cache.delete(file);
-    return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return all.sort(byRecent);
   }
 
   // One page of a session's transcript, newest page first; pass the returned
