@@ -10,11 +10,11 @@
 // which kinds it wants (push.ts).
 //
 // `live` is a server-sent-events subscription: it sends the overview at once,
-// then again whenever something the phone shows has changed. The hub decides
-// when to look (file events, plus a timer for app state and usage); this
-// only skips sending an overview identical to the last one.
+// then only what changed whenever something the phone shows has changed
+// (live.ts). The hub decides when to look (file events, plus a timer for app
+// state and usage). `session` pages are trimmed to what the phone shows
+// (`trimPage`), and `step` brings back one step whole.
 
-import { diff, type LiveMessage, type Sent } from './live';
 import { on } from 'node:events';
 import type { EventEmitter } from 'node:events';
 import type * as http from 'node:http';
@@ -24,6 +24,7 @@ import type { Vendor } from '../types';
 import type { Control } from './control';
 import { findUpload, type Upload } from './uploads';
 import type { Overview } from './hub';
+import { diff, type LiveMessage, type Sent } from './live';
 import { pushState, PushPrefs, publicKey, push, setPrefs, Subscription, subscribe, unsubscribe } from './push';
 import { authenticate, listDevices, pair, revoke, type DeviceView } from './pairing';
 import type { ToolCall, Transcript } from './model';

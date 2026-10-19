@@ -8,10 +8,10 @@
 // that something changed; the next `list` re-reads what did, by size and
 // modification time, and leaves the rest cached.
 
-import { byRecent } from './live';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Vendor } from '../types';
+import { byRecent } from './live';
 import {
   backgroundCount,
   claudeFiles,

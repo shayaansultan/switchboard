@@ -7,13 +7,13 @@
 // The live overview is one query kept current by the `live` subscription,
 // which writes each overview it receives into that query's cache.
 
-import { apply } from '../remote/live';
 import { QueryClient, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createTRPCClient, httpBatchLink, httpSubscriptionLink, splitLink, TRPCClientError } from '@trpc/client';
 import { createTRPCContext, useSubscription } from '@trpc/tanstack-react-query';
 import { useEffect, useState } from 'react';
 import type { ApiRouter } from '../remote/api';
 import type { Overview } from '../remote/hub';
+import { apply } from '../remote/live';
 
 export const { TRPCProvider, useTRPC } = createTRPCContext<ApiRouter>();
 
