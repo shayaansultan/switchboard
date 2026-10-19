@@ -1,19 +1,21 @@
-// The Phone tab: phone access in one place. Turn it on, see what is still
-// needed before a phone can reach this Mac (Tailscale, `tailscale serve`, a
-// paired phone), pair a phone by scanning a QR code, and unpair one. The
+// The Phone tab: phone access in one place. Turn it on, then three steps in
+// one column: Tailscale on this Mac, publishing on the tailnet (a button that
+// runs `tailscale serve`, with the command for anyone who wants to run it
+// themselves), and pairing a phone by its QR code, shown in that step. The
 // checks are real: the tab asks the main process every few seconds, which
-// probes the hub on this Mac and at its tailnet address.
+// probes the hub on this Mac and at its tailnet address. Once all three are
+// done the steps fold into one status line, with the setup a click away.
 //
-// It also names running apps the phone can only watch, because they were
+// Below that, running apps the phone can only watch, because they were
 // opened from the Dock or before phone access was on, with a Relaunch for
-// each, and holds the opt-in for Default Claude opened from the Dock
-// (src/remote/reach.ts).
+// each, the opt-in for Default Claude opened from the Dock
+// (src/remote/reach.ts), and the paired phones.
 //
 // The same operations are `switchboard remote ...` in the CLI.
 
 import qrcode from 'qrcode-generator';
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import type { PhonePairing, PhoneStatus } from '../types';
+import type { PhonePairing, PhonePublish, PhoneStatus } from '../types';
 import { CopyButton } from './cli';
 import { act, ago, type State } from './lib';
 import { Badge, Btn, Note, Panel, Switch } from './ui/primitives';
@@ -58,11 +60,34 @@ function minutesLeft(iso: string, now: number): string {
   return m <= 1 ? 'about a minute' : `${m} minutes`;
 }
 
+// A live pairing code: the QR that opens the phone app with it filled in,
+// and the code itself for typing.
+function PairCode({ pairing, now, onCancel }: { pairing: PhonePairing; now: number; onCancel: () => void }) {
+  return (
+    <div class="pair-inline">
+      {pairing.url ? <Qr text={pairing.url} /> : null}
+      <span class="hint">
+        {pairing.url ? 'Scan with the phone camera, or enter this code in the app' : 'Enter this code in the phone app'}
+      </span>
+      <span class="pair-code">{pairing.code}</span>
+      <span class="hint">Works once, for the next {minutesLeft(pairing.expiresAt, now)}</span>
+      <Btn variant="secondary" onClick={onCancel}>
+        Cancel
+      </Btn>
+    </div>
+  );
+}
+
 export function PhoneTab({ state }: { state: State }) {
   const on = !!state.settings.phoneAccess;
   const [status, setStatus] = useState<PhoneStatus | null>(null);
   const [pairing, setPairing] = useState<PhonePairing | null>(null);
   const [now, setNow] = useState(Date.now());
+  // The last Publish, until the address answers.
+  const [publishing, setPublishing] = useState(false);
+  const [published, setPublished] = useState<PhonePublish | null>(null);
+  // The finished setup, opened again from its status line.
+  const [showSetup, setShowSetup] = useState(false);
   const load = () =>
     window.sb
       .phoneStatus()
@@ -87,80 +112,162 @@ export function PhoneTab({ state }: { state: State }) {
   }, [devices, now]);
 
   const reachable = !!status?.published;
+  const done = on && !!status?.tailnet && reachable && devices > 0;
   const startPair = () =>
     void act(async () => {
       setDevicesAtPair(devices);
       setPairing(await window.sb.pairPhone());
     });
+  // The button stays busy itself: publishing can wait on Tailscale for a while.
+  const publish = async () => {
+    setPublishing(true);
+    try {
+      setPublished(await window.sb.publishPhone());
+    } catch (error) {
+      setPublished({ published: false, enableUrl: null, error: (error as Error).message });
+    } finally {
+      setPublishing(false);
+    }
+    // The address can take a few seconds to answer; the step ticks itself.
+    void load();
+  };
+  const pairButton = (label: string) => (
+    <Btn variant="primary" id="pair-phone" disabled={!status?.listening} onClick={startPair}>
+      {label}
+    </Btn>
+  );
 
   return (
     <section class="phone-tab">
-      <div class="phone-main">
-        <Panel
-          title="Phone access"
-          status={
-            status ? (
-              !on ? (
-                <Badge tone="mute">Off</Badge>
-              ) : reachable ? (
-                <Badge tone="ok">Reachable</Badge>
-              ) : status.listening ? (
-                <Badge tone="warn">Not on your tailnet yet</Badge>
-              ) : (
-                <Badge tone="warn">Not running</Badge>
-              )
-            ) : null
-          }
-          actions={
-            <Switch
-              name="phoneAccess"
-              checked={on}
-              label="Phone access"
-              onChange={(v) => void act(() => window.sb.saveSettings({ phoneAccess: v }))}
-            />
-          }
-        >
-          <div class="phone-body">
+      <Panel
+        title="Phone access"
+        status={
+          status ? (
+            !on ? (
+              <Badge tone="mute">Off</Badge>
+            ) : reachable ? (
+              <Badge tone="ok">Reachable</Badge>
+            ) : status.listening ? (
+              <Badge tone="warn">Not on your tailnet yet</Badge>
+            ) : (
+              <Badge tone="warn">Not running</Badge>
+            )
+          ) : null
+        }
+        actions={
+          <Switch
+            name="phoneAccess"
+            checked={on}
+            label="Phone access"
+            onChange={(v) => void act(() => window.sb.saveSettings({ phoneAccess: v }))}
+          />
+        }
+      >
+        <div class="phone-body">
+          {done && !showSetup ? null : (
             <p class="cli-intro">
               See what every profile is working on from your phone. Switchboard serves a small app on this Mac, and
               Tailscale makes it reachable from your devices only.
             </p>
-            {on && status?.error ? <Note tone="warn">{status.error}</Note> : null}
-            {on && status ? (
-              <ol class="phone-steps">
-                <Step done={!!status.tailnet} title={status.tailnet ? 'Tailscale is connected' : 'Connect Tailscale'}>
-                  <span class="hint">
-                    {status.tailnet
-                      ? `This Mac is ${status.tailnet.split('.')[0]} on your tailnet.`
-                      : 'Open Tailscale on this Mac and sign in, then install it on your phone with the same account.'}
-                  </span>
-                </Step>
-                <Step done={reachable} title={reachable ? 'Published on your tailnet' : 'Publish it on your tailnet'}>
-                  {reachable ? (
-                    <span class="hint">{status.url}</span>
-                  ) : (
-                    <>
-                      <span class="hint">
-                        Run this once in Terminal. If Tailscale asks you to enable Serve or HTTPS for your tailnet,
-                        follow its link and run it again.
-                      </span>
+          )}
+          {on && status?.error ? <Note tone="warn">{status.error}</Note> : null}
+          {on && status && done && !showSetup ? (
+            <div class="phone-summary">
+              <span>
+                Reachable at <b>{status.url}</b> · {devices === 1 ? '1 phone paired' : `${devices} phones paired`}
+              </span>
+              <span class="phone-actions">
+                {pairing ? null : pairButton('Pair another phone')}
+                <Btn variant="ghost" onClick={() => setShowSetup(true)}>
+                  Show setup
+                </Btn>
+              </span>
+              {pairing ? <PairCode pairing={pairing} now={now} onCancel={() => setPairing(null)} /> : null}
+            </div>
+          ) : null}
+          {on && status && (!done || showSetup) ? (
+            <ol class="phone-steps">
+              <Step done={!!status.tailnet} title={status.tailnet ? 'Tailscale is connected' : 'Connect Tailscale'}>
+                <span class="hint">
+                  {status.tailnet
+                    ? `This Mac is ${status.tailnet.split('.')[0]} on your tailnet.`
+                    : 'Install Tailscale from the Mac App Store and sign in, then install it on your phone with the same account.'}
+                </span>
+              </Step>
+              <Step done={reachable} title={reachable ? 'Published on your tailnet' : 'Publish it on your tailnet'}>
+                {reachable ? (
+                  <span class="hint">{status.url}</span>
+                ) : (
+                  <>
+                    <span class="hint">
+                      Gives this Mac an address your phone can open. Only devices signed in to your tailnet can reach
+                      it.
+                    </span>
+                    {published?.enableUrl ? (
+                      <Note tone="warn">
+                        Tailscale opened a page to allow Serve on your tailnet. Allow it there, then press Publish
+                        again.
+                      </Note>
+                    ) : published?.error ? (
+                      <Note tone="warn">{published.error}</Note>
+                    ) : published?.published ? (
+                      <span class="hint">Published. Waiting for the address to answer…</span>
+                    ) : null}
+                    <span class="phone-actions">
+                      <Btn
+                        variant="primary"
+                        id="publish"
+                        disabled={!status.tailnet || publishing}
+                        onClick={() => void publish()}
+                      >
+                        {publishing ? 'Publishing…' : 'Publish'}
+                      </Btn>
+                    </span>
+                    <details class="phone-manual">
+                      <summary>Or run it in Terminal yourself</summary>
                       <span class="phone-command">
                         <code>{status.serve}</code>
                         <CopyButton text={status.serve} title="Copy command" />
                       </span>
-                    </>
-                  )}
-                </Step>
-                <Step done={devices > 0} title={devices > 0 ? 'A phone is paired' : 'Pair a phone'}>
-                  <span class="hint">
-                    {devices > 0
-                      ? 'Pair more from the panel on the right.'
-                      : 'Show a pairing code and scan it with the phone.'}
-                  </span>
-                </Step>
-              </ol>
-            ) : null}
-            {on && status?.unreachable.length ? (
+                    </details>
+                  </>
+                )}
+              </Step>
+              <Step done={devices > 0} title={devices > 0 ? 'A phone is paired' : 'Pair a phone'}>
+                {pairing ? (
+                  <PairCode pairing={pairing} now={now} onCancel={() => setPairing(null)} />
+                ) : (
+                  <>
+                    <span class="hint">
+                      {devices > 0
+                        ? 'Pair another the same way.'
+                        : 'Shows a QR code that opens the phone app with the code filled in.'}
+                    </span>
+                    <span class="phone-actions">
+                      {pairButton(devices > 0 ? 'Pair another phone' : 'Show pairing code')}
+                    </span>
+                    {status.listening && !reachable ? (
+                      <span class="hint">The phone won't reach this Mac until it is published on your tailnet.</span>
+                    ) : null}
+                  </>
+                )}
+              </Step>
+              {done ? (
+                <li class="phone-steps-close">
+                  <Btn variant="ghost" onClick={() => setShowSetup(false)}>
+                    Hide setup
+                  </Btn>
+                </li>
+              ) : null}
+            </ol>
+          ) : null}
+        </div>
+      </Panel>
+
+      {on && status ? (
+        <Panel title="Desktop apps">
+          <div class="phone-body">
+            {status.unreachable.length ? (
               <div class="phone-reach">
                 <b>The phone can only watch these apps</b>
                 <span class="hint">
@@ -189,98 +296,66 @@ export function PhoneTab({ state }: { state: State }) {
                   ))}
                 </ul>
               </div>
-            ) : null}
-            {on && status ? (
-              <div class="phone-default-claude">
-                <span class="phone-name">
-                  <b>Default Claude from the Dock</b>
-                  <span class="hint">
-                    Adds Switchboard's plugin to ~/.claude/settings.json, so Default Claude takes replies and approvals
-                    however you open it, while Switchboard runs. Turning this off, or quitting Switchboard, takes
-                    exactly that back out.
-                  </span>
-                  {status.defaultClaude.error ? <Note tone="warn">{status.defaultClaude.error}</Note> : null}
-                </span>
-                <Switch
-                  name="phoneDefaultClaude"
-                  checked={status.defaultClaude.on}
-                  label="Default Claude from the Dock"
-                  onChange={(v) =>
-                    void act(async () => {
-                      await window.sb.saveSettings({ phoneDefaultClaude: v });
-                      await load();
-                    })
-                  }
-                />
-              </div>
-            ) : null}
-          </div>
-        </Panel>
-
-        <Panel title="Paired phones" meta={devices === 1 ? '1 phone' : `${devices} phones`}>
-          <div class="phone-body">
-            {status?.devices.length ? (
-              <ul class="phones">
-                {status.devices.map((d) => (
-                  <li key={d.id}>
-                    <span class="phone-name">
-                      <b>{d.name}</b>
-                      <span class="hint">{d.lastSeenAt ? `Seen ${ago(d.lastSeenAt)}` : 'Not seen yet'}</span>
-                    </span>
-                    <Btn
-                      variant="secondary"
-                      onClick={() =>
-                        void act(async () => {
-                          await window.sb.unpairPhone(d.id);
-                          await load();
-                        })
-                      }
-                    >
-                      Unpair
-                    </Btn>
-                  </li>
-                ))}
-              </ul>
             ) : (
-              <p class="hint">No phones yet.</p>
+              <p class="hint">Every running app takes replies and approvals from the phone.</p>
             )}
-            <p class="hint">
-              Paired phones see every profile's sessions and transcripts, and can reply and approve in the profiles you
-              open from Switchboard while this is on. Unpair one to shut it out at once.
-            </p>
+            <div class="phone-default-claude">
+              <span class="phone-name">
+                <b>Default Claude from the Dock</b>
+                <span class="hint">
+                  Adds Switchboard's plugin to ~/.claude/settings.json, so Default Claude takes replies and approvals
+                  however you open it, while Switchboard runs. Turning this off, or quitting Switchboard, takes exactly
+                  that back out.
+                </span>
+                {status.defaultClaude.error ? <Note tone="warn">{status.defaultClaude.error}</Note> : null}
+              </span>
+              <Switch
+                name="phoneDefaultClaude"
+                checked={status.defaultClaude.on}
+                label="Default Claude from the Dock"
+                onChange={(v) =>
+                  void act(async () => {
+                    await window.sb.saveSettings({ phoneDefaultClaude: v });
+                    await load();
+                  })
+                }
+              />
+            </div>
           </div>
         </Panel>
-      </div>
+      ) : null}
 
-      <Panel title="Pair a phone" class="phone-pair">
-        <div class="phone-body pair-body">
-          {pairing ? (
-            <>
-              {pairing.url ? <Qr text={pairing.url} /> : null}
-              <span class="hint">
-                {pairing.url
-                  ? 'Scan with the phone camera, or enter this code in the app'
-                  : 'Enter this code in the phone app'}
-              </span>
-              <span class="pair-code">{pairing.code}</span>
-              <span class="hint">Works once, for the next {minutesLeft(pairing.expiresAt, now)}</span>
-              <Btn variant="secondary" onClick={() => setPairing(null)}>
-                Cancel
-              </Btn>
-            </>
+      <Panel title="Paired phones" meta={devices === 1 ? '1 phone' : `${devices} phones`}>
+        <div class="phone-body">
+          {status?.devices.length ? (
+            <ul class="phones">
+              {status.devices.map((d) => (
+                <li key={d.id}>
+                  <span class="phone-name">
+                    <b>{d.name}</b>
+                    <span class="hint">{d.lastSeenAt ? `Seen ${ago(d.lastSeenAt)}` : 'Not seen yet'}</span>
+                  </span>
+                  <Btn
+                    variant="secondary"
+                    onClick={() =>
+                      void act(async () => {
+                        await window.sb.unpairPhone(d.id);
+                        await load();
+                      })
+                    }
+                  >
+                    Unpair
+                  </Btn>
+                </li>
+              ))}
+            </ul>
           ) : (
-            <>
-              <span class="hint">
-                Shows a QR code that opens the phone app with the code filled in. Tailscale has to be on, on the phone.
-              </span>
-              <Btn variant="primary" id="pair-phone" disabled={!on || !status?.listening} onClick={startPair}>
-                Show pairing code
-              </Btn>
-              {on && status?.listening && !reachable ? (
-                <span class="hint">The phone won't reach this Mac until it is published on your tailnet.</span>
-              ) : null}
-            </>
+            <p class="hint">No phones yet.</p>
           )}
+          <p class="hint">
+            Paired phones see every profile's sessions and transcripts, and can reply and approve in the profiles you
+            open from Switchboard while this is on. Unpair one to shut it out at once.
+          </p>
         </div>
       </Panel>
     </section>

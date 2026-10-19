@@ -41,6 +41,7 @@ const api: SwitchboardApi = {
   pairPhone: () => ipcRenderer.invoke('remote:pair'),
   unpairPhone: (id: string) => ipcRenderer.invoke('remote:unpair', id),
   relaunchForPhone: (id: string) => ipcRenderer.invoke('remote:relaunch', id),
+  publishPhone: () => ipcRenderer.invoke('remote:publish'),
   onState: (fn: (s: State) => void) => {
     ipcRenderer.on('state', (_e, s: State) => fn(s));
   },

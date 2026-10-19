@@ -296,10 +296,20 @@ export interface SwitchboardApi {
   pairPhone(): Promise<PhonePairing>;
   unpairPhone(id: string): Promise<void>;
   relaunchForPhone(profileId: string): Promise<void>;
+  publishPhone(): Promise<PhonePublish>;
   onState(fn: (s: State) => void): void;
 }
 
 // Phone access as the Settings dialog and `switchboard remote status` show it.
+// What publishing the hub on the tailnet came to (src/remote/status.ts).
+export interface PhonePublish {
+  published: boolean;
+  // Tailscale's page for allowing Serve or HTTPS on the tailnet, when it
+  // asked for that first.
+  enableUrl: string | null;
+  error: string | null;
+}
+
 export interface PhoneStatus {
   enabled: boolean;
   port: number;

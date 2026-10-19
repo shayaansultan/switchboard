@@ -14,13 +14,13 @@ import * as launch from '../launch';
 import { listDevices, revoke } from '../remote/pairing';
 import { NoteKind, push, pushState, setPrefs, unsubscribe } from '../remote/push';
 import { SessionReader } from '../remote/sessions';
-import { pairing, phoneStatus, serveCommand } from '../remote/status';
+import { pairing, phoneStatus, publish, serveCommand } from '../remote/status';
 import type { Context } from './context';
 import { parse, required } from './context';
 import { notFound, refused, usageError } from './output';
 import { mutateStore, resolveProfile } from './resolve';
 
-const SUBCOMMANDS = 'status, on, off, pair, devices, unpair, notifications, relaunch, sessions, session';
+const SUBCOMMANDS = 'status, on, off, publish, pair, devices, unpair, notifications, relaunch, sessions, session';
 
 function homes(ctx: Context) {
   return ctx.data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, home: dirs(p).home }));
@@ -41,6 +41,20 @@ export async function remoteCommand(rest: string[], ctx: Context): Promise<void>
     case undefined:
       ctx.out.result(await phoneStatus(ctx.data.settings, ctx.data.profiles));
       return;
+    case 'publish': {
+      // `tailscale serve` for the hub, as the Phone tab's Publish button runs it.
+      if (!ctx.data.settings.phoneAccess)
+        throw refused('phone-access-off', 'Phone access is off', 'switchboard remote on');
+      const result = await publish(ctx.data.settings.phonePort ?? DEFAULT_PORT);
+      if (result.enableUrl)
+        throw refused(
+          'serve-not-allowed',
+          `Tailscale wants Serve or HTTPS allowed on your tailnet first: open ${result.enableUrl}, then publish again`,
+        );
+      if (!result.published) throw refused('publish-failed', result.error ?? 'tailscale serve failed');
+      ctx.out.result({ published: true, serve: serveCommand(ctx.data.settings.phonePort ?? DEFAULT_PORT) });
+      return;
+    }
     case 'on': {
       const { values } = parse(args, { port: { type: 'string' } });
       const port = values.port === undefined ? undefined : Number(values.port);

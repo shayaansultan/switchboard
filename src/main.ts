@@ -36,7 +36,7 @@ import { INSTALLED_APP } from './buckets/runtime';
 import { HOME } from './store';
 import { resetsIn } from './shared/time';
 import { DEFAULT_PORT, startHub, type Hub, type HubProfile, type HubSource } from './remote/hub';
-import { clearHubStatus, pairing, phoneStatus, writeHubStatus } from './remote/status';
+import { clearHubStatus, pairing, phoneStatus, publish, writeHubStatus } from './remote/status';
 import { revoke as revokeDevice } from './remote/pairing';
 import { controlSocket } from './remote/control';
 import { defaultClaudeLinked, hookedApps, linkDefaultClaude, reachOf, unlinkDefaultClaude } from './remote/reach';
@@ -1138,6 +1138,15 @@ ipcMain.handle('remote:status', async () => {
 ipcMain.handle('remote:pair', () => pairing());
 ipcMain.handle('remote:unpair', (_e, id: unknown) => {
   revokeDevice(z.string().min(1).parse(id));
+});
+// Publish in the Phone tab. When Tailscale first wants Serve or HTTPS allowed
+// on the tailnet, its page opens in the browser: the person clicked Publish,
+// and that page is the rest of it.
+ipcMain.handle('remote:publish', async () => {
+  if (!data.settings.phoneAccess) throw new Error('Turn on phone access first');
+  const result = await publish(data.settings.phonePort ?? DEFAULT_PORT);
+  if (result.enableUrl) await shell.openExternal(result.enableUrl);
+  return result;
 });
 ipcMain.handle('remote:relaunch', async (_e, id: unknown) => {
   const p = data.profiles.find((x) => x.id === z.string().min(1).parse(id));

@@ -59,8 +59,9 @@ and takes effect on its next launch.
 (desktop sessions only unless `--all`); `remote session PROFILE ID` returns one transcript. Both
 read session files and need no running app. `remote on|off`, `pair`, `devices` and `unpair`
 manage what paired phones can see. Pairing codes and unpairing are the user's to ask for; do not
-hand a code to anyone else. Publishing on the tailnet is the user's `tailscale serve` command,
-which `remote status` prints; do not run it for them. Replying and approving happen on the
+hand a code to anyone else. `remote publish` publishes the hub on the user's tailnet with
+`tailscale serve`, which changes their Tailscale setup, so run it only when they ask; when Tailscale
+wants Serve allowed first it refuses with the link to open. Replying and approving happen on the
 phone itself; with phone access on, launch desktop profiles from Switchboard (`switchboard launch`)
 so the phone can reach their sessions. `remote status` lists running apps the phone can only watch
 (`unreachable`); `remote relaunch PROFILE` quits one and reopens it with the hook, which stops what

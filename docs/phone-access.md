@@ -55,24 +55,27 @@ Claude and Codex apps ──write──▶ session files in each profile's home
 ## Setting it up
 
 Everything is in Switchboard's **Phone** tab, which checks each step for real
-and ticks it off.
+and ticks it off. Once all three steps are done they fold into one line, the
+address and how many phones are paired, with **Show setup** to open them
+again.
 
 1. Turn on **Phone access**, or run `switchboard remote on`.
 2. Connect Tailscale on the Mac, and install it on the phone with the same
    account.
-3. Publish the hub on your tailnet once. The tab shows the command, with a
-   copy button:
+3. Press **Publish**, or run `switchboard remote publish`. Both run, once:
 
    ```bash
    tailscale serve --bg --https=443 http://127.0.0.1:47821
    ```
 
-   If Tailscale asks you to enable Serve or HTTPS certificates for your
-   tailnet, follow its link and run it again. `tailscale serve --https=443 off`
-   undoes it. The tab ticks this off once the hub answers at the tailnet
-   address.
+   The tab also shows that command under **Or run it in Terminal yourself**.
+   If your tailnet has not allowed Serve or HTTPS certificates yet, Tailscale
+   asks first: its page opens in the browser, and you publish again once it
+   is allowed. `tailscale serve --https=443 off` undoes it. The tab ticks
+   this off once the hub answers at the tailnet address.
 
-4. Choose **Show pairing code** and scan the QR code with the phone's camera.
+4. Choose **Show pairing code** in the third step and scan the QR code with
+   the phone's camera.
    It opens the phone app with the code filled in. Or run
    `switchboard remote pair` and open the link it prints.
 5. In Safari, **Share → Add to Home Screen** installs it as an app.
@@ -225,6 +228,7 @@ the inbox makes between desktop sessions and all sessions.
 ```bash
 switchboard remote status            # on or off, listening or not, the phone's address
 switchboard remote on | off
+switchboard remote publish           # tailscale serve for the hub, as the Publish button runs it
 switchboard remote pair              # a one-time code and a link with it filled in
 switchboard remote devices
 switchboard remote unpair DEVICE_ID  # or --all --yes

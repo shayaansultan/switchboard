@@ -395,9 +395,14 @@ code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; 
 .badge.warn { background: var(--warn-bg); color: var(--warn-text); }
 
 /* --- the Phone tab --- */
-.phone-tab { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; align-items: start; max-width: 960px; }
-@media (max-width: 720px) { .phone-tab { grid-template-columns: minmax(0, 1fr); } }
-.phone-main { display: grid; gap: 16px; min-width: 0; }
+.phone-tab { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; max-width: 680px; }
+.phone-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.phone-summary { display: grid; gap: 10px; font-size: 13px; color: var(--text-2); }
+.phone-summary b { color: var(--text); font-weight: 550; word-break: break-all; }
+.phone-manual summary { cursor: pointer; font-size: 12px; color: var(--muted); width: fit-content; }
+.phone-manual[open] summary { margin-bottom: 6px; }
+.phone-steps-close { list-style: none; }
+.pair-inline { display: grid; justify-items: start; gap: 6px; padding-top: 4px; }
 .phone-body { padding: 14px 0 16px; display: grid; gap: 12px; }
 .phone-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .phone-step { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; align-items: start; }
@@ -414,7 +419,5 @@ code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; 
 .phone-reach { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
 .phone-reach > b { font-weight: 550; font-size: 14px; color: var(--text); }
 .phone-default-claude { display: flex; align-items: center; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
-.pair-body { justify-items: center; text-align: center; }
-.pair-body button { justify-self: stretch; }
 .qr { width: 200px; height: 200px; border-radius: 8px; border: 1px solid var(--line); }
 .pair-code { font-family: ui-monospace, Menlo, monospace; font-size: 22px; font-weight: 600; letter-spacing: 0.12em; color: var(--text); }
