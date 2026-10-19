@@ -140,7 +140,11 @@ phone ──reply / decide──▶ hub ◀──long poll── Claude plugin (
   by itself. A Claude one has to be held to wait for the phone, which would
   keep the app's own dialog from showing, so it goes to the phone only while
   nobody is at the Mac (the screen is locked, or no input for a minute), and
-  goes back to the app as soon as someone is.
+  goes back to the app as soon as someone is. A session in auto mode never
+  sends approvals to the phone: its classifier decides them, and only after
+  Switchboard hands the call back, so holding one would stop the session,
+  a scheduled task included, until someone answered. Questions it asks you
+  still come through.
 - A profile's app has to be opened from Switchboard after phone access is
   turned on. One opened from the Dock, or before phone access was on, can be
   read from the phone but not replied to. Switchboard notices (it reads the

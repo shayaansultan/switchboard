@@ -16,7 +16,9 @@
 //   only way to wait for the phone, and it keeps the desktop's own dialog
 //   from showing, so the hub hands it back the moment someone is at the Mac
 //   again, and the dialog shows as usual. Anything that goes wrong does the
-//   same: the desktop is always the fallback.
+//   same: the desktop is always the fallback. In auto mode the hub hands
+//   approvals straight back: the classifier decides them, and only once
+//   this hook returns.
 //
 // The hub side is src/remote/control.ts.
 

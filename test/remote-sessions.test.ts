@@ -11,7 +11,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { sandboxHome } from './setup';
 import { SessionReader, STALE_MS, type ProfileHome } from '../src/remote/sessions';
 import type { Entry } from '../src/remote/model';
-import { PAGE_BYTES } from '../src/remote/claude';
+import { sessionMode, PAGE_BYTES } from '../src/remote/claude';
 
 const root = path.join(sandboxHome, 'remote-sessions');
 const claude: ProfileHome = { id: 'claude-work', vendor: 'claude', home: path.join(root, 'claude') };
@@ -568,4 +568,26 @@ test('a codex exec run is titled by its prompt, found past the instructions Code
   };
   rollout('e1', [instructions, context, ask, agentMessage('READY')], { originator: 'codex_exec' });
   expect(new SessionReader().list([codex])[0]).toMatchObject({ title: 'Review the branch', origin: 'exec' });
+});
+
+test("a session's permission mode is the last its file recorded, found past long tool output", () => {
+  const home = fs.mkdtempSync(path.join(sandboxHome, 'mode-'));
+  const dir = path.join(home, 'projects', '-Users-someone-app');
+  fs.mkdirSync(dir, { recursive: true });
+  const prompt = (mode: string) => JSON.stringify({ type: 'user', permissionMode: mode, message: { content: 'go' } });
+  const output = JSON.stringify({
+    type: 'user',
+    message: { content: [{ type: 'tool_result', content: 'x'.repeat(3000) }] },
+  });
+  // Switched to auto, then 20 KB of tool output after the last prompt.
+  fs.writeFileSync(
+    path.join(dir, 's1.jsonl'),
+    [prompt('default'), prompt('auto'), ...Array.from({ length: 7 }, () => output)].join('\n') + '\n',
+  );
+  // Read in 4 KB windows, so the record sits several windows back.
+  expect(sessionMode(home, 's1', 4096)).toBe('auto');
+  // Beyond the limit it is not found rather than read whole.
+  expect(sessionMode(home, 's1', 4096, 8192)).toBeNull();
+  expect(sessionMode(home, 'missing')).toBeNull();
+  fs.rmSync(home, { recursive: true, force: true });
 });

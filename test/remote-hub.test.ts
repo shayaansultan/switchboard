@@ -37,7 +37,10 @@ const source: HubSource = {
     },
   ],
   homes: () => [{ id: 'claude-work', vendor: 'claude', home: claudeHome }],
+  away: () => away,
 };
+// Whether nobody is at the Mac, for the tests that need it.
+let away = false;
 
 let hub: Hub;
 beforeEach(async () => {
@@ -283,4 +286,25 @@ test('a Claude plugin that names only its config dir reaches the profile that ow
   expect(await post(controlSocket(), '/claude/poll', { profileId: '', sessionId: 's9' })).toEqual({
     error: 'unknown-profile',
   });
+});
+
+test('while nobody is at the Mac, an auto-mode session keeps its approvals and a default one sends them', async () => {
+  away = true;
+  const dir = path.join(claudeHome, 'projects', 'p');
+  fs.writeFileSync(path.join(dir, 'auto-1.jsonl'), JSON.stringify({ type: 'user', permissionMode: 'auto' }) + '\n');
+  fs.writeFileSync(
+    path.join(dir, 'manual-1.jsonl'),
+    JSON.stringify({ type: 'user', permissionMode: 'default' }) + '\n',
+  );
+  const ask = (sessionId: string) =>
+    post(controlSocket(), '/claude/ask', {
+      profileId: 'claude-work',
+      sessionId,
+      kind: 'approval',
+      tool: 'Bash',
+      input: { command: 'ls' },
+    });
+  expect(await ask('auto-1')).toEqual({ route: 'desk' });
+  expect(await ask('manual-1')).toMatchObject({ route: 'phone' });
+  away = false;
 });

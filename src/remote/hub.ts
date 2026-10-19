@@ -35,6 +35,7 @@ import { anySubscribed, push } from './push';
 import { MAX_UPLOAD, saveUpload, sweepUploads } from './uploads';
 import type { Reach } from './reach';
 import { HOME } from '../store';
+import { sessionMode } from './claude';
 import { SessionReader, watch, type ProfileHome, type SessionSummary } from './sessions';
 
 export const DEFAULT_PORT = 47821;
@@ -295,7 +296,13 @@ export function startHub(options: {
     const home = path.resolve(configDir || path.join(HOME, '.claude'));
     return source.homes().find((h) => h.vendor === 'claude' && path.resolve(h.home) === home)?.id ?? null;
   };
-  const control = options.control === false ? undefined : new Control({ away, onChange: signal.emit, claudeProfile });
+  // What a Claude session's "ask" goes to: a person, or its auto-mode classifier.
+  const claudeMode = (profileId: string, sessionId: string) => {
+    const home = source.homes().find((h) => h.vendor === 'claude' && h.id === profileId)?.home;
+    return home ? sessionMode(home, sessionId) : null;
+  };
+  const control =
+    options.control === false ? undefined : new Control({ away, onChange: signal.emit, claudeProfile, claudeMode });
   const look = () => overview(source, reader, control);
   const notes = notifier(look, signal.changes, away);
   sweepUploads();

@@ -17,16 +17,20 @@ let control: Control;
 let socket: string;
 let away = true;
 let changes = 0;
+// What each session's file says its permission mode is.
+let modes: Record<string, string> = {};
 
 beforeEach(async () => {
   away = true;
   changes = 0;
+  modes = {};
   socket = path.join(os.tmpdir(), `sb-control-${process.pid}-${Date.now()}.sock`);
   control = new Control({
     away: () => away,
     onChange: () => changes++,
     socket,
     holdMs: 1000,
+    claudeMode: (profileId, sessionId) => modes[`${profileId}/${sessionId}`] ?? null,
     claudeProfile: (configDir) =>
       configDir === null ? 'claude-default' : configDir.endsWith('/work') ? 'claude-work' : null,
   });
@@ -449,4 +453,30 @@ test('a reply nobody collects within two minutes is dropped rather than typed in
   } finally {
     Date.now = realNow;
   }
+});
+
+test('an approval in auto mode goes back to Claude, so its classifier decides without waiting on the phone', async () => {
+  const ask = { ...claude, kind: 'approval', tool: 'Bash', input: { command: 'cd /tmp && ls' } };
+  for (const mode of ['auto', 'dontAsk', 'bypassPermissions']) {
+    modes['claude-work/s1'] = mode;
+    expect(await post(socket, '/claude/ask', ask)).toEqual({ route: 'desk' });
+  }
+  expect(control.pending()).toEqual([]);
+  // A mode that asks a person still reaches the phone.
+  for (const mode of ['default', 'acceptEdits']) {
+    modes['claude-work/s1'] = mode;
+    expect(await post(socket, '/claude/ask', ask)).toMatchObject({ route: 'phone' });
+  }
+  // So does a session whose mode is unknown, and a question, which is the person's in any mode.
+  delete modes['claude-work/s1'];
+  expect(await post(socket, '/claude/ask', ask)).toMatchObject({ route: 'phone' });
+  modes['claude-work/s1'] = 'auto';
+  const question = { ...claude, kind: 'question', tool: 'AskUserQuestion', input: { questions: [] } };
+  expect(await post(socket, '/claude/ask', question)).toMatchObject({ route: 'phone' });
+});
+
+test('a Read approval names the file instead of its raw input', async () => {
+  const ask = { ...claude, kind: 'approval', tool: 'Read', input: { file_path: '/Users/someone/notes.md' } };
+  await post(socket, '/claude/ask', ask);
+  expect(control.pending()[0]).toMatchObject({ title: 'Read a file', detail: '/Users/someone/notes.md' });
 });
