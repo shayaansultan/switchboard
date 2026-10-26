@@ -321,9 +321,31 @@ switchboard pick claude               # the Claude profile with the most quota l
 switchboard exec work -- claude -p "…"   # run anything inside a profile's account
 eval "$(switchboard env work)"        # put the current shell into a profile
 switchboard launch work               # open its desktop window
+switchboard focus work                # show its existing window; never launch another profile
+switchboard quit work --force --yes   # force quit; reports whether it actually stopped
+switchboard awake status              # read the system keep-awake setting
+switchboard accessibility status      # permission of the running Switchboard app
+switchboard export work --format t3   # print a T3 provider configuration
 switchboard add codex Client --from codex   # a new profile, set up like the Default
 switchboard routed work app-server    # Codex through work's proxy bucket, as its window runs
 ```
+
+`awake status|on|off|recheck`, `accessibility status|open`, `focus` and forced
+`quit` use the running Switchboard app through a local socket accessible only to
+your user account. Start the matching app first; these commands never start it
+implicitly. Keep-awake shares the window's controller and macOS authorization.
+Its result reports the observed state and any cancellation or failure notice;
+exit 0 alone does not mean the requested setting was applied. Accessibility
+reports the app's executable identity, not the terminal's permission. `open`
+opens the macOS Accessibility pane. Force quit asks for confirmation unless
+`--yes` is supplied and waits for the result; `stopped: false` means the app
+has not exited. Ordinary `quit` still works without Switchboard running.
+
+`export PROFILE --format t3` prints a `providerInstances` fragment containing
+the profile's name, colour and actual CLI home, with driver `claudeAgent` or
+`codex`. It contains no credentials and never edits T3 settings. Proxy-routed
+Codex profiles are refused because exporting their native home would silently
+lose routing. Use a native-account profile for export, or the routed command below.
 
 A Codex profile assigned to a proxy bucket reaches the pool through a local
 port that changes whenever the bucket's worker restarts. A client Switchboard
@@ -400,6 +422,18 @@ The screenshot is produced by rendering the app's own UI against
 accounts and stays current when the interface changes.
 
 ## OpenCode terminal profiles
+
+`oc remove PROFILE --keep-bucket|--delete-bucket --dry-run` previews removal.
+Both choices delete OpenCode settings, sessions, history and connections, and
+require confirmation or `--yes`. Keeping the bucket moves its accounts, keys
+and upstream settings to a standalone bucket of the same name and leaves
+Codex profiles routed through it. Its worker stops, so routed clients must
+reconnect. Deleting the bucket also deletes its sign-ins and returns routed
+profiles to their native accounts. External Codex homes and native sign-ins
+referenced by OpenCode connections stay untouched. Quit its OpenCode tools
+and routed desktop apps first; active launches and incomplete process scans
+block removal. Retry an interrupted keep with the same command; its dry run
+can inspect the pending removal without changing files.
 
 The terminal-first `oc` CLI adds isolated OpenCode profiles with separate service
 connections and per-profile ChatGPT account pools. It runs without the Electron

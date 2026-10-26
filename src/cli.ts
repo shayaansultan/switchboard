@@ -35,6 +35,7 @@ import {
   setupItemsCommand,
   showCommand,
 } from './cli/profiles';
+import { appCommand, exportCommand } from './cli/app';
 import { settingsCommand } from './cli/settings';
 import { pickCommand, usageCommand } from './cli/usage';
 import { resetsCommand } from './cli/resets';
@@ -67,8 +68,12 @@ Profiles
 
 Desktop
   switchboard launch PROFILE [--no-wait]
-  switchboard quit PROFILE [--no-wait]
+  switchboard quit PROFILE [--no-wait] [--force --yes]
   switchboard quit-others PROFILE --yes       Before a first sign-in
+  switchboard focus PROFILE                   Show its existing app; never launch another profile
+  switchboard awake status|on|off|recheck      Keep awake (on/off use macOS authorization)
+  switchboard accessibility status|open       Permission of the running Switchboard app
+  switchboard export PROFILE --format t3      Print provider config without credentials
   switchboard reveal PROFILE                  Open its directory in Finder
 
 Shell
@@ -136,6 +141,10 @@ const COMMANDS = z.enum([
   'remove',
   'assign',
   'unassign',
+  'awake',
+  'accessibility',
+  'focus',
+  'export',
   'launch',
   'quit',
   'quit-others',
@@ -225,6 +234,12 @@ async function dispatch(rest: string[], out: Output): Promise<number | void> {
   if (data.loadError) out.narrate(data.loadError);
   const ctx: Context = { data, out, flags: out.flags };
   switch (command) {
+    case 'awake':
+    case 'accessibility':
+    case 'focus':
+      return appCommand(command, args, ctx);
+    case 'export':
+      return exportCommand(args, ctx);
     case 'list':
       return listCommand(args, ctx);
     case 'show':

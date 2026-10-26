@@ -12,6 +12,8 @@ import {
   shell,
   systemPreferences,
 } from 'electron';
+import { serveAppControl } from './app-control';
+import { CliError, ref } from './cli/output';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -312,7 +314,12 @@ const hubSource: HubSource = {
 // opened from the Dock or before phone access was on.
 async function relaunchForPhone(p: Profile): Promise<void> {
   if (!data.settings.phoneAccess) throw new Error('Turn on phone access first');
-  await launch.relaunchForPhone(p, { quit: (x) => quitApp(x), open: launchApp });
+  await launch.relaunchForPhone(p, {
+    quit: async (x) => {
+      await quitApp(x);
+    },
+    open: launchApp,
+  });
 }
 
 // Default Claude's settings entry follows the setting and phone access, and
@@ -485,13 +492,14 @@ async function showApp(p: Profile): Promise<void> {
 
 // Resolves once the app is gone or has passed the deadline; a stalled app is
 // shown as such, with Force quit, rather than reported as an error.
-async function quitApp(p: Profile, force = false): Promise<void> {
+async function quitApp(p: Profile, force = false) {
   const sent = force ? await launch.forceQuitDesktop(p) : await launch.quitDesktop(p);
   if (!sent) {
     desktopWatch.poke();
-    return;
+    return { profile: ref(p), quit: false, stopped: !launch.instanceFor(p, await launch.runningInstances()) };
   }
   await expectApp(p, 'quitting');
+  return { profile: ref(p), quit: true, stopped: !launch.instanceFor(p, await launch.runningInstances()) };
 }
 
 const IDENTITY_TTL = 60 * 60 * 1000;
@@ -1185,14 +1193,15 @@ ipcMain.handle('app:show', (_e, id: string) => showApp(byId(id)));
 function accessibilityTrusted(prompt = false): boolean {
   return process.platform === 'darwin' && systemPreferences.isTrustedAccessibilityClient(prompt);
 }
-ipcMain.handle('app:accessibility', async (_e, action: unknown) => {
+async function checkAccessibility(action: unknown) {
   const a = z.enum(['check', 'request', 'open']).parse(action);
   if (a === 'open')
     await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
   const trusted = accessibilityTrusted(a === 'request');
   if (trusted) desktopWatch.poke();
   return trusted;
-});
+}
+ipcMain.handle('app:accessibility', (_e, action: unknown) => checkAccessibility(action));
 ipcMain.handle('app:quitOthers', async (_e, id: string) => {
   const target = byId(id);
   const n = await launch.quitOthers(target);
@@ -1216,6 +1225,34 @@ app.on('second-instance', () => showWindow());
 app.whenReady().then(async () => {
   if (!app.requestSingleInstanceLock()) return;
   if (!app.isPackaged) app.dock?.setIcon(path.join(__dirname, '..', 'build', 'icon-1024.png'));
+  const stopControl = await serveAppControl(async (command) => {
+    // A CLI add/rename may precede the debounced store watcher. Resolve the
+    // request against the same fresh store the CLI just read.
+    const next = profiles.readIfChanged();
+    if (next) applyReload(next);
+    switch (command.command) {
+      case 'awake': {
+        if (command.action === 'on' || command.action === 'off') await awake.set(command.action);
+        else await awake.refresh(command.action === 'recheck' ? 'recheck' : 'observe');
+        return awake.snapshot();
+      }
+      case 'accessibility':
+        return {
+          trusted: await checkAccessibility(command.action === 'status' ? 'check' : 'open'),
+          identity: { name: app.getName(), executable: process.execPath, packaged: app.isPackaged },
+        };
+      case 'focus': {
+        const p = byId(command.profile);
+        if (!launch.instanceFor(p, await launch.runningInstances()))
+          throw new CliError('desktop-not-running', `${p.name} is not running. Focus only shows an existing app.`, 4);
+        await showApp(p);
+        return { profile: ref(p), shown: true };
+      }
+      case 'force-quit':
+        return quitApp(byId(command.profile), true);
+    }
+  });
+  app.on('will-quit', stopControl);
   await launch.adoptLoginShellPath();
   applyAppearance();
   if (!BACKGROUND) createTray();

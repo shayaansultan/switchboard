@@ -8,6 +8,8 @@ import { parseArgs, promisify } from 'node:util';
 import { z } from 'zod';
 import * as profiles from './profiles';
 import * as imports from './imports';
+import * as removal from './remove';
+import { holdLaunch } from './lifecycle';
 import * as proxy from '../buckets/proxy';
 import { runInherit as terminal } from '../child';
 import { installShim, launcherScript } from '../shim';
@@ -38,6 +40,9 @@ const help = `Switchboard OpenCode profiles
   oc PROFILE [OpenCode options]   Open a profile in the current project
   oc create NAME                  Create an independent profile
   oc list                         List profiles
+  oc remove PROFILE --keep-bucket|--delete-bucket [--dry-run] [--yes]
+                                  Delete a profile's settings, history and connections;
+                                  keep its bucket's accounts standalone, or delete them too
   oc show PROFILE                 Show profile settings, without credentials
   oc import PROFILE SOURCE        Choose specific skills/settings to copy or link
   oc connect PROFILE SERVICE      Configure one hosted service connection
@@ -88,25 +93,31 @@ async function choose<T>(message: string, options: readonly T[], label: (option:
 }
 
 async function open(profile: Profile, args: string[]): Promise<number> {
-  const selection = modelArguments(args);
-  if (profile.upstream && selection.model && !poolId(selection.model))
-    throw new Error('API profiles only allow their bucket models');
-  profile = { ...profile, poolModel: selectedPoolModel(profile), model: selection.model ?? profile.model };
-  await verifyPaths(profile);
-  const required = Boolean(poolId(profile.model) || (profile.smallModel && poolId(profile.smallModel)));
-  const pool = required ? await preparePool(profile, self, Boolean(selection.model)) : await optionalPool(profile);
-  const env = await bindGitHub(profile.githubLogin, launchEnv(profile, pool?.port, process.cwd()));
+  const release = holdLaunch(profile.id);
+  try {
+    profile = profiles.load(profile.id);
+    const selection = modelArguments(args);
+    if (profile.upstream && selection.model && !poolId(selection.model))
+      throw new Error('API profiles only allow their bucket models');
+    profile = { ...profile, poolModel: selectedPoolModel(profile), model: selection.model ?? profile.model };
+    await verifyPaths(profile);
+    const required = Boolean(poolId(profile.model) || (profile.smallModel && poolId(profile.smallModel)));
+    const pool = required ? await preparePool(profile, self, Boolean(selection.model)) : await optionalPool(profile);
+    const env = await bindGitHub(profile.githubLogin, launchEnv(profile, pool?.port, process.cwd()));
 
-  if (process.stdout.isTTY) {
-    // Strip terminal control characters before using a user-chosen profile name.
-    // eslint-disable-next-line no-control-regex
-    process.stdout.write(`\u001b]0;OpenCode · ${profile.name.replace(/[\x00-\x1f\x7f]/g, '')}\u0007`);
-    console.error(
-      `${profile.name} · ${modelRef(profile.model)} · ${pool?.accounts ?? 0} pool account(s) · ${Object.keys(profile.connections).length} separate service connection(s)`,
-    );
+    if (process.stdout.isTTY) {
+      // Strip terminal control characters before using a user-chosen profile name.
+      // eslint-disable-next-line no-control-regex
+      process.stdout.write(`\u001b]0;OpenCode · ${profile.name.replace(/[\x00-\x1f\x7f]/g, '')}\u0007`);
+      console.error(
+        `${profile.name} · ${modelRef(profile.model)} · ${pool?.accounts ?? 0} pool account(s) · ${Object.keys(profile.connections).length} separate service connection(s)`,
+      );
+    }
+
+    return await terminal(process.env.SWITCHBOARD_OPENCODE || 'opencode', selection.args, { env });
+  } finally {
+    release();
   }
-
-  return terminal(process.env.SWITCHBOARD_OPENCODE || 'opencode', selection.args, { env });
 }
 
 async function optionalPool(profile: Profile): Promise<{ port: number; accounts: number } | undefined> {
@@ -177,24 +188,29 @@ async function probe(service: Service, connection: Connection) {
 }
 
 async function doctor(id: string): Promise<void> {
-  const profile = profiles.load(id);
-  const reportedPaths = await verifyPaths(profile);
+  const release = holdLaunch(id);
+  try {
+    const profile = profiles.load(id);
+    const reportedPaths = await verifyPaths(profile);
 
-  console.log(
-    JSON.stringify(
-      {
-        profile: id,
-        model: modelRef(profile.model),
-        poolModel: selectedPoolModel(profile),
-        poolConfigured: fs.readdirSync(profiles.paths(id).auth).some((file) => file.endsWith('.json')),
-        isolatedPathsVerified: true,
-        paths: reportedPaths,
-        connections: Object.keys(profile.connections),
-      },
-      null,
-      2,
-    ),
-  );
+    console.log(
+      JSON.stringify(
+        {
+          profile: id,
+          model: modelRef(profile.model),
+          poolModel: selectedPoolModel(profile),
+          poolConfigured: fs.readdirSync(profiles.paths(id).auth).some((file) => file.endsWith('.json')),
+          isolatedPathsVerified: true,
+          paths: reportedPaths,
+          connections: Object.keys(profile.connections),
+        },
+        null,
+        2,
+      ),
+    );
+  } finally {
+    release();
+  }
 }
 
 async function verifyPaths(profile: Profile): Promise<string> {
@@ -215,6 +231,45 @@ async function verifyPaths(profile: Profile): Promise<string> {
   return stdout.trim();
 }
 
+async function remove(args: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      'keep-bucket': { type: 'boolean' },
+      'delete-bucket': { type: 'boolean' },
+      'dry-run': { type: 'boolean' },
+      yes: { type: 'boolean' },
+    },
+  });
+  if (positionals.length !== 1) throw new Error('remove requires exactly one profile');
+  const id = required(positionals[0], 'Profile');
+  // The bucket holds account sign-ins, so its fate is never a default.
+  if (Boolean(values['keep-bucket']) === Boolean(values['delete-bucket']))
+    throw new Error('Pass exactly one of --keep-bucket or --delete-bucket. Run oc --help.');
+  const bucket = values['keep-bucket'] ? 'keep' : 'delete';
+  const preview = removal.plan(id, bucket);
+  if (values['dry-run']) {
+    console.log(JSON.stringify({ dryRun: true, ...preview }, null, 2));
+    return;
+  }
+  const question =
+    bucket === 'keep'
+      ? `Remove OpenCode profile ${id}? Its settings, sessions, history and connections are deleted; its bucket's accounts stay, as bucket ${id}, and its worker is stopped (routed clients must reconnect).`
+      : `Remove OpenCode profile ${id} and its bucket? Its settings, history, connections and every account sign-in in the bucket are deleted${preview.routed.length ? `, and ${preview.routed.map((p) => p.name).join(', ')} go back to their own sign-in` : ''}.`;
+  if (!values.yes) {
+    if (!process.stdin.isTTY) throw new Error(`${question} Pass --yes to confirm.`);
+    const prompt = createInterface({ input: process.stdin, output: process.stderr });
+    try {
+      if (!/^y(es)?$/i.test((await prompt.question(`${question} It cannot be undone. [y/N] `)).trim()))
+        throw new Error('Cancelled.');
+    } finally {
+      prompt.close();
+    }
+  }
+  console.log(JSON.stringify(await removal.remove(id, bucket), null, 2));
+}
+
 function installCli(): void {
   const file = installShim('oc', launcherScript('Switchboard OpenCode launcher', [self.execPath, self.script]));
   console.log(`Installed ${file}`);
@@ -225,6 +280,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   const commands = z.enum([
     'create',
     'list',
+    'remove',
     'show',
     'import',
     'connect',
@@ -287,6 +343,9 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
         ),
       );
       break;
+    case 'remove':
+      await remove(rest);
+      break;
     case 'show': {
       const profile = profiles.load(required(rest[0], 'Profile'));
       console.log(
@@ -336,12 +395,21 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       break;
     }
     case 'models': {
-      const profile = profiles.load(required(rest[0], 'Profile'));
-      await verifyPaths(profile);
-      const pool = await optionalPool(profile);
-      process.exitCode = await terminal(process.env.SWITCHBOARD_OPENCODE || 'opencode', ['models', ...rest.slice(1)], {
-        env: launchEnv(profile, pool?.port, process.cwd()),
-      });
+      const release = holdLaunch(required(rest[0], 'Profile'));
+      try {
+        const profile = profiles.load(required(rest[0], 'Profile'));
+        await verifyPaths(profile);
+        const pool = await optionalPool(profile);
+        process.exitCode = await terminal(
+          process.env.SWITCHBOARD_OPENCODE || 'opencode',
+          ['models', ...rest.slice(1)],
+          {
+            env: launchEnv(profile, pool?.port, process.cwd()),
+          },
+        );
+      } finally {
+        release();
+      }
       break;
     }
     case 'project-config': {
@@ -438,50 +506,68 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       profiles.disconnect(required(rest[0], 'Profile'), Service.parse(rest[1]));
       break;
     case 'bridge': {
-      const profile = profiles.load(required(rest[0], 'Profile'));
-      const service = Service.parse(rest[1]);
-      const connection = profile.connections[service];
-      const method = z.enum(['doctor', 'tools', 'call', 'serve']).parse(rest[2]);
+      const release = holdLaunch(required(rest[0], 'Profile'));
+      try {
+        const profile = profiles.load(required(rest[0], 'Profile'));
+        const service = Service.parse(rest[1]);
+        const connection = profile.connections[service];
+        const method = z.enum(['doctor', 'tools', 'call', 'serve']).parse(rest[2]);
 
-      if (!connection) throw new Error(`${service} is not connected in ${profile.name}`);
+        if (!connection) throw new Error(`${service} is not connected in ${profile.name}`);
 
-      const identityFile = profiles.identitySnapshot(profile.id, service, connection.identity);
-      process.exitCode = await terminal(process.env.SWITCHBOARD_BUN || 'bun', [
-        connection.bridge,
-        method,
-        ...rest.slice(3),
-        '--service',
-        service,
-        '--codex-home',
-        connection.codexHome,
-        '--codex-account',
-        connection.account,
-        '--identity-file',
-        identityFile,
-        ...(connection.access === 'read-only' ? ['--read-only'] : []),
-      ]);
+        const identityFile = profiles.identitySnapshot(profile.id, service, connection.identity);
+        process.exitCode = await terminal(process.env.SWITCHBOARD_BUN || 'bun', [
+          connection.bridge,
+          method,
+          ...rest.slice(3),
+          '--service',
+          service,
+          '--codex-home',
+          connection.codexHome,
+          '--codex-account',
+          connection.account,
+          '--identity-file',
+          identityFile,
+          ...(connection.access === 'read-only' ? ['--read-only'] : []),
+        ]);
+      } finally {
+        release();
+      }
       break;
     }
     case 'native': {
-      const profile = profiles.load(required(rest[0], 'Profile'));
-      const agent = z.enum(['claude', 'codex-computer']).parse(rest[1]);
-      const env = await bindGitHub(profile.githubLogin, launchEnv(profile, 1, process.cwd()));
+      const release = holdLaunch(required(rest[0], 'Profile'));
+      try {
+        const profile = profiles.load(required(rest[0], 'Profile'));
+        const agent = z.enum(['claude', 'codex-computer']).parse(rest[1]);
+        const env = await bindGitHub(profile.githubLogin, launchEnv(profile, 1, process.cwd()));
 
-      switch (agent) {
-        case 'claude':
-          if (!profile.nativeAgents?.claude) throw new Error('This profile has no Claude Companion account binding');
-          process.exitCode = await terminal('claude-companion', rest.slice(2), { env });
-          break;
-        case 'codex-computer': {
-          if (!profile.nativeAgents?.codex) throw new Error('This profile has no Codex Computer account binding');
-          const script =
-            process.env.CODEX_COMPUTER_SCRIPT ??
-            path.join(os.homedir(), 'Developer', 'agentfiles', 'skills', 'codex-computer', 'scripts', 'codex-computer');
-          process.exitCode = await terminal('python3', [script, ...rest.slice(2)], { env });
-          break;
+        switch (agent) {
+          case 'claude':
+            if (!profile.nativeAgents?.claude) throw new Error('This profile has no Claude Companion account binding');
+            process.exitCode = await terminal('claude-companion', rest.slice(2), { env });
+            break;
+          case 'codex-computer': {
+            if (!profile.nativeAgents?.codex) throw new Error('This profile has no Codex Computer account binding');
+            const script =
+              process.env.CODEX_COMPUTER_SCRIPT ??
+              path.join(
+                os.homedir(),
+                'Developer',
+                'agentfiles',
+                'skills',
+                'codex-computer',
+                'scripts',
+                'codex-computer',
+              );
+            process.exitCode = await terminal('python3', [script, ...rest.slice(2)], { env });
+            break;
+          }
+          default:
+            unreachable(agent);
         }
-        default:
-          unreachable(agent);
+      } finally {
+        release();
       }
       break;
     }

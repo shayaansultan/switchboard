@@ -4,6 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { root, readJson, writeJson } from '../storage';
 export { root, readJson, writeJson } from '../storage';
 import { Profile, ProfileId, ModelId, Secrets, Connection, Service, Identity } from './types';
+import { holdLaunch } from './lifecycle';
 import { Upstream } from '../buckets/upstream';
 
 export function paths(value: string) {
@@ -37,16 +38,21 @@ export function save(profile: Profile): void {
 }
 
 export function update(id: string, change: (profile: Profile) => void): void {
-  const lock = path.join(paths(id).base, 'editing.lock');
-  const descriptor = fs.openSync(lock, 'wx', 0o600);
-
+  const release = holdLaunch(id);
   try {
-    const profile = load(id);
-    change(profile);
-    save(profile);
+    const lock = path.join(paths(id).base, 'editing.lock');
+    const descriptor = fs.openSync(lock, 'wx', 0o600);
+
+    try {
+      const profile = load(id);
+      change(profile);
+      save(profile);
+    } finally {
+      fs.closeSync(descriptor);
+      fs.unlinkSync(lock);
+    }
   } finally {
-    fs.closeSync(descriptor);
-    fs.unlinkSync(lock);
+    release();
   }
 }
 export function create(name: string, upstream?: Upstream): Profile {
@@ -59,45 +65,51 @@ export function create(name: string, upstream?: Upstream): Profile {
       .replace(/^-|-$/g, '')
       .slice(0, 64),
   );
-  const directory = paths(id);
-  if (fs.existsSync(path.join(root(), 'buckets', id))) throw new Error('A shared bucket with that name already exists');
-  fs.mkdirSync(path.dirname(directory.base), { recursive: true, mode: 0o700 });
-  // Exclusive creation must never adopt old credentials left in an orphan folder.
-  fs.mkdirSync(directory.base, { mode: 0o700 });
+  const release = holdLaunch(id);
   try {
-    for (const entry of [
-      directory.config,
-      directory.data,
-      directory.home,
-      directory.runtime,
-      directory.proxy,
-      directory.auth,
-      path.join(directory.base, 'state'),
-      path.join(directory.base, 'cache'),
-    ]) {
-      fs.mkdirSync(entry, { recursive: true, mode: 0o700 });
+    const directory = paths(id);
+    if (fs.existsSync(path.join(root(), 'buckets', id)))
+      throw new Error('A shared bucket with that name already exists');
+    fs.mkdirSync(path.dirname(directory.base), { recursive: true, mode: 0o700 });
+    // Exclusive creation must never adopt old credentials left in an orphan folder.
+    fs.mkdirSync(directory.base, { mode: 0o700 });
+    try {
+      for (const entry of [
+        directory.config,
+        directory.data,
+        directory.home,
+        directory.runtime,
+        directory.proxy,
+        directory.auth,
+        path.join(directory.base, 'state'),
+        path.join(directory.base, 'cache'),
+      ]) {
+        fs.mkdirSync(entry, { recursive: true, mode: 0o700 });
+      }
+      const profile: Profile = {
+        version: 1,
+        id,
+        name: name.trim(),
+        createdAt: new Date().toISOString(),
+        model: upstream ? `switchboard-chatgpt/${upstream.defaultModel}` : ModelId.parse('gpt-6-astra'),
+        upstream,
+        reasoningEffort: 'low',
+        projectConfig: 'isolated',
+        connections: {},
+      };
+      writeJson(path.join(directory.base, 'secrets.json'), {
+        apiKey: randomBytes(32).toString('hex'),
+        managementKey: randomBytes(32).toString('hex'),
+      });
+      writeJson(path.join(directory.config, 'opencode.json'), { $schema: 'https://opencode.ai/config.json' });
+      save(profile);
+      return profile;
+    } catch (error) {
+      fs.rmSync(directory.base, { recursive: true, force: true });
+      throw error;
     }
-    const profile: Profile = {
-      version: 1,
-      id,
-      name: name.trim(),
-      createdAt: new Date().toISOString(),
-      model: upstream ? `switchboard-chatgpt/${upstream.defaultModel}` : ModelId.parse('gpt-6-astra'),
-      upstream,
-      reasoningEffort: 'low',
-      projectConfig: 'isolated',
-      connections: {},
-    };
-    writeJson(path.join(directory.base, 'secrets.json'), {
-      apiKey: randomBytes(32).toString('hex'),
-      managementKey: randomBytes(32).toString('hex'),
-    });
-    writeJson(path.join(directory.config, 'opencode.json'), { $schema: 'https://opencode.ai/config.json' });
-    save(profile);
-    return profile;
-  } catch (error) {
-    fs.rmSync(directory.base, { recursive: true, force: true });
-    throw error;
+  } finally {
+    release();
   }
 }
 export function secrets(id: string): Secrets {

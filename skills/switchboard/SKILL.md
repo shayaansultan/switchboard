@@ -53,6 +53,35 @@ whichever window it picks. Buckets are pools of accounts behind a local proxy th
 profile can route through: `bucket list` shows each account's headroom, `assign` routes a profile
 and takes effect on its next launch.
 
+`focus PROFILE` shows that profile's existing window and refuses when it is
+not running; it never launches another profile. `quit PROFILE --force --yes`
+uses the same force quit as the window, waits, and reports `quit` and `stopped`.
+It loses unsaved work, so use it only after authorization. A false `stopped`
+is not a successful shutdown. Ordinary quit remains available without the app.
+
+`awake status|on|off|recheck` shares the running app's keep-awake controller.
+On/off can trigger macOS authorization; leave that prompt to the user. Inspect
+`status`, `value` and `notice` in the result, not just exit 0. `recheck`
+reads again and clears old notices without changing the system setting.
+`accessibility status` reports permission under the running Electron app's
+identity. `accessibility open` opens the macOS pane when the user asks to
+change permission. These commands, focus and forced quit need the matching
+running app; `app-unavailable` means open it or update an older app.
+
+`export PROFILE --format t3` outputs a credential-free `providerInstances`
+fragment: driver `claudeAgent` for Claude or `codex`, display name, accent
+colour and the actual home path. It never writes T3 settings. Proxy-routed
+Codex export refuses rather than exporting the native account. Use a native
+profile for export or `routed` for requests through a bucket.
+
+`oc remove PROFILE --keep-bucket|--delete-bucket --dry-run` previews removal.
+Either mode deletes OpenCode settings, sessions, history and connections, so
+both need confirmation or `--yes`. Keep preserves the bucket's accounts,
+keys, upstream settings and Codex routing as a standalone bucket; it stops
+the worker and clients must reconnect. Delete also removes the bucket and
+unassigns its routed profiles. External homes and sign-ins referenced by
+connections are untouched. Quit OpenCode tools and routed desktop apps first.
+
 ## Phone access
 
 `switchboard remote sessions --working` lists the sessions in progress across every profile

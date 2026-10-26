@@ -1,5 +1,7 @@
 // Desktop windows: what is running, and starting or stopping a profile's.
 
+import { requestApp } from '../app-control';
+import { usageError } from './output';
 import * as launch from '../launch';
 import { receipt } from '../buckets/proxy';
 import type { Instance, Profile, Settings } from '../types';
@@ -69,8 +71,15 @@ export async function launchCommand(rest: string[], ctx: Context): Promise<void>
 }
 
 export async function quitCommand(rest: string[], ctx: Context): Promise<void> {
-  const { values, positionals } = parse(rest, { 'no-wait': { type: 'boolean' } });
+  const { values, positionals } = parse(rest, { 'no-wait': { type: 'boolean' }, force: { type: 'boolean' } });
+  if (positionals.length !== 1) throw usageError('quit requires one profile');
+  if (values.force && values['no-wait']) throw usageError('--force waits for the real result; omit --no-wait');
   const profile = resolveProfile(ctx.data, required(positionals[0], 'Profile'));
+  if (values.force) {
+    await confirm(ctx.flags, `Force quit ${profile.name}? Unsaved work will be lost.`);
+    ctx.out.result(await requestApp({ command: 'force-quit', profile: profile.id }));
+    return;
+  }
   const quit = await launch.quitDesktop(profile);
   const stopped = quit && !values['no-wait'] ? (await waitFor(profile, false, 10_000)) === null : false;
   ctx.out.result({ profile: ref(profile), quit, stopped });
