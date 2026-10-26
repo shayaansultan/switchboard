@@ -260,6 +260,8 @@ test('retry after the bucket commit finishes cleanup without deleting the kept b
   fs.mkdirSync(target, { recursive: true });
   for (const name of ['secrets.json', 'proxy']) fs.renameSync(path.join(hidden, name), path.join(target, name));
   fs.writeFileSync(path.join(target, 'bucket.json'), JSON.stringify({ id: profile.id, name: profile.name }));
+  // Cleanup may delete the manifest before the rest of the hidden directory.
+  fs.unlinkSync(path.join(hidden, 'profile.json'));
   expect(removal.plan(profile.id, 'keep').stopsWorker).toBe(true);
   expect(() => removal.plan(profile.id, 'delete')).toThrow('Finish the interrupted keep');
   const result = await removal.remove(profile.id, 'keep');
@@ -312,4 +314,16 @@ test('an unrelated same-name bucket is never mistaken for a committed migration'
   expect(JSON.parse(fs.readFileSync(path.join(staging, 'secrets.json'), 'utf8'))).toEqual(secrets);
   expect(fs.existsSync(hidden)).toBe(true);
   expect(bucketStore.load(profile.id).name).toBe('Unrelated');
+});
+
+test('a bucket edit during migration does not create a conflicting target directory', async () => {
+  const profile = profiles.create('Moving');
+  const hidden = path.join(temporary, 'opencode', '.moving.removing');
+  fs.renameSync(profiles.paths(profile.id).base, hidden);
+  await expect(buckets.setDefaultModel(profile.id, 'new-model')).rejects.toThrow();
+  expect(fs.existsSync(path.join(temporary, 'buckets', profile.id))).toBe(false);
+  // The failed edit leaves recovery possible, preserving the original keys.
+  const original = JSON.parse(fs.readFileSync(path.join(hidden, 'secrets.json'), 'utf8'));
+  await removal.remove(profile.id, 'keep');
+  expect(bucketStore.secrets(profile.id)).toEqual(original);
 });

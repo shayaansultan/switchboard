@@ -90,6 +90,21 @@ function routedProfiles(id: string): DesktopProfile[] {
   }
 }
 
+// A completed rename consumes staging and every preserved entry. Its target
+// remains the source of identity even if cleanup already deleted profile.json.
+function committedBucket(id: string) {
+  const moving = hidden(id);
+  const next = staging(id);
+  if (!fs.existsSync(moving) || !fs.existsSync(path.join(root(), 'buckets', id, 'bucket.json'))) return;
+  if (fs.existsSync(next) || BUCKET_ENTRIES.some((entry) => fs.existsSync(path.join(moving, entry))))
+    throw new Error(
+      `Conflicting bucket ${id}: preserved removal data remains in ${moving} or ${next}. Inspect both before retrying; nothing was deleted.`,
+    );
+  const bucket = bucketStore.load(id);
+  bucketStore.secrets(id);
+  return bucket;
+}
+
 export function plan(id: string, bucket: BucketChoice): RemovalPlan {
   const base = profiles.paths(id).base;
   const pending = fs.existsSync(hidden(id));
@@ -98,7 +113,15 @@ export function plan(id: string, bucket: BucketChoice): RemovalPlan {
       `Finish the interrupted keep first: oc remove ${id} --keep-bucket --yes. Then use switchboard bucket remove if the bucket should go too.`,
     );
   const source = pending ? hidden(id) : base;
-  const profile = pending ? Profile.parse(readJson(path.join(source, 'profile.json'))) : profiles.load(id);
+  const committed = pending ? committedBucket(id) : undefined;
+  const manifest = path.join(source, 'profile.json');
+  const profile = pending
+    ? fs.existsSync(manifest)
+      ? Profile.parse(readJson(manifest))
+      : committed
+        ? { ...committed, connections: {}, nativeAgents: undefined }
+        : Profile.parse(readJson(manifest))
+    : profiles.load(id);
   if (profile.id !== id) throw new Error('Profile directory and manifest disagree');
   const entries = fs.readdirSync(source);
   const kept = bucket === 'keep' ? BUCKET_ENTRIES.filter((entry) => entries.includes(entry)) : [];
@@ -190,25 +213,15 @@ function recoverLocked(id: string): boolean {
     throw new Error(`Invalid removal lock: ${lock}. Inspect it before retrying.`);
   if (owner && owner !== process.pid && proxy.processAlive(owner))
     throw new Error(`OpenCode profile ${id} is being removed by process ${owner}`);
+  if (fs.existsSync(moving) && fs.existsSync(profiles.paths(id).base))
+    throw new Error(`Both ${profiles.paths(id).base} and ${moving} exist. Inspect them before retrying.`);
+  if (committedBucket(id)) {
+    fs.rmSync(moving, { recursive: true, force: true });
+    return true;
+  }
   if (fs.existsSync(moving)) {
     const profile = Profile.parse(readJson(path.join(moving, 'profile.json')));
     if (profile.id !== id) throw new Error('Profile directory and manifest disagree');
-    if (fs.existsSync(profiles.paths(id).base))
-      throw new Error(`Both ${profiles.paths(id).base} and ${moving} exist. Inspect them before retrying.`);
-  }
-  const committed = fs.existsSync(moving) && fs.existsSync(path.join(root(), 'buckets', id, 'bucket.json'));
-  if (committed) {
-    // A completed rename consumes staging and every preserved entry. A new
-    // same-name bucket created by an older client is not proof of commit.
-    if (fs.existsSync(next) || BUCKET_ENTRIES.some((entry) => fs.existsSync(path.join(moving, entry))))
-      throw new Error(
-        `Conflicting bucket ${id}: preserved removal data remains in ${moving} or ${next}. Inspect both before retrying; nothing was deleted.`,
-      );
-    bucketStore.load(id);
-    bucketStore.secrets(id);
-    fs.rmSync(moving, { recursive: true, force: true });
-    fs.rmSync(next, { recursive: true, force: true });
-    return true;
   }
   if (!fs.existsSync(moving)) {
     fs.rmSync(next, { recursive: true, force: true });

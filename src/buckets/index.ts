@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { holdRemoval } from '../opencode/lifecycle';
+import { holdLaunch, holdRemoval } from '../opencode/lifecycle';
 import { ApiObservation, inspectUpstream, readCredential, assertDefaultModel, type Upstream } from './upstream';
 import * as store from './store';
 import * as proxy from './proxy';
@@ -61,13 +61,19 @@ export async function setDefaultModel(id: string, model: string): Promise<void> 
   });
 }
 async function stoppedUpdate(id: string, update: () => void | Promise<void>): Promise<void> {
-  const release = proxy.holdStartLock(id);
+  const releaseProfile = holdLaunch(id);
   try {
-    if (await proxy.control(id, 'status')) throw new Error('Stop this bucket before changing its upstream settings');
-    await proxy.recoverDeadWorker(id);
-    await update();
+    store.load(id);
+    const release = proxy.holdStartLock(id);
+    try {
+      if (await proxy.control(id, 'status')) throw new Error('Stop this bucket before changing its upstream settings');
+      await proxy.recoverDeadWorker(id);
+      await update();
+    } finally {
+      release();
+    }
   } finally {
-    release();
+    releaseProfile();
   }
 }
 export async function start(id: string): Promise<void> {
