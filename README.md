@@ -343,7 +343,8 @@ has not exited. Ordinary `quit` still works without Switchboard running.
 
 `export PROFILE --format t3` prints a `providerInstances` fragment containing
 the profile's name, colour and actual CLI home, with driver `claudeAgent` or
-`codex`. It contains no credentials and never edits T3 settings. Proxy-routed
+`codex`. It contains no credentials and never edits T3 settings. IDs longer than T3’s
+64-character provider-key limit are refused with manual setup guidance. Proxy-routed
 Codex profiles are refused because exporting their native home would silently
 lose routing. Use a native-account profile for export, or the routed command below.
 
@@ -433,7 +434,10 @@ profiles to their native accounts. External Codex homes and native sign-ins
 referenced by OpenCode connections stay untouched. Quit its OpenCode tools
 and routed desktop apps first; active launches and incomplete process scans
 block removal. Retry an interrupted keep with the same command; its dry run
-can inspect the pending removal without changing files.
+can inspect the pending removal without changing files. If removal stops before
+the migration starts, the next launch or edit reclaims its dead lock without
+deleting the profile. A same-name bucket cannot be created during migration;
+recovery refuses conflicting buckets instead of discarding preserved sign-ins.
 
 The terminal-first `oc` CLI adds isolated OpenCode profiles with separate service
 connections and per-profile ChatGPT account pools. It runs without the Electron

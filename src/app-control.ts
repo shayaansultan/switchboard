@@ -22,7 +22,7 @@ const unavailable = () =>
   refused(
     'app-unavailable',
     'The Switchboard app is not accepting local commands.',
-    'Open the matching Switchboard app with this store, then retry. An older app may need updating.',
+    'Open the matching Switchboard app with this store. If it is already open, check its startup log for a blocked app-control.sock; an older app may need updating.',
   );
 
 export async function requestApp(command: AppCommand): Promise<unknown> {

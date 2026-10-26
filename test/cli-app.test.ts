@@ -33,6 +33,10 @@ test('T3 export is credential-free and resolves default and isolated homes', asy
   expect(refused.out).toBe('');
   expect(refused.failure().error).toBe('routed-export-unsupported');
   expect((await run('export', 'claude', '--format', 'other')).code).toBe(2);
+  await run('add', 'codex', 'x'.repeat(70));
+  const oversized = await run('export', `codex-${'x'.repeat(70)}`, '--format', 't3');
+  expect(oversized.failure().error).toBe('t3-provider-id-too-long');
+  expect(oversized.out).toBe('');
 });
 
 test('CLI resolves profiles and requires force confirmation before contacting the app', async () => {

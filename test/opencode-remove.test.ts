@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import * as profiles from '../src/opencode/profiles';
 import * as removal from '../src/opencode/remove';
+import * as imports from '../src/opencode/imports';
 import { main } from '../src/opencode/cli';
 import * as buckets from '../src/buckets';
 import * as bucketStore from '../src/buckets/store';
@@ -265,4 +266,50 @@ test('retry after the bucket commit finishes cleanup without deleting the kept b
   expect(result).toMatchObject({ removed: profile.id, bucket: 'keep', recovered: true });
   expect(fs.existsSync(hidden)).toBe(false);
   expect(bucketStore.secrets(profile.id)).toEqual(secrets);
+});
+
+test('a cancelled removal before migration does not force the user to delete the profile', () => {
+  const profile = profiles.create('Cancelled');
+  const base = path.join(temporary, 'opencode-lifecycle', profile.id);
+  fs.writeFileSync(path.join(base, 'removing'), String(spawnSync('true').pid));
+  profiles.update(profile.id, (p) => {
+    p.name = 'Still here';
+  });
+  expect(profiles.load(profile.id).name).toBe('Still here');
+  expect(fs.existsSync(path.join(base, 'removing'))).toBe(false);
+});
+
+test('live and interrupted recovery gates fail closed with actionable paths', async () => {
+  const profile = profiles.create('Gated');
+  const base = path.join(temporary, 'opencode-lifecycle', profile.id);
+  const gate = path.join(base, 'removing');
+  fs.writeFileSync(gate, String(process.pid));
+  await expect(removal.remove(profile.id, 'keep')).rejects.toThrow('Another removal may be running');
+  expect(() => imports.apply(profile.id, { kind: 'instructions', name: 'AGENTS.md', source: gate }, 'copy')).toThrow(
+    'being removed',
+  );
+  fs.writeFileSync(gate, String(spawnSync('true').pid));
+  const recovery = path.join(base, 'recovering');
+  fs.writeFileSync(recovery, '');
+  await expect(removal.remove(profile.id, 'keep')).rejects.toThrow(`blocked by ${recovery}`);
+  expect(profiles.load(profile.id).id).toBe(profile.id);
+});
+
+test('an unrelated same-name bucket is never mistaken for a committed migration', async () => {
+  const profile = profiles.create('Collision');
+  const secrets = profiles.secrets(profile.id);
+  const hidden = path.join(temporary, 'opencode', '.collision.removing');
+  const staging = path.join(temporary, 'buckets', '.collision.removing');
+  fs.renameSync(profiles.paths(profile.id).base, hidden);
+  fs.mkdirSync(staging, { recursive: true });
+  for (const entry of ['secrets.json', 'proxy']) fs.renameSync(path.join(hidden, entry), path.join(staging, entry));
+  expect(() => bucketStore.create('Collision')).toThrow('interrupted removal');
+  // A conflicting bucket left by an older version must also fail safely.
+  const target = path.join(temporary, 'buckets', profile.id);
+  fs.mkdirSync(target);
+  fs.writeFileSync(path.join(target, 'bucket.json'), JSON.stringify({ id: profile.id, name: 'Unrelated' }));
+  await expect(removal.remove(profile.id, 'keep')).rejects.toThrow('Conflicting bucket');
+  expect(JSON.parse(fs.readFileSync(path.join(staging, 'secrets.json'), 'utf8'))).toEqual(secrets);
+  expect(fs.existsSync(hidden)).toBe(true);
+  expect(bucketStore.load(profile.id).name).toBe('Unrelated');
 });

@@ -28,6 +28,12 @@ export function exportCommand(rest: string[], ctx: Context): void {
   if (values.format !== 't3' || positionals.length !== 1)
     throw usageError('Use: switchboard export PROFILE --format t3');
   const profile = resolveProfile(ctx.data, required(positionals[0], 'Profile'));
+  if (profile.id.length > 64)
+    throw refused(
+      't3-provider-id-too-long',
+      'This profile ID exceeds T3’s 64-character provider-key limit.',
+      'Configure this profile in T3 manually using a shorter unique provider key and the home path from switchboard show.',
+    );
   if (profile.vendor === 'codex' && profile.proxyBucket)
     throw refused(
       'routed-export-unsupported',

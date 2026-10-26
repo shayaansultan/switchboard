@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { parse, type ParseError } from 'jsonc-parser';
 import { ObjectValue, type ImportMode, unreachable } from './types';
 import { paths, load, writeJson } from './profiles';
+import { holdLaunch } from './lifecycle';
 
 type FileItem = { kind: 'skill' | 'instructions' | 'keybindings'; name: string; source: string };
 type PreferenceItem = { kind: 'preferences'; name: 'preferences'; source: string };
@@ -90,55 +91,60 @@ function copyFileItem(id: string, item: FileItem, mode: ImportMode): void {
   }
 }
 export function apply(id: string, item: ImportItem, mode: ImportMode): void {
-  load(id);
-  switch (item.kind) {
-    case 'skill':
-    case 'instructions':
-    case 'keybindings':
-      copyFileItem(id, item, mode);
-      break;
-    case 'preferences':
-    case 'plugin':
-    case 'mcp': {
-      if (mode !== 'copy') throw new Error('Only files and skills support linking');
-      const file = path.join(paths(id).config, 'opencode.json');
-      const settings = config(file);
-      switch (item.kind) {
-        case 'preferences': {
-          const source = config(item.source);
-          // No provider credentials, model overrides or executable configuration.
-          for (const key of ['permission', 'compaction', 'snapshot', 'share']) {
-            if (source[key] !== undefined && settings[key] === undefined) settings[key] = source[key];
+  const release = holdLaunch(id);
+  try {
+    load(id);
+    switch (item.kind) {
+      case 'skill':
+      case 'instructions':
+      case 'keybindings':
+        copyFileItem(id, item, mode);
+        break;
+      case 'preferences':
+      case 'plugin':
+      case 'mcp': {
+        if (mode !== 'copy') throw new Error('Only files and skills support linking');
+        const file = path.join(paths(id).config, 'opencode.json');
+        const settings = config(file);
+        switch (item.kind) {
+          case 'preferences': {
+            const source = config(item.source);
+            // No provider credentials, model overrides or executable configuration.
+            for (const key of ['permission', 'compaction', 'snapshot', 'share']) {
+              if (source[key] !== undefined && settings[key] === undefined) settings[key] = source[key];
+            }
+            break;
           }
-          break;
+          case 'plugin': {
+            const specifier = item.specifier.startsWith('.')
+              ? path.resolve(path.dirname(item.source), item.specifier)
+              : item.specifier;
+            settings.plugin = [...new Set([...(Array.isArray(settings.plugin) ? settings.plugin : []), specifier])];
+            break;
+          }
+          case 'mcp': {
+            // Copy only a remote endpoint, disabled. Arbitrary command arguments,
+            // headers and even secret-file references can carry another identity.
+            if (item.definition.type !== 'remote' || typeof item.definition.url !== 'string')
+              throw new Error('Configure local MCP commands explicitly; they can embed credentials');
+            const url = new URL(item.definition.url);
+            if (url.username || url.password || url.search || /\{(?:env|file):/.test(url.href))
+              throw new Error('Endpoint contains credentials or substitutions; configure it explicitly');
+            const current = settings.mcp === undefined ? {} : ObjectValue.parse(settings.mcp);
+            if (current[item.name]) throw new Error(`MCP already exists: ${item.name}`);
+            settings.mcp = { ...current, [item.name]: { type: 'remote', url: url.href, enabled: false } };
+            break;
+          }
+          default:
+            unreachable(item);
         }
-        case 'plugin': {
-          const specifier = item.specifier.startsWith('.')
-            ? path.resolve(path.dirname(item.source), item.specifier)
-            : item.specifier;
-          settings.plugin = [...new Set([...(Array.isArray(settings.plugin) ? settings.plugin : []), specifier])];
-          break;
-        }
-        case 'mcp': {
-          // Copy only a remote endpoint, disabled. Arbitrary command arguments,
-          // headers and even secret-file references can carry another identity.
-          if (item.definition.type !== 'remote' || typeof item.definition.url !== 'string')
-            throw new Error('Configure local MCP commands explicitly; they can embed credentials');
-          const url = new URL(item.definition.url);
-          if (url.username || url.password || url.search || /\{(?:env|file):/.test(url.href))
-            throw new Error('Endpoint contains credentials or substitutions; configure it explicitly');
-          const current = settings.mcp === undefined ? {} : ObjectValue.parse(settings.mcp);
-          if (current[item.name]) throw new Error(`MCP already exists: ${item.name}`);
-          settings.mcp = { ...current, [item.name]: { type: 'remote', url: url.href, enabled: false } };
-          break;
-        }
-        default:
-          unreachable(item);
+        writeJson(file, settings);
+        break;
       }
-      writeJson(file, settings);
-      break;
+      default:
+        unreachable(item);
     }
-    default:
-      unreachable(item);
+  } finally {
+    release();
   }
 }

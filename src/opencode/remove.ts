@@ -198,7 +198,14 @@ function recoverLocked(id: string): boolean {
   }
   const committed = fs.existsSync(moving) && fs.existsSync(path.join(root(), 'buckets', id, 'bucket.json'));
   if (committed) {
+    // A completed rename consumes staging and every preserved entry. A new
+    // same-name bucket created by an older client is not proof of commit.
+    if (fs.existsSync(next) || BUCKET_ENTRIES.some((entry) => fs.existsSync(path.join(moving, entry))))
+      throw new Error(
+        `Conflicting bucket ${id}: preserved removal data remains in ${moving} or ${next}. Inspect both before retrying; nothing was deleted.`,
+      );
     bucketStore.load(id);
+    bucketStore.secrets(id);
     fs.rmSync(moving, { recursive: true, force: true });
     fs.rmSync(next, { recursive: true, force: true });
     return true;

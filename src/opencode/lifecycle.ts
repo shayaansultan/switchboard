@@ -25,16 +25,41 @@ function active(file: string): boolean {
     throw error;
   }
 }
+// Publish the PID atomically, without a window where another process sees an
+// empty lock. A hard link preserves exclusive creation of the destination.
+function claim(file: string): void {
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  fs.writeFileSync(temporary, String(process.pid), { flag: 'wx', mode: 0o600 });
+  try {
+    fs.linkSync(temporary, file);
+  } finally {
+    fs.unlinkSync(temporary);
+  }
+}
 export function holdLaunch(id: string): () => void {
   const base = directory(id);
   fs.mkdirSync(base, { recursive: true, mode: 0o700 });
+  const gate = path.join(base, 'removing');
+  const hidden = path.join(root(), 'opencode', `.${id}.removing`);
+  if (fs.existsSync(hidden))
+    throw new Error(
+      `OpenCode profile ${id} has an interrupted removal. Retry oc remove ${id} --keep-bucket before using it.`,
+    );
+  if (fs.existsSync(gate) && !active(gate)) {
+    // Before migration starts, reclaim a dead remover without completing its
+    // destructive action. holdRemoval serializes reclaimers and checks leases.
+    const release = holdRemoval(id);
+    release();
+  }
   const lease = path.join(base, `${process.pid}-${randomUUID()}.launch`);
-  fs.writeFileSync(lease, String(process.pid), { flag: 'wx', mode: 0o600 });
+  claim(lease);
   const release = () => fs.rmSync(lease, { force: true });
   try {
-    // Even a dead remover must recover before any new launch can use its files.
+    // Recheck admission after publishing the lease, including a new remover.
     if (fs.existsSync(path.join(base, 'removing')))
-      throw new Error(`OpenCode profile ${id} is being removed. Retry removal before launching.`);
+      throw new Error(
+        `OpenCode profile ${id} is being removed. Wait for the removal to finish. Lock: ${gate}. If this persists, inspect its owner before clearing it.`,
+      );
     return release;
   } catch (error) {
     release();
@@ -61,12 +86,22 @@ export function holdRemoval(id: string): () => void {
     }
     try {
       if (!active(gate)) fs.rmSync(gate, { force: true });
-      fs.writeFileSync(gate, String(process.pid), { flag: 'wx', mode: 0o600 });
+      claim(gate);
     } finally {
       fs.closeSync(fd);
       fs.unlinkSync(recovery);
     }
-  } else fs.writeFileSync(gate, String(process.pid), { flag: 'wx', mode: 0o600 });
+  } else {
+    try {
+      claim(gate);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST')
+        throw new Error(
+          `OpenCode profile ${id} is being removed. Another removal may be running; wait for it to finish. Lock: ${gate}. If this persists, inspect its owner before clearing it.`,
+        );
+      throw error;
+    }
+  }
   const release = () => fs.rmSync(gate, { force: true });
   try {
     for (const entry of fs.readdirSync(base).filter((name) => name.endsWith('.launch'))) {
