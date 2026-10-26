@@ -31,6 +31,15 @@ export async function requestApp(command: AppCommand): Promise<unknown> {
     const socket = net.createConnection(socketPath());
     let buffer = '';
     let answered = false;
+    let sent = false;
+    const disconnected = () =>
+      sent
+        ? new CliError(
+            'app-disconnected',
+            'The app disconnected before replying; the operation may still have completed. Check its state before retrying.',
+            1,
+          )
+        : unavailable();
     const fail = (error: Error) => {
       answered = true;
       socket.destroy();
@@ -46,8 +55,11 @@ export async function requestApp(command: AppCommand): Promise<unknown> {
         ),
       ),
     );
-    socket.on('error', () => fail(unavailable()));
-    socket.on('connect', () => socket.write(JSON.stringify(command) + '\n'));
+    socket.on('error', () => fail(disconnected()));
+    socket.on('connect', () => {
+      sent = true;
+      socket.write(JSON.stringify(command) + '\n');
+    });
     socket.on('data', (chunk: string) => {
       buffer += chunk;
       if (Buffer.byteLength(buffer) > LIMIT) return fail(new Error('App response exceeded the size limit'));
@@ -75,7 +87,7 @@ export async function requestApp(command: AppCommand): Promise<unknown> {
       }
     });
     socket.on('close', () => {
-      if (!answered) fail(unavailable());
+      if (!answered) fail(disconnected());
     });
   });
 }

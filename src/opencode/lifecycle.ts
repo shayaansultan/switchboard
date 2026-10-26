@@ -49,7 +49,16 @@ export function holdRemoval(id: string): () => void {
   // A dead owner's gate is claimed via an exclusive recovery file.
   const recovery = path.join(base, 'recovering');
   if (fs.existsSync(gate) && !active(gate)) {
-    const fd = fs.openSync(recovery, 'wx', 0o600);
+    let fd: number;
+    try {
+      fd = fs.openSync(recovery, 'wx', 0o600);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST')
+        throw new Error(
+          `OpenCode recovery is blocked by ${recovery}. Check for another running removal; if none is running, remove this leftover recovery file and retry.`,
+        );
+      throw error;
+    }
     try {
       if (!active(gate)) fs.rmSync(gate, { force: true });
       fs.writeFileSync(gate, String(process.pid), { flag: 'wx', mode: 0o600 });

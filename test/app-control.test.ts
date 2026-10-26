@@ -73,10 +73,13 @@ test('an absent or disconnected app is a refusal, never a successful operation',
     code: 'app-unavailable',
     exit: 4,
   });
-  const server = net.createServer((socket) => socket.destroy());
+  const server = net.createServer((socket) => socket.once('data', () => socket.destroy()));
   await new Promise<void>((resolve) => server.listen(path.join(directory, 'app-control.sock'), resolve));
   try {
-    await expect(requestApp({ command: 'awake', action: 'status' })).rejects.toMatchObject({ code: 'app-unavailable' });
+    await expect(requestApp({ command: 'awake', action: 'status' })).rejects.toMatchObject({
+      code: 'app-disconnected',
+      message: expect.stringContaining('may still have completed'),
+    });
   } finally {
     server.close();
   }

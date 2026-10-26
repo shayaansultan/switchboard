@@ -1225,34 +1225,38 @@ app.on('second-instance', () => showWindow());
 app.whenReady().then(async () => {
   if (!app.requestSingleInstanceLock()) return;
   if (!app.isPackaged) app.dock?.setIcon(path.join(__dirname, '..', 'build', 'icon-1024.png'));
-  const stopControl = await serveAppControl(async (command) => {
-    // A CLI add/rename may precede the debounced store watcher. Resolve the
-    // request against the same fresh store the CLI just read.
-    const next = profiles.readIfChanged();
-    if (next) applyReload(next);
-    switch (command.command) {
-      case 'awake': {
-        if (command.action === 'on' || command.action === 'off') await awake.set(command.action);
-        else await awake.refresh(command.action === 'recheck' ? 'recheck' : 'observe');
-        return awake.snapshot();
+  try {
+    const stopControl = await serveAppControl(async (command) => {
+      // A CLI add/rename may precede the debounced store watcher. Resolve the
+      // request against the same fresh store the CLI just read.
+      const next = profiles.readIfChanged();
+      if (next) applyReload(next);
+      switch (command.command) {
+        case 'awake': {
+          if (command.action === 'on' || command.action === 'off') await awake.set(command.action);
+          else await awake.refresh(command.action === 'recheck' ? 'recheck' : 'observe');
+          return awake.snapshot();
+        }
+        case 'accessibility':
+          return {
+            trusted: await checkAccessibility(command.action === 'status' ? 'check' : 'open'),
+            identity: { name: app.getName(), executable: process.execPath, packaged: app.isPackaged },
+          };
+        case 'focus': {
+          const p = byId(command.profile);
+          if (!launch.instanceFor(p, await launch.runningInstances()))
+            throw new CliError('desktop-not-running', `${p.name} is not running. Focus only shows an existing app.`, 4);
+          await showApp(p);
+          return { profile: ref(p), shown: true };
+        }
+        case 'force-quit':
+          return quitApp(byId(command.profile), true);
       }
-      case 'accessibility':
-        return {
-          trusted: await checkAccessibility(command.action === 'status' ? 'check' : 'open'),
-          identity: { name: app.getName(), executable: process.execPath, packaged: app.isPackaged },
-        };
-      case 'focus': {
-        const p = byId(command.profile);
-        if (!launch.instanceFor(p, await launch.runningInstances()))
-          throw new CliError('desktop-not-running', `${p.name} is not running. Focus only shows an existing app.`, 4);
-        await showApp(p);
-        return { profile: ref(p), shown: true };
-      }
-      case 'force-quit':
-        return quitApp(byId(command.profile), true);
-    }
-  });
-  app.on('will-quit', stopControl);
+    });
+    app.on('will-quit', stopControl);
+  } catch (error) {
+    console.error('Local CLI control unavailable; continuing app startup:', error);
+  }
   await launch.adoptLoginShellPath();
   applyAppearance();
   if (!BACKGROUND) createTray();

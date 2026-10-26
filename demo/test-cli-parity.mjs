@@ -43,6 +43,23 @@ try {
   const absent = await cli('awake', 'status');
   assert.equal(absent.code, 4);
   assert.equal(absent.failure.error, 'app-unavailable');
+  // A blocked optional CLI socket must not prevent the desktop from starting.
+  const obstruction = path.join(root, 'app-control.sock');
+  await fs.writeFile(obstruction, 'preserve this file');
+  app = await electron.launch({
+    args: [checkout, `--user-data-dir=${path.join(home, 'electron')}`],
+    env,
+    timeout: 20000,
+  });
+  const degradedPage = await app.firstWindow({ timeout: 10000 });
+  await degradedPage.waitForFunction(() => typeof window.sb?.getState === 'function', { timeout: 10000 });
+  assert.deepEqual((await degradedPage.evaluate(() => window.sb.getState())).profiles, []);
+  assert.equal((await cli('awake', 'status')).failure.error, 'app-unavailable');
+  assert.equal(await fs.readFile(obstruction, 'utf8'), 'preserve this file');
+  await app.close();
+  app = undefined;
+  await fs.unlink(obstruction);
+  console.log('Desktop starts with an obstructed control socket; obstruction preserved.');
   app = await electron.launch({
     args: [checkout, `--user-data-dir=${path.join(home, 'electron')}`],
     env,
