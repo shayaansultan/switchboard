@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { holdLaunch, holdRemoval } from '../opencode/lifecycle';
 import { ApiObservation, inspectUpstream, readCredential, assertDefaultModel, type Upstream } from './upstream';
 import * as store from './store';
 import * as proxy from './proxy';
@@ -60,13 +61,19 @@ export async function setDefaultModel(id: string, model: string): Promise<void> 
   });
 }
 async function stoppedUpdate(id: string, update: () => void | Promise<void>): Promise<void> {
-  const release = proxy.holdStartLock(id);
+  const releaseProfile = holdLaunch(id);
   try {
-    if (await proxy.control(id, 'status')) throw new Error('Stop this bucket before changing its upstream settings');
-    await proxy.recoverDeadWorker(id);
-    await update();
+    store.load(id);
+    const release = proxy.holdStartLock(id);
+    try {
+      if (await proxy.control(id, 'status')) throw new Error('Stop this bucket before changing its upstream settings');
+      await proxy.recoverDeadWorker(id);
+      await update();
+    } finally {
+      release();
+    }
   } finally {
-    release();
+    releaseProfile();
   }
 }
 export async function start(id: string): Promise<void> {
@@ -124,16 +131,22 @@ export async function removeAccount(id: string, name: string): Promise<void> {
 // deleted under it. beforeDelete runs just before the one irreversible step;
 // if it throws, the bucket stays. An unreachable worker still holds its ports
 // and lease, so that bucket is left alone.
-export async function remove(id: string, beforeDelete: () => void = () => {}): Promise<void> {
+export async function remove(id: string, beforeDelete: () => unknown = () => {}): Promise<void> {
   store.load(id);
-  const release = proxy.holdStartLock(id);
+  // Bucket removal also removes its co-located OpenCode profile. Coordinate
+  // native launches here too, not only in the explicit oc remove command.
+  const releaseProfile = store.withOpenCode(id) ? holdRemoval(id) : () => {};
   try {
-    await stop(id);
-    if (proxy.receipt(id)) throw new Error(`Bucket ${id} still has a worker. Stop it before removing the bucket.`);
-    beforeDelete();
-  } catch (error) {
-    release();
-    throw error;
+    const release = proxy.holdStartLock(id);
+    try {
+      await stop(id);
+      if (proxy.receipt(id)) throw new Error(`Bucket ${id} still has a worker. Stop it before removing the bucket.`);
+      await beforeDelete();
+      store.remove(id);
+    } finally {
+      release();
+    }
+  } finally {
+    releaseProfile();
   }
-  store.remove(id);
 }

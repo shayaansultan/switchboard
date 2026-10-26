@@ -366,7 +366,7 @@ export async function control(
   return value;
 }
 
-function processAlive(pid: number): boolean {
+export function processAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;

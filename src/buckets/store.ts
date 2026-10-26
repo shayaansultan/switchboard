@@ -6,6 +6,7 @@ import { ProfileId as BucketId, Secrets, root, readJson, writeJson } from '../st
 export { ProfileId as BucketId, root, readJson, writeJson } from '../storage';
 
 import { Upstream } from './upstream';
+import { holdLaunch } from '../opencode/lifecycle';
 const Bucket = z.object({ id: BucketId, name: z.string().min(1), upstream: Upstream.optional() });
 // Existing pools keep their files and worker leases in place. No token copies,
 // symlink migration, or second controller for an already-running OpenCode pool.
@@ -53,22 +54,27 @@ export function create(name: string, upstream?: Upstream) {
       .replace(/^-|-$/g, '')
       .slice(0, 64),
   );
-  if (fs.existsSync(path.join(root(), 'opencode', id)))
-    throw new Error('A profile or bucket with that name already exists');
-  const directory = paths(id);
-  fs.mkdirSync(path.dirname(directory.base), { recursive: true, mode: 0o700 });
-  fs.mkdirSync(directory.base, { mode: 0o700 });
+  const release = holdLaunch(id);
   try {
-    for (const p of [directory.runtime, directory.auth]) fs.mkdirSync(p, { recursive: true, mode: 0o700 });
-    writeJson(path.join(directory.base, 'secrets.json'), {
-      apiKey: randomBytes(32).toString('hex'),
-      managementKey: randomBytes(32).toString('hex'),
-    });
-    writeJson(directory.manifest, { id, name: clean, upstream });
-    return load(id);
-  } catch (error) {
-    fs.rmSync(directory.base, { recursive: true, force: true });
-    throw error;
+    if (fs.existsSync(path.join(root(), 'opencode', id)))
+      throw new Error('A profile or bucket with that name already exists');
+    const directory = paths(id);
+    fs.mkdirSync(path.dirname(directory.base), { recursive: true, mode: 0o700 });
+    fs.mkdirSync(directory.base, { mode: 0o700 });
+    try {
+      for (const p of [directory.runtime, directory.auth]) fs.mkdirSync(p, { recursive: true, mode: 0o700 });
+      writeJson(path.join(directory.base, 'secrets.json'), {
+        apiKey: randomBytes(32).toString('hex'),
+        managementKey: randomBytes(32).toString('hex'),
+      });
+      writeJson(directory.manifest, { id, name: clean, upstream });
+      return load(id);
+    } catch (error) {
+      fs.rmSync(directory.base, { recursive: true, force: true });
+      throw error;
+    }
+  } finally {
+    release();
   }
 }
 // A bucket stored with an OpenCode profile is that profile's directory, so
