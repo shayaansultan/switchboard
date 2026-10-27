@@ -26,7 +26,7 @@ place. Push only when `bun run check` exits clean.
 bun install --frozen-lockfile   # once
 bun run check                   # everything CI runs
 bun test                        # unit tests only, fastest loop
-bun run typecheck               # tsc for main and renderer
+bun run typecheck               # bun check for main, renderer and phone
 bun run build                   # out/ for Electron
 bunx electron .                 # run from the checkout (see below)
 bun run test:buckets-ui         # Playwright against the real window, buckets tab

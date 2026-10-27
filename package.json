@@ -27,7 +27,7 @@
     "fmt": "oxfmt",
     "format": "oxfmt",
     "lint": "oxlint",
-    "typecheck": "tsc --noEmit && tsc -p src/renderer && tsc -p src/phone",
+    "typecheck": "bun check --no-script && bun check --no-script -p src/renderer && bun check --no-script -p src/phone",
     "build": "rm -rf out && tsc && bun build src/renderer/main.tsx --outdir out/renderer --target browser && cp src/renderer/index.html out/renderer/ && cat src/design/tokens.css src/renderer/style.css > out/renderer/style.css && cp -R src/design/fonts out/renderer/fonts && sh src/phone/build.sh && sh src/native/build.sh"
   },
   "dependencies": {
