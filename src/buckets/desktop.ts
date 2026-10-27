@@ -6,7 +6,7 @@ import { desktopRouting, readJson, writeFileAtomic } from '../storage';
 import { VENDORS } from '../store';
 import { ensureWorker, accounts } from './proxy';
 import type { Profile } from '../types';
-import { desktopCatalog } from './models';
+import { desktopCatalog, apiCatalog } from './models';
 import { runtime } from './runtime';
 import { shellQuote } from '../shell';
 
@@ -46,9 +46,10 @@ function providerOverrides(endpoint: string): string[] {
 export function wrapperScript(
   binary: string,
   endpoint: string,
-  label?: { bucket: string; runtime: string; adapter: string; catalog?: string },
+  label?: { bucket: string; runtime: string; adapter: string; catalog?: string; model?: string },
 ): string {
   const overrides = providerOverrides(endpoint);
+  if (label?.model) overrides.push('model=' + JSON.stringify(label.model));
   if (label?.catalog) overrides.push(`model_catalog_json=${JSON.stringify(label.catalog)}`);
   const command = label
     ? `env ELECTRON_RUN_AS_NODE=1 ${[label.runtime, label.adapter, label.bucket, binary].map(shellQuote).join(' ')}`
@@ -57,6 +58,27 @@ export function wrapperScript(
   // separate override list, replacing flags before the subcommand. Append ours
   // so the effective app-server config, not just its process argv, uses the pool.
   return `#!/bin/sh\nexec ${command} "$@" ${overrides.map((value) => `-c ${shellQuote(value)}`).join(' ')}\n`;
+}
+
+// The wrapper a Codex profile without a bucket launches its engine through
+// while phone access is on: the engine untouched, with the phone's tap on
+// its connection (desktop-remote.ts). Rewritten at each launch; its content
+// only changes when Switchboard or ChatGPT moves. Null when the engine
+// cannot be found: the app then launches as it would without phone access,
+// read-only from the phone, rather than not at all.
+export function remoteWrapper(profile: Profile, find: () => string = codexBinary): string | null {
+  let binary: string;
+  try {
+    binary = find();
+  } catch {
+    return null;
+  }
+  if (!fs.existsSync(binary)) return null;
+  const adapter = runtime();
+  const file = desktopRouting(profile.id).wrapper;
+  const command = `env ELECTRON_RUN_AS_NODE=1 ${[adapter.execPath, adapter.script('desktop-remote'), binary].map(shellQuote).join(' ')}`;
+  writeFileAtomic(file, `#!/bin/sh\nexec ${command} "$@"\n`, 0o700);
+  return file;
 }
 
 export async function desktopEnvironment(profile: Profile, codexHome: string): Promise<Record<string, string>> {
@@ -70,22 +92,25 @@ export async function desktopEnvironment(profile: Profile, codexHome: string): P
     throw new Error(`The ChatGPT app's Codex engine is not at ${binary}. Update Switchboard for this ChatGPT version.`);
   const worker = await ensureWorker(id);
   const members = await accounts(id, worker.receipt.proxyPort);
-  if (!members.some((member) => !member.disabled))
+  if (!bucket.upstream && !members.some((member) => !member.disabled))
     throw new Error('This bucket has no enabled accounts. Add an account in Proxy buckets.');
   const endpoint = `http://127.0.0.1:${worker.receipt.proxyPort}/v1`;
   const adapter = runtime();
   const files = desktopRouting(profile.id);
   const content = wrapperScript(binary, endpoint, {
     bucket: bucket.name,
+    model: bucket.upstream?.defaultModel,
     runtime: adapter.execPath,
     adapter: adapter.script('desktop-stdio'),
-    catalog: await desktopCatalog(
-      id,
-      worker.receipt.proxyPort,
-      binary,
-      { home: codexHome, overrides: providerOverrides(endpoint) },
-      files.catalog,
-    ),
+    catalog: bucket.upstream
+      ? apiCatalog(worker.upstream?.models ?? [], files.catalog)
+      : await desktopCatalog(
+          id,
+          worker.receipt.proxyPort,
+          binary,
+          { home: codexHome, overrides: providerOverrides(endpoint) },
+          files.catalog,
+        ),
   });
   writeFileAtomic(files.wrapper, content, 0o700);
   return { CODEX_CLI_PATH: files.wrapper, SWITCHBOARD_PROXY_API_KEY: secrets(id).apiKey };

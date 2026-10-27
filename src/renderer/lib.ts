@@ -1,5 +1,7 @@
 // Small helpers shared by the views: time words, the colour a usage window
 // deserves, and the one way every button talks to the main process.
+import { ago, clock, resetsIn } from '../shared/time';
+import { fullest as sharedFullest, severity } from '../shared/usage';
 
 export type State = import('../types').State;
 export type ProfileView = import('../types').ProfileView;
@@ -19,19 +21,19 @@ export type UsageBlock = import('../types').UsageBlock;
 export type UsageSession = import('../types').UsageSession;
 export type TokenCounts = import('../types').TokenCounts;
 export type WindowPace = import('../types').WindowPace;
+export type ResetTarget = import('../types').ResetTarget;
+export type ResetList = import('../types').ResetList;
+export type ResetOffer = import('../types').ResetOffer;
+export type ResetResult = import('../types').ResetResult;
 
+// Time and usage in words and colours, shared with the menu bar and the
+// phone app (src/shared).
 export function relTime(iso: string | null): string {
-  if (!iso) return '';
-  const ms = Date.parse(iso) - Date.now();
-  if (Number.isNaN(ms)) return '';
-  if (ms <= 0) return 'resets now';
-  const m = Math.round(ms / 60000);
-  if (m < 48 * 60) return `resets in ${hm(m)}`;
-  return `resets in ${Math.round(m / 60 / 24)}d`;
+  return resetsIn(iso);
 }
 
-// A span of whole minutes, the one way the window spells it: "38m", "2h",
-// "2h 5m".
+// A span of whole minutes, the one way the Usage tab spells it: "38m",
+// "2h", "2h 5m".
 export function hm(m: number): string {
   if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);
@@ -43,33 +45,16 @@ export function relShort(iso: string | null): string {
   return relTime(iso).replace(/^resets (in )?/, '');
 }
 
-// How long ago, for the refresh line: "just now", "2m ago", "3h ago".
-export function ago(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const ms = Date.now() - Date.parse(iso);
-  if (Number.isNaN(ms)) return '';
-  const m = Math.round(ms / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  return h < 48 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
-}
-
-export function clock(iso: string | undefined): string {
-  return iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
-}
+export { ago, clock };
 
 // Colour always reflects how close the window is to running out.
 export function severityClass(w: UsageWindow): string {
-  const pct = w.pct ?? 0;
-  return w.severity === 'critical' || pct >= 90 ? 'bad' : w.severity === 'warning' || pct >= 70 ? 'warn' : '';
+  const s = severity(w);
+  return s === 'ok' ? '' : s;
 }
 
-// The account's fullest window, for the ring and the menu bar alike.
 export function fullest(windows: UsageWindow[] | undefined): UsageWindow | null {
-  const known = (windows ?? []).filter((w) => w.pct !== null && w.pct !== undefined);
-  if (!known.length) return null;
-  return known.reduce((a, b) => ((b.pct ?? 0) > (a.pct ?? 0) ? b : a));
+  return sharedFullest(windows);
 }
 
 // Run an action from a button: the button is disabled while it runs, and a

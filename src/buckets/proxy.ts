@@ -13,6 +13,7 @@ import { describePlan, type Plan } from '../plans';
 import { acquireWorkerLease } from './worker-lease';
 import { workerCommand, type Command } from './runtime';
 
+import { ApiObservation, inspectUpstream, upstreamConfig, readCredential, type ApiModel } from './upstream';
 const execute = promisify(execFile);
 const VERSION = '7.3.2';
 const Receipt = z.object({
@@ -71,7 +72,13 @@ const AccountUsage = z.object({
 });
 export type AccountUsage = z.infer<typeof AccountUsage>;
 
-const WorkerStatus = z.object({ receipt: Receipt, accounts: z.array(AccountUsage), ready: z.boolean() });
+const WorkerStatus = z.object({
+  receipt: Receipt,
+  accounts: z.array(AccountUsage),
+  ready: z.boolean(),
+  supportsAccountRefresh: z.boolean().optional(),
+  upstream: ApiObservation.optional(),
+});
 export type WorkerStatus = z.infer<typeof WorkerStatus>;
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -131,7 +138,8 @@ async function freePort(): Promise<number> {
   return address.port;
 }
 
-export function proxyConfig(id: string, port: number): string {
+export function proxyConfig(id: string, port: number, models: ApiModel[] = []): string {
+  const upstream = load(id).upstream;
   const directory = paths(id);
   const credentials = secrets(id);
   const file = path.join(directory.proxy, 'config.yaml');
@@ -139,7 +147,7 @@ export function proxyConfig(id: string, port: number): string {
   writeJson(file, {
     host: '127.0.0.1',
     port,
-    'auth-dir': directory.auth,
+    'auth-dir': upstream ? path.join(directory.proxy, 'api-auth') : directory.auth,
     'api-keys': [credentials.apiKey],
     'remote-management': {
       'allow-remote': false,
@@ -162,14 +170,25 @@ export function proxyConfig(id: string, port: number): string {
     'request-log': false,
     'usage-statistics-enabled': false,
     codex: { 'stream-bootstrap-buffering': true },
+    ...(upstream
+      ? {
+          ...upstreamConfig(upstream, models),
+          'quota-exceeded': { 'switch-project': false, 'switch-preview-model': false, 'antigravity-credits': false },
+          'request-retry': 0,
+          'commercial-mode': true,
+          'error-logs-max-files': 0,
+          'save-cooldown-status': false,
+          'usage-statistics-enabled': true,
+        }
+      : {}),
   });
   return file;
 }
 
-async function management(
+export async function management(
   id: string,
   port: number,
-  endpoint: 'auth-files' | 'api-call' | 'auth-files/fields' | 'auth-files/status',
+  endpoint: 'auth-files' | 'api-call' | 'auth-files/fields' | 'auth-files/status' | 'reset-quota',
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = 'GET',
   body?: unknown,
   query?: Record<string, string>,
@@ -319,16 +338,23 @@ export function receipt(id: string): Receipt | undefined {
   const file = path.join(paths(id).runtime, 'worker.json');
   return fs.existsSync(file) ? Receipt.parse(readJson(file)) : undefined;
 }
-export async function control(id: string, action: 'status' | 'refresh' | 'stop'): Promise<WorkerStatus | undefined> {
+export async function control(
+  id: string,
+  action: 'status' | 'refresh' | 'stop' | 'refresh-account',
+  accountName?: string,
+): Promise<WorkerStatus | undefined> {
   const current = receipt(id);
   if (!current || current.profileId !== id) return undefined;
   let response: Response;
   try {
-    response = await fetch(`http://127.0.0.1:${current.controlPort}/${action}`, {
-      method: action === 'status' ? 'GET' : 'POST',
-      headers: { Authorization: `Bearer ${secrets(id).managementKey}`, 'X-Switchboard-Instance': current.instance },
-      signal: AbortSignal.timeout(action === 'refresh' ? 90000 : 3000),
-    });
+    response = await fetch(
+      `http://127.0.0.1:${current.controlPort}/${action}${accountName ? `?name=${encodeURIComponent(accountName)}` : ''}`,
+      {
+        method: action === 'status' ? 'GET' : 'POST',
+        headers: { Authorization: `Bearer ${secrets(id).managementKey}`, 'X-Switchboard-Instance': current.instance },
+        signal: AbortSignal.timeout(action === 'refresh' || action === 'refresh-account' ? 90000 : 3000),
+      },
+    );
   } catch {
     return undefined;
   }
@@ -340,7 +366,7 @@ export async function control(id: string, action: 'status' | 'refresh' | 'stop')
   return value;
 }
 
-function processAlive(pid: number): boolean {
+export function processAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -398,7 +424,7 @@ async function assertWorkerAbsent(id: string): Promise<void> {
 
 // Called only while holding starting.lock. A receipt records an active worker,
 // so its survival after an unclean exit is also the intent to resume it.
-async function recoverDeadWorker(id: string): Promise<void> {
+export async function recoverDeadWorker(id: string): Promise<void> {
   await assertWorkerAbsent(id);
   const directory = paths(id).runtime;
   const current = receipt(id);
@@ -430,6 +456,8 @@ export async function ensureWorker(id: string, worker: Command = workerCommand()
   if (running?.ready) return running;
 
   await assertWorkerAbsent(id);
+  const upstream = load(id).upstream;
+  if (upstream) readCredential(upstream.credential);
 
   if (!fs.existsSync(binary())) throw new Error('Install the routing worker first: oc proxy-install');
   const lock = path.join(paths(id).runtime, 'starting.lock');
@@ -498,10 +526,22 @@ async function serveWorker(id: string): Promise<void> {
   const profile = load(id);
   const directory = paths(id);
   const proxyPort = await freePort();
-  const configFile = proxyConfig(id, proxyPort);
+  let currentUpstream = profile.upstream ? await inspectUpstream(profile.upstream) : undefined;
+  if (currentUpstream) {
+    writeJson(path.join(directory.runtime, 'upstream.json'), currentUpstream);
+    if (currentUpstream.discovery.status !== 'ok') {
+      fs.rmSync(path.join(directory.proxy, 'config.yaml'), { force: true });
+      throw new Error('API upstream discovery: ' + currentUpstream.discovery.status);
+    }
+    const apiAuth = path.join(directory.proxy, 'api-auth');
+    fs.mkdirSync(apiAuth, { recursive: true, mode: 0o700 });
+    if (fs.readdirSync(apiAuth).some((name) => name !== 'logs'))
+      throw new Error('API bucket auth directory contains unexpected files');
+  }
+  const configFile = proxyConfig(id, proxyPort, currentUpstream?.models);
   const child = spawn(binary(), ['-config', configFile], {
     cwd: directory.proxy,
-    stdio: ['ignore', 'inherit', 'inherit'],
+    stdio: profile.upstream ? 'ignore' : ['ignore', 'inherit', 'inherit'],
   });
   let exited = false;
   let stopping = false;
@@ -517,20 +557,36 @@ async function serveWorker(id: string): Promise<void> {
     pid: process.pid,
     startedAt: new Date().toISOString(),
   };
-  const status = (): WorkerStatus => ({ receipt: worker, accounts: currentAccounts, ready: !exited && !stopping });
-  const refresh = (): Promise<void> => {
+  const status = (): WorkerStatus => ({
+    receipt: worker,
+    accounts: currentAccounts,
+    ready: !exited && !stopping,
+    supportsAccountRefresh: !profile.upstream,
+    upstream: currentUpstream,
+  });
+  const refresh = (resetAccount?: string): Promise<void> => {
+    // Wait for an in-flight poll, then force a new observation of just the
+    // reset account. Other accounts retain their vendor API backoff.
+    if (resetAccount && refreshPromise) return refreshPromise.then(() => refresh(resetAccount));
     refreshPromise ??= (async () => {
+      if (profile.upstream) {
+        currentUpstream = await inspectUpstream(profile.upstream);
+        writeJson(path.join(directory.runtime, 'upstream.json'), currentUpstream);
+        return;
+      }
       const available = await accounts(id, proxyPort);
       const next: AccountUsage[] = [];
-      for (const account of available)
+      for (const account of available) {
+        const previous = currentAccounts.find((item) => item.name === account.name);
         next.push(
           await observe(
             id,
             proxyPort,
             account,
-            currentAccounts.find((item) => item.name === account.name),
+            account.name === resetAccount && previous ? { ...previous, nextProbeAt: undefined } : previous,
           ),
         );
+      }
       currentAccounts = next;
       writeJson(path.join(directory.runtime, 'usage.json'), currentAccounts);
     })().finally(() => {
@@ -550,12 +606,16 @@ async function serveWorker(id: string): Promise<void> {
       response.setHeader('Content-Type', 'application/json');
       response.end(JSON.stringify(status()));
     };
-    switch (`${request.method} ${request.url}`) {
+    const requestUrl = new URL(request.url ?? '/', 'http://localhost');
+    switch (`${request.method} ${requestUrl.pathname}`) {
       case 'GET /status':
         reply();
         break;
+      case 'POST /refresh-account':
       case 'POST /refresh':
-        void refresh()
+        void refresh(
+          requestUrl.pathname === '/refresh-account' ? (requestUrl.searchParams.get('name') ?? undefined) : undefined,
+        )
           .then(reply)
           .catch(() => {
             response.writeHead(502).end();
@@ -583,6 +643,7 @@ async function serveWorker(id: string): Promise<void> {
     if (!exited) child.kill('SIGKILL');
     const saved = receipt(id);
     if (saved?.instance === worker.instance) fs.rmSync(path.join(directory.runtime, 'worker.json'), { force: true });
+    if (profile.upstream) fs.rmSync(configFile, { force: true });
     finish();
   }
   child.once('error', () => {

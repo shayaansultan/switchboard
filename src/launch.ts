@@ -9,10 +9,11 @@ import { execFile, type ExecFileOptions, type ExecFileOptionsWithStringEncoding 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { VENDORS, VENDOR_IDS, dirs, ensureDirs } from './store';
+import { HOME, VENDORS, VENDOR_IDS, dirs, ensureDirs } from './store';
 import { shellQuote } from './shell';
 import type { Instance, Profile, Settings } from './types';
-import { desktopEnvironment } from './buckets/desktop';
+import { desktopEnvironment, remoteWrapper } from './buckets/desktop';
+import { controlSocket } from './remote/control';
 
 // What a failed command throws: the exec error plus whatever it printed.
 export interface RunError extends Error {
@@ -112,7 +113,9 @@ export function launchArgs(
   return ['-n', ...env, '--env', `${v.homeEnv}=${d.home}`, '-a', v.appPath, '--args', `--user-data-dir=${d.desktop}`];
 }
 
-export async function launchDesktop(profile: Profile): Promise<void> {
+// `phone` is the phone access setting: with it on, the launch carries what
+// lets the phone reply and approve (remoteEnvironment).
+export async function launchDesktop(profile: Profile, phone = false): Promise<void> {
   const v = VENDORS[profile.vendor];
   if (!fs.existsSync(v.appPath)) throw new Error(`${v.appPath} is not installed`);
   ensureDirs(profile);
@@ -121,7 +124,11 @@ export async function launchDesktop(profile: Profile): Promise<void> {
   // rewritten below, from changing under the app using them.
   if (already && profile.proxyBucket)
     throw new Error('Quit this desktop profile before launching with a proxy bucket.');
-  const environment = await desktopEnvironment(profile, dirs(profile).home);
+  const routed = await desktopEnvironment(profile, dirs(profile).home);
+  const environment = withPlugins(
+    { ...routed, ...profileBandEnvironment(profile) },
+    remoteEnvironment(profile, phone, !!routed.CODEX_CLI_PATH),
+  );
   try {
     await run('open', launchArgs(profile, already, environment));
   } catch (error) {
@@ -174,6 +181,37 @@ export function instanceFor(profile: Profile, instances: Instance[]): Instance |
   return instances.find((i) => owns(profile, i));
 }
 
+// Quits a profile's app and opens it again with the phone's hook, for one
+// opened from the Dock or before phone access was on (src/remote/reach.ts).
+// The window, the phone and `switchboard remote relaunch` all come here; the
+// app passes its own quit and open, which also track the app's state.
+export async function relaunchForPhone(
+  profile: Profile,
+  steps: { quit(p: Profile): Promise<void>; open(p: Profile): Promise<void> } = {
+    quit: quitAndWait,
+    open: (p) => launchDesktop(p, true),
+  },
+): Promise<void> {
+  if (instanceFor(profile, await runningInstances())) {
+    await steps.quit(profile);
+    if (instanceFor(profile, await runningInstances()))
+      throw Object.assign(
+        new Error(
+          `${VENDORS[profile.vendor].label} for "${profile.name}" did not quit. Quit it on the Mac, then open it from Switchboard.`,
+        ),
+        { code: 'did-not-quit' },
+      );
+  }
+  await steps.open(profile);
+}
+
+async function quitAndWait(profile: Profile, waitMs = 15_000): Promise<void> {
+  if (!(await quitDesktop(profile))) return;
+  const until = Date.now() + waitMs;
+  while (instanceFor(profile, await runningInstances()) && Date.now() < until)
+    await new Promise((r) => setTimeout(r, 300));
+}
+
 export async function quitDesktop(profile: Profile): Promise<boolean> {
   const inst = instanceFor(profile, await runningInstances());
   if (!inst) return false;
@@ -199,6 +237,104 @@ export async function forceQuitDesktop(profile: Profile): Promise<boolean> {
 export function appEventsHelper(): string | null {
   const file = path.join(__dirname, 'app-events').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
   return fs.existsSync(file) ? file : null;
+}
+
+// Electron's Resources folder. Only Electron sets it, and Electron's types
+// declare it, so read it through a type that says it may be missing: under
+// the CLI (Bun) and in tests it is.
+function resourcesPath(): string | undefined {
+  return (process as { resourcesPath?: string }).resourcesPath;
+}
+
+// ---- the profile band (plugins/profile-band) ----
+
+// A Claude Code mod that fills the band above the prompt with the profile's
+// colour, its name and plan, and how much of its rate limits is left, so two
+// Claude apps on different profiles can be told apart at a glance. Claude Code
+// reads it from disk, so a packaged app ships it as a plain folder under
+// Resources (extraResources in package.json: the app's own files drop every
+// .d.ts, and the plugin's type contract is one); a checkout uses its own copy.
+// Null when this build has neither.
+export function profileBandPlugin(): string | null {
+  const resources = resourcesPath();
+  const candidates = [
+    resources && path.join(resources, 'plugins', 'profile-band'),
+    path.join(__dirname, '..', 'plugins', 'profile-band'),
+  ];
+  return candidates.find((dir) => dir && fs.existsSync(path.join(dir, '.claude-plugin', 'plugin.json'))) || null;
+}
+
+// The `switchboard` command the band asks for rate limits, by full path: the
+// desktop app's sessions do not get a login shell's PATH. Only Switchboard's
+// own launcher counts (shim.ts writes it with this comment line), so a foreign
+// file at that path is never run. Null otherwise, and the band then shows no
+// limits.
+export function switchboardCommand(): string | null {
+  const file = path.join(HOME, '.local', 'bin', 'switchboard');
+  try {
+    return fs.readFileSync(file, 'utf8').split('\n')[1]?.startsWith('# Switchboard CLI launcher') ? file : null;
+  } catch {
+    return null;
+  }
+}
+
+// What a Claude profile's desktop app is launched with so the mod can name
+// it. `open --env` hands these to the app, which passes them to every Code
+// session it starts. The Default profile gets nothing: its app is the
+// unmarked one. Name and colour are read at launch, so a rename or recolour shows
+// after the next launch.
+export function profileBandEnvironment(
+  profile: Profile,
+  plugin: string | null = profileBandPlugin(),
+  command: string | null = switchboardCommand(),
+): Record<string, string> {
+  if (profile.vendor !== 'claude' || profile.isDefault || !plugin) return {};
+  return {
+    CLAUDE_CODE_PLUGIN_DIRS: plugin,
+    SWITCHBOARD_PROFILE: profile.id,
+    SWITCHBOARD_PROFILE_NAME: profile.name,
+    SWITCHBOARD_PROFILE_COLOR: profile.color,
+    ...(command ? { SWITCHBOARD_COMMAND: command } : {}),
+  };
+}
+
+// ---- replying and approving from the phone (src/remote/control.ts) ----
+
+// The Claude Code plugin that types replies in and answers approvals for the
+// phone, found as the profile band is.
+export function remotePlugin(): string | null {
+  const resources = resourcesPath();
+  const candidates = [
+    resources && path.join(resources, 'plugins', 'switchboard-remote'),
+    path.join(__dirname, '..', 'plugins', 'switchboard-remote'),
+  ];
+  return candidates.find((dir) => dir && fs.existsSync(path.join(dir, '.claude-plugin', 'plugin.json'))) || null;
+}
+
+// What a launch carries so the phone can reach the profile's sessions: the
+// control socket and which profile this is, plus the Claude plugin, or for
+// Codex the wrapper with the tap (unless a bucket's wrapper already has it).
+// Every profile Switchboard launches gets it, the Default ones included;
+// a desktop app opened from the Dock does not, and stays read-only.
+export function remoteEnvironment(
+  profile: Profile,
+  phone: boolean,
+  routed: boolean,
+  plugin: string | null = remotePlugin(),
+  wrapper: (profile: Profile) => string | null = remoteWrapper,
+): Record<string, string> {
+  if (!phone) return {};
+  const base = { SWITCHBOARD_PROFILE: profile.id, SWITCHBOARD_CONTROL_SOCKET: controlSocket() };
+  if (profile.vendor === 'claude') return plugin ? { ...base, CLAUDE_CODE_PLUGIN_DIRS: plugin } : {};
+  if (routed) return base;
+  const file = wrapper(profile);
+  return file ? { ...base, CODEX_CLI_PATH: file } : {};
+}
+
+// Merges launch environments, joining plugin folders rather than replacing.
+export function withPlugins(a: Record<string, string>, b: Record<string, string>): Record<string, string> {
+  const dirs = [a.CLAUDE_CODE_PLUGIN_DIRS, b.CLAUDE_CODE_PLUGIN_DIRS].filter(Boolean);
+  return { ...a, ...b, ...(dirs.length ? { CLAUDE_CODE_PLUGIN_DIRS: dirs.join(path.delimiter) } : {}) };
 }
 
 // How many windows each process has open, or null without Accessibility

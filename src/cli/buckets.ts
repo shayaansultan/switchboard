@@ -14,14 +14,22 @@ import { notFound, refused, table, usageError } from './output';
 import { assertNotRunning, instances } from './desktop';
 import { loadBucket } from './profiles';
 import { confirm, mutateStore } from './resolve';
+import { resetsCommand } from './resets';
+import { Upstream, inspectUpstream, assertDefaultModel } from '../buckets/upstream';
+import * as opencode from '../opencode/profiles';
 
 const SUBCOMMANDS = z.enum([
+  'model',
+  'credential',
+  'create-api',
+  'inspect-api',
   'list',
   'show',
   'create',
   'start',
   'stop',
   'refresh',
+  'resets',
   'login',
   'enable',
   'disable',
@@ -49,6 +57,55 @@ export async function bucketCommand(rest: string[], ctx: Context): Promise<numbe
   const sub = parsed.data;
   const args = rest.slice(1);
   switch (sub) {
+    case 'model': {
+      const id = loadBucket(required(args[0], 'Bucket')).id;
+      await buckets.setDefaultModel(id, required(args[1], 'Model ID'));
+      ctx.out.result(await view(id));
+      return;
+    }
+    case 'credential': {
+      const id = loadBucket(required(args[0], 'Bucket')).id;
+      await buckets.setCredential(id, {
+        file: required(args[1], 'Absolute credential file'),
+        variable: required(args[2], 'Variable name'),
+      });
+      ctx.out.result(await view(id));
+      return;
+    }
+    case 'create-api': {
+      const { values, positionals } = parse(args, {
+        'base-url': { type: 'string' },
+        'credential-file': { type: 'string' },
+        'credential-env': { type: 'string' },
+        'budget-url': { type: 'string' },
+        adapter: { type: 'string' },
+        model: { type: 'string' },
+        opencode: { type: 'boolean' },
+        'allow-mutable-default': { type: 'boolean' },
+      });
+      const upstream = Upstream.parse({
+        kind: 'api',
+        baseUrl: values['base-url'],
+        credential: { file: values['credential-file'], variable: values['credential-env'] },
+        budgetUrl: values['budget-url'],
+        adapter: values.adapter,
+        defaultModel: values.model,
+        allowMutableDefault: values['allow-mutable-default'] ?? false,
+      });
+      const observation = await inspectUpstream(upstream);
+      if (observation.discovery.status !== 'ok') throw new Error('API discovery: ' + observation.discovery.status);
+      assertDefaultModel(upstream, observation.models);
+      const name = required(positionals[0], 'Name');
+      const bucket = values.opencode ? opencode.create(name, upstream) : buckets.create(name, upstream);
+      await buckets.inspect(bucket.id);
+      ctx.out.result(await view(bucket.id));
+      return;
+    }
+    case 'inspect-api':
+      ctx.out.result(await buckets.inspect(loadBucket(required(args[0], 'Bucket')).id));
+      return;
+    case 'resets':
+      return resetsCommand(args, ctx, true);
     case 'list': {
       const all = await buckets.snapshot();
       ctx.out.result({ buckets: all }, () => table(all.map(summarize), ['id', 'name', 'status', 'accounts']));

@@ -48,7 +48,12 @@ be disabled: it stays signed in but takes no traffic, or removed: the
 bucket's sign-in for it is deleted. Removing a bucket stops its worker,
 deletes its accounts' sign-ins and moves the profiles routed through it back
 to their own sign-in. A bucket stored with an OpenCode profile is that
-profile, so removing one removes both. An account is unavailable when the proxy
+profile, so removing the bucket removes both. Removing the OpenCode profile
+instead asks what happens to its bucket: kept, the bucket's accounts, keys
+and upstream settings become a standalone bucket of the same name and the
+profiles routed through it stay routed; deleted, it goes as above. Either way
+the profile's settings, sessions, history and connections are deleted, and
+the Codex homes and native sign-ins its connections point at are not. An account is unavailable when the proxy
 reports an error it will not retry by itself, such as a token that expired
 and could not be renewed; the proxy's reason is shown with it. An account
 out of quota is not unavailable in this sense: its bars show why it rests.
@@ -86,8 +91,73 @@ How far a window is ahead of or behind an even burn across it, in points: a
 5-hour window 60% used halfway through is 10 ahead. Shown once 3% of the
 window has passed.
 
+## Profile band
+
+The bar in a profile's colour that Switchboard has every Code session of a
+Claude profile's app draw above the prompt: the profile's name, its plan, the
+session's context fill and cost, and for each window how much is left, when it
+resets and whether it will last until then (its pace). The Default profile's
+app has none. Call it the profile band, not a banner or a header.
+
 ## Plan
 
 The subscription tier of an account, with its capacity relative to the
 vendor's base plan: Max 20x, Pro 20x, Business 5x, Team. Capacity sizes an
 account's share of a pooled bar and of a bucket's routing.
+
+## Usage reset
+
+A grant or credit issued by a vendor that restores usage before a window’s
+normal reset time. It belongs to an account, can expire, and is spent only
+after confirmation. It is separate from the time displayed beside a usage bar.
+
+A usage reset can target a native profile account or a proxy bucket account.
+After a confirmed reset of a bucket account, the proxy clears its local
+cooldown and Switchboard refreshes its routing weight. Clearing a proxy
+cooldown alone never restores a vendor's usage allowance.
+
+An **API upstream bucket** holds one external Responses API configuration and a
+credential-file reference instead of OAuth accounts. Its configured accounting
+allowances and equivalent usage are separate from subscription headroom. A
+**mutable model alias** is a service ID whose underlying model may change; it
+retains its exact ID and advertised metadata without claiming a stable identity.
+
+## Session
+
+One conversation with an agent in a profile: a Claude session or a Codex
+thread, started in the desktop app, a terminal or a script. A session is
+**working** while its latest turn has not ended, and **idle** otherwise.
+Phone access lists sessions and can reply in them; it does not start or own them.
+
+## Phone access
+
+Seeing a Mac's sessions from a phone. The **hub** is the part of Switchboard
+that serves the phone app on this Mac, published on the person's tailnet by
+`tailscale serve`. A phone is **paired** once with a one-time **pairing
+code**, and **unpaired** to shut it out. A **pending request** is an approval
+or a question a session is waiting on that the phone can answer; the **control
+socket** is how the Claude plugin and the Codex tap reach the hub. An app the
+phone can **reach** was launched with that hook; one opened from the Dock is
+**relaunched for phone control**, which quits it and opens it again from
+Switchboard. Say "phone access", not "remote" or
+"mobile", in the window and the docs; `switchboard remote` is the command.
+
+## Fan control
+
+Boosting the Mac's fans for a short while. A **boost** holds every fan at a
+**speed** (a percentage of each fan's range) for a **time limit**, or until
+stopped; otherwise **macOS controls the fans**. The **system helper** is the
+root process that writes the speed, installed once after the person allows it
+in Login Items; the **system bridge** is the child process the app talks to it
+through. When the helper ends a boost on its own, the window says why the
+**boost ended**. Say "boost", "fans" and "speed" in the window, not
+"manual", "RPM control" or "cooling".
+
+## Caffeinate
+
+Keeping the Mac awake for a while. **Caffeinated** is a running session;
+**Decaf** is the resting state, when the Mac sleeps as usual, and **Decaf
+now** ends a session. A session keeps the screen on, and may keep the Mac
+awake **also with the lid closed**, which is the system helper's **lid-closed hold** on
+macOS's sleep setting. Say "Caffeinate" and "Decaf" in the window, not "Keep
+awake" or "Amphetamine".

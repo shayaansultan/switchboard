@@ -14,7 +14,8 @@ export function Buckets({ state }: { state: State }) {
     <>
       <div class="toolbar">
         <span class="note">
-          A bucket picks the account with the most headroom for each request. Assign one from a Codex profile's menu.
+          OAuth buckets pool subscription accounts. API buckets use one external service. Assign one from a Codex
+          profile's menu.
         </span>
         <Btn variant="secondary" icon="plus" id="add-bucket" onClick={newBucket}>
           Proxy bucket
@@ -36,25 +37,27 @@ function BucketPanel({ bucket, state }: { bucket: BucketView; state: State }) {
   const running = bucket.status === 'running';
   const n = bucket.accounts.length;
   const meta = [
-    `${n} account${n === 1 ? '' : 's'}`,
+    bucket.upstream ? 'API upstream' : `${n} account${n === 1 ? '' : 's'}`,
     users.length ? `used by ${users.map((p) => p.name).join(', ')}` : 'no profile assigned',
   ].join(' · ');
   const actions = (
     <>
-      <Btn
-        icon="plus"
-        aria-label="Add account"
-        onClick={(e) =>
-          openMenu(e.currentTarget as HTMLElement, [
-            { label: 'Add ChatGPT account', run: () => window.sb.bucketAction(bucket.id, 'login', 'codex') },
-            { label: 'Add Claude account', run: () => window.sb.bucketAction(bucket.id, 'login', 'claude') },
-          ])
-        }
-      >
-        Account
-        <Icon name="chevron" size={14} />
-      </Btn>
-      {running ? (
+      {!bucket.upstream ? (
+        <Btn
+          icon="plus"
+          aria-label="Add account"
+          onClick={(e) =>
+            openMenu(e.currentTarget as HTMLElement, [
+              { label: 'Add ChatGPT account', run: () => window.sb.bucketAction(bucket.id, 'login', 'codex') },
+              { label: 'Add Claude account', run: () => window.sb.bucketAction(bucket.id, 'login', 'claude') },
+            ])
+          }
+        >
+          Account
+          <Icon name="chevron" size={14} />
+        </Btn>
+      ) : null}
+      {running || bucket.upstream ? (
         <TipBtn
           variant="icon"
           icon="refresh"
@@ -72,6 +75,15 @@ function BucketPanel({ bucket, state }: { bucket: BucketView; state: State }) {
           Start
         </Btn>
       )}
+      {!running && bucket.upstream ? (
+        <Btn
+          variant="primary"
+          icon="play"
+          onClick={(e) => act(() => window.sb.bucketAction(bucket.id, 'start'), e.currentTarget)}
+        >
+          Start
+        </Btn>
+      ) : null}
       {bucket.status === 'stopped' ? null : (
         <Btn
           variant="outline"
@@ -109,6 +121,36 @@ function BucketPanel({ bucket, state }: { bucket: BucketView; state: State }) {
       meta={meta}
       actions={actions}
     >
+      {bucket.upstream ? (
+        <div class="note">
+          <p>
+            {bucket.upstream.baseUrl} · {bucket.upstream.adapter}
+          </p>
+          <p>
+            Discovery: {bucket.api?.discovery.status ?? 'not checked'} · Accounting:{' '}
+            {bucket.api?.accounting.status ?? 'not checked'}
+          </p>
+          <p>Configured accounting allowances and equivalent usage, not subscription headroom or cash credits.</p>
+          {bucket.api?.accounting.status === 'ok' && !Object.keys(bucket.api.accounting.values ?? {}).length ? (
+            <p>No accounting limits or usage reported. This does not establish unlimited access.</p>
+          ) : null}
+          {Object.entries(bucket.api?.accounting.values ?? {}).map(([name, value]) => (
+            <div key={name}>{accountingLabel(name, value)}</div>
+          ))}
+          <p>Enforcement status is unknown.</p>
+          <p>Observed: {bucket.api?.observedAt ?? 'never'}. Refresh to check current status.</p>
+          <details>
+            <summary>Upstream models ({bucket.api?.models.length ?? 0})</summary>
+            {bucket.api?.models.map((model) => (
+              <div key={model.id}>
+                {model.id}
+                {model.experimental ? ' · experimental' : ''}
+                {model.mutable ? ' · mutable' : ''}
+              </div>
+            ))}
+          </details>
+        </div>
+      ) : null}
       {bucket.accounts.map((account) => (
         <AccountRow
           bucket={bucket}
@@ -137,6 +179,7 @@ function AccountRow({
   remaining: boolean;
 }) {
   const { openMenu } = useOverlays();
+  const { openResets } = useActions();
   const off = account.status === 'disabled';
   const name = account.email ?? account.name;
   return (
@@ -180,6 +223,11 @@ function AccountRow({
           tip={['More']}
           onClick={(e) =>
             openMenu(e.currentTarget as HTMLElement, [
+              {
+                label: 'Usage resets…',
+                run: () => openResets({ kind: 'bucket', id: bucket.id, account: account.name }),
+              },
+              'separator',
               ...(account.problem
                 ? [
                     {
@@ -200,4 +248,22 @@ function AccountRow({
       </div>
     </div>
   );
+}
+
+// Keep service units explicit; only documented microdollar allowance fields convert to USD equivalents.
+function accountingLabel(name: string, value: number): string {
+  if (name === 'policy.requests_per_minute_limit') return 'Configured requests per minute: ' + value;
+  if (name.endsWith('daily_microdollar_allowance'))
+    return (
+      (name.startsWith('effective_limits.') ? 'Effective' : 'Configured') +
+      ' daily equivalent allowance: $' +
+      (value / 1_000_000).toLocaleString()
+    );
+  if (name.endsWith('monthly_microdollar_allowance'))
+    return (
+      (name.startsWith('effective_limits.') ? 'Effective' : 'Configured') +
+      ' monthly equivalent allowance: $' +
+      (value / 1_000_000).toLocaleString()
+    );
+  return name + ': ' + value + ' (service accounting units)';
 }

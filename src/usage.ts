@@ -79,7 +79,7 @@ export interface UsageDependencies {
   now?: () => number;
 }
 
-async function claudeToken(home: string): Promise<ClaudeCredential | null> {
+export async function claudeToken(home: string): Promise<ClaudeCredential | null> {
   let blob = await readKeychain(keychainService(home));
   if (!blob) {
     const f = path.join(home, '.credentials.json');
@@ -202,7 +202,7 @@ interface CodexAuth {
   plan: string | null;
 }
 
-function codexAuth(home: string): CodexAuth | null {
+export function codexAuth(home: string): CodexAuth | null {
   const f = path.join(home, 'auth.json');
   if (!fs.existsSync(f)) return null;
   const j: Json = JSON.parse(fs.readFileSync(f, 'utf8'));

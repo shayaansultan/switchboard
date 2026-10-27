@@ -2,7 +2,8 @@
 // renderer. The renderer reaches them through `import()` types only, so it
 // stays a plain script with no module wrapper.
 
-import type { AwakeRefresh, AwakeState, AwakeValue } from './awake';
+import type { CaffeinateState } from './shared/caffeinate';
+import type { FanState } from './shared/fans';
 
 export type Vendor = 'claude' | 'codex';
 
@@ -49,6 +50,13 @@ export interface Settings {
   // Notify when a window reaches 90% and when a full one resets. On unless
   // switched off.
   usageAlerts?: boolean;
+  // Serve the phone app to paired phones on 127.0.0.1:phonePort, for
+  // `tailscale serve` to publish on the tailnet. See src/remote/hub.ts.
+  phoneAccess?: boolean;
+  phonePort?: number;
+  // With phone access on, let Default Claude opened from the Dock reach the
+  // phone by adding the plugin to ~/.claude/settings.json (remote/reach.ts).
+  phoneDefaultClaude?: boolean;
 }
 
 export interface Store {
@@ -174,6 +182,8 @@ export interface ProfileView extends Profile, Live {
 }
 
 export interface BucketView {
+  upstream?: import('./buckets/upstream').Upstream;
+  api?: import('./buckets/upstream').ApiObservation;
   id: string;
   name: string;
   status: 'running' | 'stopped' | 'unreachable';
@@ -311,7 +321,8 @@ export interface CliStatus {
 
 // Everything the window renders from. Never a token.
 export interface State {
-  awake: AwakeState;
+  caffeinate: CaffeinateState;
+  fans: FanState;
   settings: Settings;
   palette: string[];
   terminals: { id: string; label: string }[];
@@ -324,14 +335,63 @@ export interface State {
   desktop: DesktopSupport;
 }
 
+// A usage reset a vendor has saved on an account, as the window and the CLI
+// see it. `detail` is the same facts as one line of prose for --human output.
+export interface ResetOffer {
+  id: string;
+  title: string;
+  detail: string;
+  usable: boolean;
+  // How many resets the grant holds, when the vendor counts them.
+  remaining: number | null;
+  expiresAt: string | null;
+  // What spending it restores, as a sentence.
+  clears: string;
+  // Why it cannot be spent now, when it cannot.
+  reason?: string;
+}
+export interface ResetResult {
+  outcome:
+    | 'reset'
+    | 'already_used'
+    | 'not_limited'
+    | 'cooldown'
+    | 'ineligible'
+    | 'unavailable'
+    | 'nothing_to_reset'
+    | 'no_credit'
+    | 'already_redeemed';
+  proxyRecovery: 'not-needed' | 'refreshed' | 'deferred' | 'unconfirmed';
+  message: string;
+}
+// Whose resets the dialog is showing: a profile's own sign-in, or one
+// account in a proxy bucket.
+export type ResetTarget = { kind: 'profile'; id: string } | { kind: 'bucket'; id: string; account: string };
+// What the window gets back when it opens the dialog. The main process keeps
+// the pinned account and credentials; `token` names that session for redeem.
+export interface ResetList {
+  token: string;
+  account: string;
+  note: string;
+  offers: ResetOffer[];
+}
+
 // The preload bridge, as `window.sb` in the renderer.
 export interface SwitchboardApi {
-  setAwake(value: AwakeValue): Promise<void>;
-  refreshAwake(reason?: AwakeRefresh): Promise<void>;
-  onAwakeState(fn: (s: AwakeState) => void): void;
+  refreshCaffeinate(): Promise<void>;
+  startCaffeinate(minutes: number, lid: boolean): Promise<void>;
+  caffeinateAction(action: 'stop' | 'extend' | 'dismiss' | 'cancel' | 'clear' | 'login-items'): Promise<void>;
+  onCaffeinateState(fn: (s: CaffeinateState) => void): void;
+  refreshFans(): Promise<void>;
+  setFans(level: number, minutes: number): Promise<void>;
+  adjustFans(level: number): Promise<void>;
+  fanAction(action: 'system' | 'extend' | 'cancel' | 'dismiss' | 'install' | 'remove' | 'login-items'): Promise<void>;
+  onFanState(fn: (s: FanState) => void): void;
   getState(): Promise<State>;
+  /** The page zoom, so the main process can keep the traffic lights centred. */
+  reportZoom(zoom: number): void;
   setProxyBucket(id: string, bucket: string | null): Promise<void>;
-  createBucket(name: string): Promise<void>;
+  createBucket(name: string, upstream?: import('./buckets/upstream').Upstream): Promise<void>;
   bucketAction(
     id: string,
     action: 'start' | 'refresh' | 'stop' | 'login',
@@ -342,6 +402,9 @@ export interface SwitchboardApi {
   removeBucketAccount(id: string, name: string): Promise<boolean>;
   measureSizes(): Promise<State>;
   refresh(id?: string): Promise<State>;
+  listResets(target: ResetTarget): Promise<ResetList>;
+  redeemReset(token: string, offerId: string): Promise<ResetResult>;
+  closeResets(token: string): Promise<void>;
   addProfile(p: AddOptions): Promise<{ profile: Profile; result: BringResult }>;
   removeProfile(id: string): Promise<boolean>;
   updateProfile(id: string, patch: { name?: string; color?: string }): Promise<void>;
@@ -363,6 +426,11 @@ export interface SwitchboardApi {
   reveal(id: string): Promise<void>;
   copyCommand(id: string): Promise<void>;
   installCli(): Promise<CliStatus>;
+  phoneStatus(): Promise<PhoneStatus>;
+  pairPhone(): Promise<PhonePairing>;
+  unpairPhone(id: string): Promise<void>;
+  relaunchForPhone(profileId: string): Promise<void>;
+  publishPhone(): Promise<PhonePublish>;
   onState(fn: (s: State) => void): void;
   // The Usage tab: a report for the last `days` days, a signal that there
   // is a newer one, and opening a listed session.
@@ -370,4 +438,40 @@ export interface SwitchboardApi {
   onUsageChanged(fn: () => void): void;
   resumeSession(profile: string, id: string): Promise<void>;
   openSession(profile: string, id: string, what: 'folder' | 'transcript'): Promise<void>;
+}
+
+// Phone access as the Settings dialog and `switchboard remote status` show it.
+// What publishing the hub on the tailnet came to (src/remote/status.ts).
+export interface PhonePublish {
+  published: boolean;
+  // Tailscale's page for allowing Serve or HTTPS on the tailnet, when it
+  // asked for that first.
+  enableUrl: string | null;
+  error: string | null;
+}
+
+export interface PhoneStatus {
+  enabled: boolean;
+  port: number;
+  listening: boolean;
+  error: string | null;
+  url: string | null;
+  // This Mac's tailnet name, when Tailscale is connected.
+  tailnet: string | null;
+  // Whether the hub answers at its tailnet address, i.e. `tailscale serve` is set up.
+  published: boolean;
+  serve: string;
+  devices: { id: string; name: string; createdAt: string; lastSeenAt: string | null }[];
+  // Running apps the phone cannot act on: opened from the Dock or before
+  // phone access was on. Relaunching from Switchboard fixes each.
+  unreachable: { id: string; name: string; vendor: Vendor }[];
+  // The opt-in plugin entry in ~/.claude/settings.json for Default Claude
+  // opened from the Dock; `linked` is whether the file has it now.
+  defaultClaude: { on: boolean; linked: boolean; error: string | null };
+}
+
+export interface PhonePairing {
+  code: string;
+  expiresAt: string;
+  url: string | null;
 }

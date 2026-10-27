@@ -41,6 +41,15 @@ const PARSERS: Record<keyof Settings, Parser> = {
   // Only records the choice: the app asks for Accessibility itself.
   noticeClosedWindows: bool('noticeClosedWindows'),
   usageAlerts: bool('usageAlerts'),
+  phoneAccess: bool('phoneAccess'),
+  // The app adds or removes the plugin in ~/.claude/settings.json when it
+  // applies phone access (src/remote/reach.ts).
+  phoneDefaultClaude: bool('phoneDefaultClaude'),
+  phonePort: (text) => {
+    const n = Number(text);
+    if (!Number.isInteger(n) || n < 1024 || n > 65535) throw usageError('phonePort must be a port from 1024 to 65535');
+    return n;
+  },
 };
 
 const isKey = (key: string): key is keyof Settings => key in PARSERS;

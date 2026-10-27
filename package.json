@@ -12,34 +12,60 @@
     "start": "bun run build && electron .",
     "icons": "electron build/render-icons.js",
     "dist": "bun run build && electron-builder --mac --dir",
-    "install-app": "bun run dist && APP=$(ls -d dist/mac*/Switchboard.app | head -1) && rm -rf /Applications/Switchboard.app && ditto \"$APP\" /Applications/Switchboard.app && codesign --force --deep --sign - /Applications/Switchboard.app && rm -rf dist && open /Applications/Switchboard.app",
+    "install-app": "bun run dist && APP=$(ls -d dist/mac*/Switchboard.app | head -1) && rm -rf /Applications/Switchboard.app && ditto \"$APP\" /Applications/Switchboard.app && sh build/sign.sh /Applications/Switchboard.app && rm -rf dist && open /Applications/Switchboard.app",
     "test": "oxlint && bun run typecheck && bun test",
     "check": "bun format --check && bun run test && bun run build",
     "test:claude-pty": "bun run build && node --test test/claude-pty.node.cjs",
-    "test:awake-ui": "bun run build && bun demo/test-awake.mjs",
+    "test:caffeinate-ui": "bun run build && bun demo/test-caffeinate.mjs",
+    "test:fans-ui": "bun run build && bun demo/test-fans.mjs",
+    "test:alignment-ui": "bun run build && bun demo/test-alignment.mjs",
+    "test:phone-ui": "bun run build && bun demo/test-phone.mjs",
     "test:buckets-ui": "bun run build && bun demo/test-buckets.mjs",
     "test:usage-ui": "bun run build && bun demo/test-usage.mjs",
+    "test:usage-resets": "bun run build && bun demo/test-usage-resets.mjs && bun demo/test-reset-worker.mjs",
     "test:model-labels": "bun run build && node demo/test-model-labels.mjs",
     "test:claude-models": "bun run build && node demo/test-claude-models.mjs",
     "demo": "bun run build && bun demo/capture.mjs",
     "fmt": "oxfmt",
     "format": "oxfmt",
     "lint": "oxlint",
-    "typecheck": "tsc --noEmit && tsc -p src/renderer",
-    "build": "rm -rf out && tsc && bun build src/renderer/main.tsx --outdir out/renderer --target browser && cp src/renderer/index.html src/renderer/style.css out/renderer/ && cp -R src/renderer/fonts out/renderer/fonts && sh src/native/build.sh"
+    "typecheck": "bun check --no-script && bun check --no-script -p src/renderer && bun check --no-script -p src/phone && bun check --no-script -p test",
+    "build": "rm -rf out && tsc && bun build src/renderer/main.tsx --outdir out/renderer --target browser && cp src/renderer/index.html out/renderer/ && cat src/design/tokens.css src/renderer/style.css > out/renderer/style.css && cp -R src/design/fonts out/renderer/fonts && sh src/phone/build.sh && sh src/native/build.sh"
   },
   "dependencies": {
+    "@trpc/server": "^11.19.0",
     "jsonc-parser": "^3.3.1",
     "preact": "^10.29.8",
+    "web-push": "3.6.7",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "@tanstack/react-query": "^5.104.4",
+    "@tanstack/react-virtual": "^3.14.21",
+    "@trpc/client": "^11.19.0",
+    "@trpc/tanstack-react-query": "^11.19.0",
+    "@types/bun": "^1.4.4",
     "@types/node": "^22.20.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/web-push": "3.6.4",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "electron": "^44.3.0",
     "electron-builder": "^26.15.3",
+    "lucide-react": "^1.59.0",
     "oxfmt": "^0.67.0",
     "oxlint": "^1.82.0",
     "playwright": "^1.49.0",
+    "qrcode-generator": "^2.0.4",
+    "radix-ui": "^1.8.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2"
   },
   "build": {
@@ -54,16 +80,54 @@
     "asarUnpack": [
       "out/app-events"
     ],
+    "extraResources": [
+      {
+        "from": "plugins/profile-band",
+        "to": "plugins/profile-band",
+        "filter": [
+          ".claude-plugin/plugin.json",
+          "hooks/hooks.json",
+          "hooks/register.tsx",
+          "hooks/limits.ts",
+          "types/index.d.ts"
+        ]
+      },
+      {
+        "from": "plugins/switchboard-remote",
+        "to": "plugins/switchboard-remote",
+        "filter": [
+          ".claude-plugin/plugin.json",
+          "hooks/hooks.json",
+          "hooks/register.ts"
+        ]
+      }
+    ],
     "files": [
       "out/**/*",
+      "!out/native/**",
       "build/trayTemplate.png",
       "build/trayTemplate@2x.png",
       "build/icon-1024.png",
-      "package.json"
+      "package.json",
+      "skills/switchboard/SKILL.md"
     ],
     "directories": {
       "output": "dist"
-    }
+    },
+    "extraFiles": [
+      {
+        "from": "out/native/system-helper",
+        "to": "MacOS/system-helper"
+      },
+      {
+        "from": "out/native/system-bridge",
+        "to": "MacOS/system-bridge"
+      },
+      {
+        "from": "src/native/system/dev.shayaan.switchboard.system-helper.plist",
+        "to": "Library/LaunchDaemons/dev.shayaan.switchboard.system-helper.plist"
+      }
+    ]
   },
   "trustedDependencies": [
     "electron",

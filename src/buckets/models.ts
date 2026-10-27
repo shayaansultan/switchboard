@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { secrets, writeJson } from './store';
 
+import { isChatModel } from './upstream';
 const execute = promisify(execFile);
 const Effort = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 const ClaudeModel = z.object({
@@ -143,5 +144,47 @@ export async function desktopCatalog(
     maxBuffer: 16 * 1024 * 1024,
   });
   writeJson(file, mergedCatalog(JSON.parse(result.stdout), claude));
+  return file;
+}
+
+// An API catalogue describes its own models only. Never inherit subscription
+// GPT entries or claim that a mutable service alias is a stable model identity.
+export function apiCatalog(models: import('./upstream').ApiModel[], file: string): string {
+  writeJson(file, {
+    models: models.filter(isChatModel).map((model, priority) => {
+      const context = model.metadata.context_length;
+      const contextWindow = typeof context === 'number' && context > 0 ? context : null;
+      return {
+        slug: model.id,
+        display_name:
+          model.id + (model.experimental ? ' (experimental, mutable)' : model.mutable ? ' (mutable alias)' : ''),
+        description: 'API upstream model. Capabilities depend on the upstream service.',
+        default_reasoning_level: null,
+        supported_reasoning_levels: [],
+        shell_type: 'unified_exec',
+        visibility: 'list',
+        supported_in_api: true,
+        priority,
+        context_window: contextWindow,
+        max_context_window: contextWindow,
+        effective_context_window_percent: 95,
+        support_verbosity: false,
+        supports_reasoning_summary_parameter: false,
+        default_reasoning_summary: 'none',
+        truncation_policy: { mode: 'tokens', limit: 10000 },
+        experimental_supported_tools: [],
+        input_modalities: ['text'],
+        apply_patch_tool_type: null,
+        web_search_tool_type: 'text',
+        node_repl_disabled: true,
+        use_responses_lite: false,
+        model_messages: {
+          instructions_template:
+            'You are a coding assistant using an API upstream. Follow the user and project instructions. Use standard shell and function tools. Preserve unrelated changes and verify results.',
+          instructions_variables: null,
+        },
+      };
+    }),
+  });
   return file;
 }

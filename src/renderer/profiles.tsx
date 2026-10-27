@@ -236,6 +236,7 @@ function IdentityBlock({
   const id: Partial<Identity> = p.identity ?? {};
   // Nothing known yet (first launch, no cache): show placeholders, not
   // misleading "not signed in" text.
+  const apiBucket = state.buckets?.find((b) => b.id === p.proxyBucket && b.upstream);
   const pending = !p.identity;
   const app = p.app ?? 'off';
   const [draft, setDraft] = useState(p.name);
@@ -287,7 +288,7 @@ function IdentityBlock({
           )}
         </span>
         {pill && p.isDefault ? <Badge tone="mute">default dirs</Badge> : null}
-        {planOf(p) ? <Badge>{planOf(p)}</Badge> : null}
+        {apiBucket ? <Badge>API</Badge> : planOf(p) ? <Badge>{planOf(p)}</Badge> : null}
         {pill ? (
           <StatusPill on={app === 'running'} tone={APP_UI[app].tone} dot={APP_UI[app].dot}>
             {APP_UI[app].label}
@@ -296,7 +297,9 @@ function IdentityBlock({
           <Dot on={app === 'running'} kind={APP_UI[app].dot} title={APP_UI[app].title} />
         )}
       </div>
-      {pending ? (
+      {apiBucket ? (
+        <div class="ident">API key · {apiBucket.name} bucket</div>
+      ) : pending ? (
         <div class="ident">
           <Skeleton width={150} />
         </div>
@@ -332,10 +335,15 @@ function IdentityBlock({
 // connection, the session, the files, and last the one that removes it).
 // The primary action never lives here.
 function useMenuItems(p: ProfileView, state: State, rename: () => void): MenuItem[] {
-  const { openSetup, newBucket } = useActions();
+  const { openSetup, newBucket, openResets } = useActions();
   const id: Partial<Identity> = p.identity ?? {};
   const plan = planOf(p);
-  const who = [p.isDefault ? 'Default profile' : null, id.loggedIn ? id.email : 'not signed in', plan]
+  const apiBucket = state.buckets?.find((b) => b.id === p.proxyBucket && b.upstream);
+  const who = [
+    p.isDefault ? 'Default profile' : null,
+    apiBucket ? 'API key · ' + apiBucket.name : id.loggedIn ? id.email : 'not signed in',
+    apiBucket ? null : plan,
+  ]
     .filter(Boolean)
     .join(' · ');
   const groups: MenuItem[][] = [
@@ -346,8 +354,19 @@ function useMenuItems(p: ProfileView, state: State, rename: () => void): MenuIte
       ? [{ label: 'Show window', run: () => window.sb.showWindow(p.id) }]
       : [],
     [
-      { label: 'Refresh usage', run: () => window.sb.refresh(p.id) },
-      { label: id.loggedIn ? 'Sign in CLI again' : 'Sign in CLI', run: () => window.sb.login(p.id) },
+      {
+        label: apiBucket ? 'Refresh API status' : 'Refresh usage',
+        run: () => (apiBucket ? window.sb.bucketAction(apiBucket.id, 'refresh') : window.sb.refresh(p.id)),
+      },
+      {
+        label: p.proxyBucket ? 'Native account resets…' : 'Usage resets…',
+        disabled: !id.loggedIn,
+        run: () => openResets({ kind: 'profile', id: p.id }),
+      },
+      {
+        label: apiBucket ? 'Sign in native CLI…' : id.loggedIn ? 'Sign in CLI again' : 'Sign in CLI',
+        run: () => window.sb.login(p.id),
+      },
     ],
     [
       ...(p.isDefault ? [] : [{ label: 'Bring over…', run: () => openSetup(p) }]),
@@ -436,7 +455,7 @@ function UsageBlock({ p, state }: { p: ProfileView; state: State }) {
           quit it.
         </Note>
       ) : null}
-      {!p.isDefault && (p.app ?? 'off') === 'off' && !id.loggedIn ? (
+      {!p.proxyBucket && !p.isDefault && (p.app ?? 'off') === 'off' && !id.loggedIn ? (
         <Note>
           Before the first sign-in, quit the other {vendorLabel} windows: the login link opens in whichever is running.{' '}
           <a
@@ -582,6 +601,7 @@ function Tools({ p, state, items }: { p: ProfileView; state: State; items: MenuI
 // spent account still shows as a full segment. Segments are sized by the
 // plan's capacity and the number is the capacity-weighted mean.
 export function BucketSummary({ bucket, remaining }: { bucket: BucketView; remaining: boolean }) {
+  if (bucket.upstream) return <ApiBucketSummary bucket={bucket} />;
   type Part = { account: BucketAccount; pct: number; w: UsageWindow };
   const pools = new Map<string, Part[]>();
   for (const account of bucket.accounts) {
@@ -628,6 +648,38 @@ export function BucketSummary({ bucket, remaining }: { bucket: BucketView; remai
             {account.email ?? account.name} is unavailable: {account.problem}
           </Note>
         ))}
+      <BucketNotes bucket={bucket} />
+    </>
+  );
+}
+
+// API observations are not subscription headroom. A missing accounting value
+// is unknown, not zero or an unlimited entitlement.
+function ApiBucketSummary({ bucket }: { bucket: BucketView }) {
+  const api = bucket.api;
+  const status = api?.discovery.status;
+  const message = {
+    ok: 'API reachable · credential accepted',
+    'missing-credential': 'Credential file missing or unreadable',
+    'invalid-credential': 'Credential file invalid · check its format and permissions',
+    'authentication-failed': 'API authentication failed · check the credential',
+    'rate-limited': 'API rate limited (HTTP 429) · retry later',
+    unavailable: 'API unavailable · no fallback provider',
+    'invalid-response': 'API returned an invalid model catalogue',
+    'not-configured': 'API discovery not configured',
+  }[status ?? 'not-configured'];
+  return (
+    <>
+      <Note tone={status && status !== 'ok' ? 'warn' : undefined}>{api ? message : 'API status not checked yet'}</Note>
+      <Note>Quota enforcement unknown · no subscription limits reported</Note>
+      <Note>
+        {api?.accounting.status === 'ok' && Object.keys(api.accounting.values ?? {}).length
+          ? 'Accounting allowances and usage are available in Proxy buckets.'
+          : api?.accounting.status === 'ok' || api?.accounting.status === 'not-configured'
+            ? 'No accounting limits reported.'
+            : `Accounting: ${api?.accounting.status ?? 'not checked'}`}
+      </Note>
+      {api ? <Note>Last checked {ago(api.observedAt)}. HTTP 429 still applies.</Note> : null}
       <BucketNotes bucket={bucket} />
     </>
   );
@@ -712,7 +764,7 @@ export function BucketNotes({ bucket }: { bucket: BucketView }) {
             : 'Worker is unreachable. Check its status before restarting.'}
         </Note>
       ) : null}
-      {bucket.status === 'running' && !bucket.accounts.length ? (
+      {bucket.status === 'running' && !bucket.accounts.length && !bucket.upstream ? (
         <Note>No accounts reported yet. Refresh or add an account.</Note>
       ) : null}
       {bucket.error ? <Note>{bucket.error}</Note> : null}

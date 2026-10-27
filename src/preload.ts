@@ -3,19 +3,31 @@ import type { AddOptions, BringOptions, Settings, State, SwitchboardApi } from '
 
 const api: SwitchboardApi = {
   setProxyBucket: (id, bucket) => ipcRenderer.invoke('buckets:assign', id, bucket),
-  createBucket: (name) => ipcRenderer.invoke('buckets:create', name),
+  createBucket: (name, upstream) => ipcRenderer.invoke('buckets:create', name, upstream),
   bucketAction: (id, action, provider) => ipcRenderer.invoke('buckets:action', id, action, provider),
   setBucketAccount: (id, name, enabled) => ipcRenderer.invoke('buckets:account', id, name, enabled),
   removeBucket: (id) => ipcRenderer.invoke('buckets:remove', id),
   removeBucketAccount: (id, name) => ipcRenderer.invoke('buckets:removeAccount', id, name),
-  setAwake: (value) => ipcRenderer.invoke('awake:set', value),
-  refreshAwake: (reason = 'observe') => ipcRenderer.invoke('awake:refresh', reason),
-  onAwakeState: (fn) => {
-    ipcRenderer.on('awake:state', (_event, state) => fn(state));
+  refreshCaffeinate: () => ipcRenderer.invoke('caffeinate:refresh'),
+  startCaffeinate: (minutes, lid) => ipcRenderer.invoke('caffeinate:start', minutes, lid),
+  caffeinateAction: (action) => ipcRenderer.invoke('caffeinate:action', action),
+  onCaffeinateState: (fn) => {
+    ipcRenderer.on('caffeinate:state', (_event, state) => fn(state));
+  },
+  refreshFans: () => ipcRenderer.invoke('fans:refresh'),
+  setFans: (level, minutes) => ipcRenderer.invoke('fans:set', level, minutes),
+  adjustFans: (level) => ipcRenderer.invoke('fans:adjust', level),
+  fanAction: (action) => ipcRenderer.invoke('fans:action', action),
+  onFanState: (fn) => {
+    ipcRenderer.on('fans:state', (_event, state) => fn(state));
   },
   getState: () => ipcRenderer.invoke('state:get'),
+  reportZoom: (zoom) => ipcRenderer.send('window:zoom', zoom),
   measureSizes: () => ipcRenderer.invoke('state:measure'),
   refresh: (id?: string) => ipcRenderer.invoke('state:refresh', id),
+  listResets: (target) => ipcRenderer.invoke('resets:list', target),
+  redeemReset: (token, offerId) => ipcRenderer.invoke('resets:redeem', token, offerId),
+  closeResets: (token) => ipcRenderer.invoke('resets:close', token),
   addProfile: (p: AddOptions) => ipcRenderer.invoke('profiles:add', p),
   removeProfile: (id: string) => ipcRenderer.invoke('profiles:remove', id),
   updateProfile: (id: string, patch) => ipcRenderer.invoke('profiles:update', id, patch),
@@ -35,6 +47,11 @@ const api: SwitchboardApi = {
   reveal: (id: string) => ipcRenderer.invoke('profile:reveal', id),
   copyCommand: (id: string) => ipcRenderer.invoke('cli:copy', id),
   installCli: () => ipcRenderer.invoke('cli:install'),
+  phoneStatus: () => ipcRenderer.invoke('remote:status'),
+  pairPhone: () => ipcRenderer.invoke('remote:pair'),
+  unpairPhone: (id: string) => ipcRenderer.invoke('remote:unpair', id),
+  relaunchForPhone: (id: string) => ipcRenderer.invoke('remote:relaunch', id),
+  publishPhone: () => ipcRenderer.invoke('remote:publish'),
   onState: (fn: (s: State) => void) => {
     ipcRenderer.on('state', (_e, s: State) => fn(s));
   },

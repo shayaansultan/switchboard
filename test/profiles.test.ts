@@ -4,13 +4,16 @@
 //
 // The test preload points HOME at a scratch directory before any module loads.
 
-const { test, expect, beforeEach, afterEach } = require('bun:test');
-const fs = require('fs');
-const path = require('path');
+import { afterEach, beforeEach, expect, test } from 'bun:test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
-const { sandboxHome: SANDBOX } = require('./setup');
+import { sandboxHome as SANDBOX } from './setup';
 
-const profiles = require('../src/profiles');
+import { remoteWrapper } from '../src/buckets/desktop';
+import * as launch from '../src/launch';
+import * as profiles from '../src/profiles';
+import type { Profile } from '../src/types';
 
 // Every test deletes directories. If the module did not pick up the sandbox
 // home, those deletes would land on the real ~/.switchboard, so stop here
@@ -34,8 +37,14 @@ function reset() {
 beforeEach(reset);
 afterEach(reset);
 
-const claudeSource = () => profiles.load().profiles.find((p) => p.id === 'claude-default');
-const codexSource = () => profiles.load().profiles.find((p) => p.id === 'codex-default');
+// Each vendor's Default profile, which the store always lists.
+function defaultProfile(id: string): Profile {
+  const profile = profiles.load().profiles.find((p) => p.id === id);
+  if (!profile) throw new Error(`the store lists no ${id} profile`);
+  return profile;
+}
+const claudeSource = () => defaultProfile('claude-default');
+const codexSource = () => defaultProfile('codex-default');
 
 test('the sandbox is in effect, so no test can touch the real home', () => {
   expect(profiles.ROOT.startsWith(SANDBOX)).toBe(true);
@@ -374,11 +383,9 @@ test('the store survives a round trip and never persists the load error', () => 
 // leaves the app's embedded agent writing into the default home, which fails
 // silently rather than visibly.
 
-const launch = require('../src/launch');
-
 test('a non-default profile is launched with both isolations, for both apps', () => {
   const data = profiles.load();
-  for (const vendor of ['claude', 'codex']) {
+  for (const vendor of ['claude', 'codex'] as const) {
     const p = profiles.add(data, { vendor, name: 'Second' }).profile;
     const args = launch.launchArgs(p, false);
     const d = profiles.dirs(p);
@@ -407,13 +414,101 @@ test('resuming a session runs the vendor CLI inside the profile', () => {
   expect(launch.resumeArgs(codex, 'thread-1')).toBe("resume 'thread-1'");
 });
 
+// ---- the profile band ----
+// A non-default Claude profile's app is launched with the band's plugin and
+// the name and colour it draws; the Default profile and Codex get none of it.
+
+test('a second Claude profile is launched with the band naming it', () => {
+  const data = profiles.load();
+  const p = profiles.add(data, { vendor: 'claude', name: 'Band' }).profile;
+  const env = launch.profileBandEnvironment(p, '/plugins/profile-band', '/bin/switchboard');
+  expect(env).toEqual({
+    CLAUDE_CODE_PLUGIN_DIRS: '/plugins/profile-band',
+    SWITCHBOARD_PROFILE: p.id,
+    SWITCHBOARD_PROFILE_NAME: 'Band',
+    SWITCHBOARD_PROFILE_COLOR: p.color,
+    SWITCHBOARD_COMMAND: '/bin/switchboard',
+  });
+  // Without the command installed the band still names the profile.
+  expect(launch.profileBandEnvironment(p, '/plugins/profile-band', null)).not.toHaveProperty('SWITCHBOARD_COMMAND');
+  expect(launch.launchArgs(p, false, env)).toContain('SWITCHBOARD_PROFILE_NAME=Band');
+});
+
+test('the Default profile, a Codex profile and a build without the plugin get no band', () => {
+  const data = profiles.load();
+  const codex = profiles.add(data, { vendor: 'codex', name: 'No band' }).profile;
+  const claude = profiles.add(data, { vendor: 'claude', name: 'No plugin' }).profile;
+  expect(launch.profileBandEnvironment(claudeSource(), '/plugins/profile-band')).toEqual({});
+  expect(launch.profileBandEnvironment(codex, '/plugins/profile-band')).toEqual({});
+  expect(launch.profileBandEnvironment(claude, null)).toEqual({});
+});
+
+// ---- replying from the phone ----
+// With phone access on, every profile Switchboard launches, the Default ones
+// included, carries the control socket: Claude with the remote plugin beside
+// the band, Codex through the wrapper with the tap unless a bucket's has it.
+
+test('with phone access on, launches carry what the phone replies through; off, nothing', () => {
+  const data = profiles.load();
+  const claude = profiles.add(data, { vendor: 'claude', name: 'Remote' }).profile;
+  const codex = profiles.add(data, { vendor: 'codex', name: 'Remote Codex' }).profile;
+  expect(launch.remoteEnvironment(claude, false, false, '/plugins/remote')).toEqual({});
+
+  const env = launch.withPlugins(
+    launch.profileBandEnvironment(claude, '/plugins/profile-band', null),
+    launch.remoteEnvironment(claude, true, false, '/plugins/remote'),
+  );
+  expect(env.CLAUDE_CODE_PLUGIN_DIRS).toBe(`/plugins/profile-band${path.delimiter}/plugins/remote`);
+  expect(env.SWITCHBOARD_CONTROL_SOCKET).toEndWith(path.join('remote', 'control.sock'));
+  expect(launch.remoteEnvironment(claudeSource(), true, false, '/plugins/remote')).toMatchObject({
+    CLAUDE_CODE_PLUGIN_DIRS: '/plugins/remote',
+    SWITCHBOARD_PROFILE: 'claude-default',
+  });
+
+  const engine = path.join(process.env.HOME!, 'codex-engine');
+  fs.writeFileSync(engine, '');
+  const plain = launch.remoteEnvironment(codex, true, false, null, (p) => remoteWrapper(p, () => engine));
+  expect(fs.readFileSync(plain.CODEX_CLI_PATH, 'utf8')).toContain('desktop-remote');
+  expect(fs.statSync(plain.CODEX_CLI_PATH).mode & 0o777).toBe(0o700);
+  // No engine where ChatGPT should have it: launch as before, read-only from the phone.
+  expect(launch.remoteEnvironment(codex, true, false, null, (p) => remoteWrapper(p, () => '/nowhere/codex'))).toEqual(
+    {},
+  );
+  expect(
+    launch.remoteEnvironment(codex, true, false, null, (p) =>
+      remoteWrapper(p, () => {
+        throw new Error('moved');
+      }),
+    ),
+  ).toEqual({});
+  // A bucket's wrapper already taps the connection; only the socket is added.
+  expect(launch.remoteEnvironment(codex, true, true)).not.toHaveProperty('CODEX_CLI_PATH');
+});
+
+test("the band runs only Switchboard's own launcher, never a foreign one", () => {
+  const file = path.join(process.env.HOME!, '.local', 'bin', 'switchboard');
+  // Never the real launcher: this test writes and deletes the file.
+  expect(file).toContain('switchboard-tests-');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '#!/bin/sh\nexec something-else "$@"\n');
+  expect(launch.switchboardCommand()).toBeNull();
+  fs.writeFileSync(file, '#!/bin/sh\n# Switchboard CLI launcher\nexec switchboard "$@"\n');
+  expect(launch.switchboardCommand()).toBe(file);
+  fs.rmSync(file);
+  expect(launch.switchboardCommand()).toBeNull();
+});
+
+test('a checkout finds the band plugin it ships', () => {
+  expect(launch.profileBandPlugin()).toBe(path.join(__dirname, '..', 'plugins', 'profile-band'));
+});
+
 // ---- Codex project grouping ----
 // The desktop app's sidebar state lives in .codex-global-state.json next to
 // the sessions. Only the keys that place threads may travel; the rest of that
 // file identifies this machine and this install.
 
 const GS = profiles.CODEX_GLOBAL_STATE;
-const ANSWER = { id: 'p-answer', name: 'answerThis', rootPaths: ['/w/answerThis'], createdAt: 1, updatedAt: 1 };
+const ANSWER = { id: 'p-answer', name: 'acmeWork', rootPaths: ['/w/acmeWork'], createdAt: 1, updatedAt: 1 };
 const AGENTS = { id: 'p-agents', name: 'agentfiles', rootPaths: ['/w/agentfiles'], createdAt: 2, updatedAt: 2 };
 const SOURCE_STATE = {
   'local-projects': { 'p-answer': ANSWER, 'p-agents': AGENTS },
@@ -436,10 +531,10 @@ const SOURCE_STATE = {
   'electron-local-remote-control-installation-id': 'this-machine',
   'app-server-projects-migration-by-host': { 'local:/src': { version: 1, projectsMigrated: true } },
   'app-server-project-id-by-legacy-project-id-by-host': { 'local:/src': { 'p-answer': 'srv-1' } },
-  'thread-writable-roots': { 't-wt': ['/w/answerThis'] },
+  'thread-writable-roots': { 't-wt': ['/w/acmeWork'] },
 };
 
-function writeSourceState(state = SOURCE_STATE) {
+function writeSourceState(state: Record<string, unknown> = SOURCE_STATE) {
   fs.mkdirSync(path.join(CODEX_HOME, 'sessions'), { recursive: true });
   fs.writeFileSync(path.join(CODEX_HOME, GS), JSON.stringify(state));
 }
@@ -481,7 +576,7 @@ test('a project the profile re-added by hand keeps its id, and the source refere
   const data = profiles.load();
   const { profile } = profiles.add(data, { vendor: 'codex', name: 'Work' });
   const home = profiles.dirs(profile).home;
-  const own = { id: 'p-mine', name: 'answerThis', rootPaths: ['/w/answerThis'], createdAt: 9, updatedAt: 9 };
+  const own = { id: 'p-mine', name: 'acmeWork', rootPaths: ['/w/acmeWork'], createdAt: 9, updatedAt: 9 };
   fs.writeFileSync(
     path.join(home, GS),
     JSON.stringify({

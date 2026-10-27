@@ -1,5 +1,6 @@
 // The design's vocabulary as components: an icon, a button, a badge, a usage
-// bar and its track, a meter, the ring, a switch, a segmented control. Their looks live in
+// bar and its track, a meter, the ring, a switch, a segmented control, a
+// duration picker. Their looks live in
 // style.css; these only fix the markup so every view draws them the same way.
 
 import type { ComponentChildren, JSX } from 'preact';
@@ -9,6 +10,7 @@ import { useTip } from './overlays';
 // Stroke icons in Lucide's style, coloured by the surrounding text.
 const PATHS = {
   terminal: '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
+  phone: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   check: '<polyline points="20 6 9 17 4 12"/>',
   more: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
@@ -17,8 +19,10 @@ const PATHS = {
   refresh: '<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>',
   plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
   chevron: '<polyline points="6 9 12 15 18 9"/>',
-  moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
-  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+  // Caffeinate: a cup for Decaf, steaming while the Mac is kept awake.
+  cup: '<g transform="translate(0 -2.5)"><path d="M17 8h1a4 4 0 0 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/></g>',
+  coffee:
+    '<path d="M17 8h1a4 4 0 0 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><path d="M6 2v2"/><path d="M10 2v2"/><path d="M14 2v2"/>',
   x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
   grip: '<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>',
   layers:
@@ -39,6 +43,8 @@ const PATHS = {
   // A launch or quit on its way (spun in CSS), and forcing one through.
   loader: '<path d="M21 12a9 9 0 1 1-6.22-8.56"/>',
   zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  fan: '<path d="M10.83 8.41a4.5 4.5 0 1 1 6.33 3.12"/><path d="M15.59 10.83a4.5 4.5 0 1 1-3.12 6.33"/><path d="M13.17 15.59a4.5 4.5 0 1 1-6.33-3.12"/><path d="M8.41 13.17a4.5 4.5 0 1 1 3.12-6.33"/><circle cx="12" cy="12" r="1.5"/>',
   window: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 8h20"/><path d="M6 4v4"/><path d="M10 4v4"/>',
   chart:
     '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
@@ -86,6 +92,17 @@ export function Btn({ variant = 'outline', icon, size, class: cls, children, typ
 export function TipBtn({ tip, ...props }: ButtonProps & { tip: string[] }) {
   const handlers = useTip(tip);
   return <Btn {...props} {...handlers} />;
+}
+
+// A small (i) whose tooltip carries detail a panel would otherwise spell out
+// in a paragraph. Screen readers get the whole text as its label.
+export function InfoTip({ lines }: { lines: string[] }) {
+  const handlers = useTip(lines);
+  return (
+    <button type="button" class="info-tip" aria-label={lines.join(' ')} {...handlers}>
+      <Icon name="info" size={15} />
+    </button>
+  );
 }
 
 // The one panel every tab is built from: a header band of fixed height that
@@ -164,7 +181,19 @@ export function Skeleton({ width }: { width: number }) {
 }
 
 // One usage window: label with its reset beside it, the bar, the number.
-export function Bar({ w, stale = false, remaining = false }: { w: UsageWindow; stale?: boolean; remaining?: boolean }) {
+// `was` is the used percentage before something changed it, struck through
+// beside the new one.
+export function Bar({
+  w,
+  stale = false,
+  remaining = false,
+  was,
+}: {
+  w: UsageWindow;
+  stale?: boolean;
+  remaining?: boolean;
+  was?: number;
+}) {
   const pct = w.pct ?? 0;
   const shown = shownPct(pct, remaining);
   const passed = stale && !!w.resetsAt && Date.parse(w.resetsAt) <= Date.now();
@@ -178,6 +207,7 @@ export function Bar({ w, stale = false, remaining = false }: { w: UsageWindow; s
       </span>
       <Track w={w} shown={shown} />
       <span class="pct" title={remaining ? `${pct}% used` : `${100 - pct}% left`}>
+        {was === undefined ? null : <s class="was">{remaining ? 100 - was : was}%</s>}
         {shown}%
       </span>
     </div>
@@ -313,6 +343,77 @@ export function Seg<T extends string>({
           {o.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+// How long something runs: preset lengths, Until I stop, or Custom with a
+// minutes field. `minutes` is 0 for Until I stop; the caller turns it into
+// the button's words with durationWords.
+export type Duration = { choice: string; custom: number };
+
+export function durationMinutes(value: Duration): number {
+  if (value.choice === 'until') return 0;
+  if (value.choice === 'custom') return Math.max(1, Math.min(1440, Math.round(value.custom) || 1));
+  return Number(value.choice);
+}
+
+export function durationWords(minutes: number): string {
+  if (minutes === 0) return 'until I stop';
+  if (minutes % 60 === 0) return minutes === 60 ? '1 hour' : `${minutes / 60} hours`;
+  return `${minutes} min`;
+}
+
+export function DurationPicker({
+  presets,
+  value,
+  onChange,
+  label,
+  disabled,
+}: {
+  presets: number[];
+  value: Duration;
+  onChange: (next: Duration) => void;
+  label: string;
+  disabled?: boolean;
+}) {
+  const options = [
+    ...presets.map((m) => ({ id: String(m), label: durationWords(m) })),
+    { id: 'until', label: 'Until I stop' },
+    { id: 'custom', label: 'Custom…' },
+  ];
+  return (
+    <div class="durations">
+      <div class="duration-chips" role="radiogroup" aria-label={label}>
+        {options.map((o) => (
+          <button
+            type="button"
+            role="radio"
+            aria-checked={o.id === value.choice}
+            class={o.id === value.choice ? 'on' : ''}
+            disabled={disabled}
+            onClick={() => onChange({ ...value, choice: o.id })}
+            key={o.id}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      {value.choice === 'custom' ? (
+        <label class="duration-custom">
+          <span>{label}</span>
+          <input
+            type="number"
+            min={1}
+            max={1440}
+            step={1}
+            value={value.custom}
+            disabled={disabled}
+            onInput={(e) => onChange({ ...value, custom: Number(e.currentTarget.value) })}
+          />
+          <span>minutes</span>
+        </label>
+      ) : null}
     </div>
   );
 }

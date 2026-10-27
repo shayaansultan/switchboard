@@ -39,6 +39,28 @@ The "Default" profiles point at the normal locations, `~/.claude`, `~/.codex`
 and `~/Library/Application Support/{Claude,Codex}`. Switchboard never writes to
 them itself.
 
+## Which Claude app is which?
+
+Two Claude apps on different profiles look the same, so Switchboard marks every
+Claude profile but the Default one. When it launches that profile's desktop app
+it passes a small Claude Code plugin (`plugins/profile-band`), and each Code
+session shows the profile band: a bar in the profile's colour just above the
+prompt. On the left are its name in bold, its plan, how full this session's
+context window is and what the session has cost. On the right, each of the
+5-hour and 7-day limits shows a bar of what is left, when it resets (a
+countdown for the 5-hour window, a local day and time for the 7-day one), and
+its pace: "on track" for the 7-day window when less of it is used than of the
+week, or "runs out Fri 14:00" for either window when use so far would empty it
+before the reset. A narrow window gives up the cost, the "on track" note, the
+7-day reset, the context, the 5-hour reset, the bars and the plan, in that
+order, then whole windows, keeping a window with a pace warning longest; the
+name always stays. The limits refresh every five minutes from Switchboard's
+cache, fetched live when that is over 15 minutes old, and need the
+`switchboard` command installed; context and cost update after every turn,
+and a compaction hides the context until the next one.
+The Default profile's app has no band. A rename or recolour shows after the
+profile's next launch.
+
 ## Does it work with Claude Code and the Codex CLI?
 
 Yes. Each profile gets its own CLI login, and the **Terminal** button opens a
@@ -94,6 +116,65 @@ Switchboard can also tell you: **Usage alerts** in Settings (on unless you turn
 it off) sends a notification when a window reaches 90%, naming the account with
 the most room, and when a full one resets.
 
+## Can I use a saved usage reset?
+
+Choose **Usage resets…** in a signed-in profile’s menu or a bucket account’s menu.
+A dialog opens in the window with the account’s current usage bars and each
+saved reset: how many are left, when it expires, which windows it clears, and
+why it can’t be used yet when it can’t. Pick one and choose **Use reset…** to
+see a confirmation that names the account and what will be spent; only
+**Use reset** on that screen spends it. Closing at any earlier point spends
+nothing. The last screen shows the provider’s answer beside the refreshed bars,
+with the old percentages struck through.
+
+Claude’s next eligible grant and ChatGPT’s Codex reset credits are supported.
+A routed profile labels its own action **Native account resets…**. To reset a
+proxy account, use that account’s menu in **Proxy buckets**. The proxy supplies
+the selected account’s token; no native profile is required. After the vendor
+confirms a reset, Switchboard clears that account’s proxy cooldown, rechecks
+usage and updates its routing weight. Paused accounts stay paused. Other
+accounts keep their existing cooldowns. It never buys credits or changes a plan. A recent Claude CLI must be installed for Claude reset checks.
+
+Existing bucket workers need a restart after installing this feature. Until a
+worker supports the targeted refresh, its reset dialog shows grants but does
+not allow redemption. Switchboard does not restart an active bucket for you.
+
+These are private vendor interfaces and can change. Unknown responses stop
+the action; failed requests are never retried automatically. Pending request
+IDs are stored locally so an uncertain reply can be retried without spending
+a second reset. Check the vendor’s Usage page if a result is uncertain.
+
+The CLI uses the same checks and confirmation flow. Listing never spends a
+reset; select an exact grant ID from the output to redeem it. `resets PROFILE`
+always targets the native account, even when that profile routes through a bucket.
+Bucket accounts can be selected by their exact name or an unambiguous email.
+
+```sh
+switchboard resets claude
+switchboard resets codex --redeem GRANT_ID --yes
+switchboard bucket resets BUCKET ACCOUNT
+switchboard bucket resets BUCKET ACCOUNT --redeem GRANT_ID --yes
+```
+
+Results are JSON by default; add `--human` for readable output. Each offer
+carries `remaining`, `expiresAt`, `clears` and, when it can’t be used, `reason`. Without `--yes`,
+redemption prompts in a terminal and refuses in noninteractive calls. Check the JSON `outcome` for the vendor result and `proxyRecovery` for
+`not-needed`, `refreshed`, `deferred` or `unconfirmed`. An exit of zero alone
+does not mean quota was reset. Run `switchboard usage PROFILE --refresh` for fresh native usage.
+`bun run test:usage-resets` runs the isolated app and proxy worker integration checks.
+
+### Agent instructions
+
+[`skills/switchboard/SKILL.md`](skills/switchboard/SKILL.md) is the canonical agent guide.
+The CLI tab's **Copy agent prompt** button copies that file, and `switchboard guide`
+prints the same Markdown from the installed app. Packaging includes the guide,
+so instructions and executable commands update together.
+
+Agentfiles and other skill managers can use a short entrypoint that tells the
+agent to run `switchboard guide` before operating Switchboard, rather than
+maintaining a separate copy of the operating instructions. For older installations
+without `guide`, update Switchboard; `switchboard --help` can identify the available commands.
+
 ## Is the app running?
 
 Each profile shows whether its desktop app is running: a green dot in the list,
@@ -112,23 +193,67 @@ Closing an app's window with its red button leaves the app running. Turn on
 **Notice closed windows** in Settings and such a profile reads **No window**,
 with a hollow dot, instead of Running. This needs Accessibility permission:
 turning the switch on asks macOS for it, and the switch stays off until you
-allow Switchboard in System Settings, then turns on by itself. Because the app
-is ad-hoc signed, macOS forgets the permission after each rebuild; the switch
-then reads off again, with a link to the settings pane, where you turn
-Switchboard off and on. A window that is minimised, hidden or on another desktop
+allow Switchboard in System Settings, then turns on by itself. An ad-hoc
+signed build loses the permission each time you rebuild it; the switch then
+reads off again, with a link to the settings pane, where you turn Switchboard
+off and on. To keep it, sign with a certificate (see [Install](#install)). A window that is minimised, hidden or on another desktop
 still counts as open. Whether or not the setting is on, **Show window** (a
 button on a No window row, and in each running profile's menu) brings that
 profile's window back, as clicking its Dock icon would.
 
+## Can I check on my agents from my phone?
+
+Yes, and reply and approve from it too. Open the **Phone** tab, turn on phone access, press
+**Publish** to put it on your tailnet, and scan the
+pairing QR code with your phone. The phone app lists what needs you and what
+is working across every profile, each profile's usage, and each session's
+transcript with its steps, diffs and the PRs it opened. Reply in a session, answer its questions and
+approve its commands from the phone, and turn on notifications for when one needs you or finishes. It
+reads the session files the desktop apps already write, so the apps work exactly as before. An app
+you opened from the Dock can be watched but not replied to until you relaunch it from the Phone tab
+or the phone; Default Claude can instead take replies however it was opened, with **Default Claude
+from the Dock** in the Phone tab. Read
+[Phone access](docs/phone-access.md) for setup and how it is secured.
+
 ## Keep the Mac awake
 
-Use **Keep awake** beside Refresh to turn macOS's system sleep setting on or
-off. macOS handles administrator authorization. The control reads the actual
-setting, including after you reopen Switchboard; closing or crashing the app
-leaves the setting as you chose it.
+**Decaf** in the title bar means the Mac sleeps as usual. Open it to
+**Caffeinate**: choose 1, 2 or 4 hours, **Until I stop**, or **Custom**
+minutes, and the button reads **Caffeinated · 1h** until the time is up, you
+press **Decaf now**, or Switchboard quits. The screen stays on too.
 
-For implementation details and closed-lid hardware verification, read
-[Keep awake](docs/keep-awake.md).
+**Also with the lid closed**, off by default, keeps a closed MacBook awake, as
+for a long agent run in a bag. It turns off macOS's system sleep through the
+same root helper Fans uses, so it asks once to allow Switchboard in Login
+Items, and it ends by itself if the battery drops below 20% or the Mac gets
+seriously hot. The button reads **· lid** while it is on.
+
+With the lid open Caffeinate needs no password: it holds a macOS power
+assertion that goes away with Switchboard. If sleep was left off system-wide
+by an older Keep awake or `pmset`, the popover offers to turn it back on. Read
+[Caffeinate](docs/caffeinate.md) for how it works.
+
+## Boost the fans
+
+When the Mac runs hot, **Fans** beside Caffeinate boosts every fan to a speed
+you pick for a short while, then hands them back to macOS. Nothing changes
+until you press **Boost**: set the speed, then choose 15 minutes, 30 minutes,
+an hour, **Until I stop**, or **Custom** minutes. While a boost runs the
+button reads **Fans · 75% · 12m**, the popover counts down with **+15 min**
+and **Stop boost**, and the menu bar menu offers to stop it.
+
+A boost always ends on its own when there is any doubt: when the time is up,
+when the Mac sleeps or restarts, when Switchboard quits or stops responding,
+when macOS reclaims the fans itself, or when the Mac reports serious thermal
+pressure. The popover says which. Switchboard never resumes a boost after
+sleep or a restart.
+
+Boosting needs a small helper that runs as root. The first boost asks you to
+allow Switchboard in System Settings › General › Login Items & Extensions,
+and starts once you do; after that boosts need no prompts. The helper only
+works in an install signed with a certificate (see [Install](#install)); an
+ad-hoc build hides Fans. It is hidden on a Mac with no fans. Read
+[Fan control](docs/fan-control.md) for how it works.
 
 ## Requirements
 
@@ -149,9 +274,9 @@ Worth knowing before you run an unsigned app that touches your accounts.
 
 - **Your keychain.** To show Claude usage, Switchboard runs `security
 find-generic-password` for the entry the Claude Code CLI already created.
-  macOS will ask for your password the first time. It asks again after each
-  rebuild, because ad-hoc signing produces a new code hash and the keychain
-  entry's permission no longer recognises the app. Codex tokens are read from a file
+  macOS will ask for your password the first time. An ad-hoc signed build is
+  asked again after each rebuild, because ad-hoc signing produces a new code
+  hash and the keychain entry's permission no longer recognises the app. Codex tokens are read from a file
   instead, so they produce no prompt.
 - **App launches and quits.** A small helper bundled with the app listens for
   macOS's notice that some app started or stopped, so the window can show a
@@ -167,6 +292,12 @@ find-generic-password` for the entry the Claude Code CLI already created.
   line of each prompt. What it keeps is under `~/.switchboard/usage/` on this
   Mac; nothing is sent anywhere. The window only receives folder names, never
   full paths.
+- **Fans and lid-closed Caffeinate, only if you use them.** The system bridge
+  reads fan speeds, CPU temperature, the battery and the sleep setting, which
+  needs no permission. A boost or a lid-closed session installs a root system
+  helper, after you allow it in Login Items, that accepts only a fan speed with
+  a time limit, a hold on system sleep with a time limit, or a stop, from
+  Switchboard's own bridge. Remove it with `switchboard fans remove`.
 - **Usage requests per signed-in profile, on a timer.** Normally one call to the same endpoints
   the two CLIs use for their own usage screens, authorised with that profile's
   existing CLI token. The interval in Settings is the rate while you are using
@@ -205,6 +336,19 @@ bun run install-app
 That builds `Switchboard.app`, copies it to `/Applications`, ad-hoc signs it and
 opens it. Launch it like any other app afterwards. Re-run the same command after
 changing the source. For a dev run without installing, use `bun start`.
+
+macOS records Accessibility and keychain permission against an ad-hoc signed
+app's exact code hash, which every rebuild changes. If you have a code-signing
+certificate, such as the free Apple Development one Xcode creates, sign with it
+instead and the permissions carry over between rebuilds:
+
+```bash
+security find-identity -v -p codesigning
+SWITCHBOARD_SIGN_IDENTITY="Apple Development: you@example.com (TEAMID)" bun run install-app
+```
+
+After the first such install, grant Accessibility once more; later rebuilds
+keep it.
 
 The app is not signed with a Developer ID and not notarised, so macOS may warn
 about it. Building it yourself, as above, is the intended path.
@@ -267,8 +411,39 @@ switchboard tokens --by project       # what the last 30 days of agent work cost
 switchboard exec work -- claude -p "…"   # run anything inside a profile's account
 eval "$(switchboard env work)"        # put the current shell into a profile
 switchboard launch work               # open its desktop window
+switchboard focus work                # show its existing window; never launch another profile
+switchboard quit work --force --yes   # force quit; reports whether it actually stopped
+switchboard caffeinate start --minutes 120 --lid   # stay awake 2 h, lid closed too
+switchboard fans set 75               # boost the fans to 75% for 15 minutes
+switchboard accessibility status      # permission of the running Switchboard app
+switchboard export work --format t3   # print a T3 provider configuration
 switchboard add codex Client --from codex   # a new profile, set up like the Default
+switchboard routed work app-server    # Codex through work's proxy bucket, as its window runs
 ```
+
+`caffeinate`, `fans`, `accessibility status|open`, `focus` and forced `quit` use
+the running Switchboard app through a local socket accessible only to your user
+account. Start the matching app first; these commands never start it
+implicitly. Caffeinate and Fans share the window's controllers; their results
+report the observed state and any notice, so exit 0 alone does not mean a
+session started. Accessibility
+reports the app's executable identity, not the terminal's permission. `open`
+opens the macOS Accessibility pane. Force quit asks for confirmation unless
+`--yes` is supplied and waits for the result; `stopped: false` means the app
+has not exited. Ordinary `quit` still works without Switchboard running.
+
+`export PROFILE --format t3` prints a `providerInstances` fragment containing
+the profile's name, colour and actual CLI home, with driver `claudeAgent` or
+`codex`. It contains no credentials and never edits T3 settings. IDs longer than T3’s
+64-character provider-key limit are refused with manual setup guidance. Proxy-routed
+Codex profiles are refused because exporting their native home would silently
+lose routing. Use a native-account profile for export, or the routed command below.
+
+A Codex profile assigned to a proxy bucket reaches the pool through a local
+port that changes whenever the bucket's worker restarts. A client Switchboard
+does not launch, such as T3 Code or a script, should run `switchboard routed
+PROFILE` as its Codex binary; it starts the worker if needed and finds the
+current port on every call.
 
 Install it from the **CLI** tab in the window, or once with
 `switchboard install-cli` (or `node out/cli.js install-cli` from this checkout)
@@ -286,7 +461,7 @@ its result as JSON on stdout and exits 0. A failed one prints nothing on stdout,
 one JSON object on stderr with a stable `error` code, a `message` and usually a
 `hint`, and exits 1 (it ran and failed), 2 (usage), 3 (not found) or 4 (refused
 by a safety rule, such as removing a profile whose window is open, or
-`--yes` missing). `exec` and `cli` exit with the child's own status. Per-profile
+`--yes` missing). `exec`, `cli` and `routed` exit with the child's own status. Per-profile
 usage errors are data inside a successful result, with a `status` of `ok`,
 `stale`, `not-signed-in`, `error` or `none`.
 
@@ -339,6 +514,21 @@ The screenshot is produced by rendering the app's own UI against
 accounts and stays current when the interface changes.
 
 ## OpenCode terminal profiles
+
+`oc remove PROFILE --keep-bucket|--delete-bucket --dry-run` previews removal.
+Both choices delete OpenCode settings, sessions, history and connections, and
+require confirmation or `--yes`. Keeping the bucket moves its accounts, keys
+and upstream settings to a standalone bucket of the same name and leaves
+Codex profiles routed through it. Its worker stops, so routed clients must
+reconnect. Deleting the bucket also deletes its sign-ins and returns routed
+profiles to their native accounts. External Codex homes and native sign-ins
+referenced by OpenCode connections stay untouched. Quit its OpenCode tools
+and routed desktop apps first; active launches and incomplete process scans
+block removal. Retry an interrupted keep with the same command; its dry run
+can inspect the pending removal without changing files. If removal stops before
+the migration starts, the next launch or edit reclaims its dead lock without
+deleting the profile. A same-name bucket cannot be created during migration;
+recovery refuses conflicting buckets instead of discarding preserved sign-ins.
 
 The terminal-first `oc` CLI adds isolated OpenCode profiles with separate service
 connections and per-profile ChatGPT account pools. It runs without the Electron

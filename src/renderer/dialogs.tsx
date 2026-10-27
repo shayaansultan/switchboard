@@ -1,33 +1,52 @@
 // The three dialogs: a new profile (or bringing things into one), settings,
-// and a new proxy bucket. Each is a native <dialog> shown modally while its
-// `open` prop holds; the form inside is remounted on every open, so it always
+// and a new proxy bucket, plus the Modal that resets.tsx shares. Each is a
+// native <dialog> shown modally while its `open` prop holds; the form inside is remounted on every open, so it always
 // starts from the current state.
 
 import type { ComponentChildren } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { act, type BringMode, type ProfileView, type Settings, type State, type Vendor } from './lib';
 import { Btn, Icon, Switch } from './ui/primitives';
 
-function Modal({
+// `locked` keeps Escape from closing it while something it started is
+// still on its way. Chromium may close a dialog anyway after repeated
+// Escapes, so a locked one that closes is shown again.
+export function Modal({
   id,
   open,
+  locked = false,
   onClose,
   children,
 }: {
   id: string;
   open: boolean;
+  locked?: boolean;
   onClose: () => void;
   children: ComponentChildren;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
+  // Before paint, so a closing dialog never shows a frame with its content
+  // already gone.
+  useLayoutEffect(() => {
     const d = ref.current;
     if (!d) return;
     if (open && !d.open) d.showModal();
     if (!open && d.open) d.close();
   }, [open]);
   return (
-    <dialog id={id} ref={ref} onClose={onClose} onCancel={onClose}>
+    <dialog
+      id={id}
+      ref={ref}
+      onClose={() => {
+        const d = ref.current;
+        if (locked && open && d && !d.open) d.showModal();
+        else onClose();
+      }}
+      onCancel={(e) => {
+        e.preventDefault();
+        if (!locked) onClose();
+      }}
+    >
       {open ? children : null}
     </dialog>
   );
@@ -374,8 +393,12 @@ function SettingsForm({ state, onClose }: { state: State; onClose: () => void })
 
 export function BucketDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [name, setName] = useState('');
+  const [api, setApi] = useState(false);
   useEffect(() => {
-    if (open) setName('');
+    if (open) {
+      setName('');
+      setApi(false);
+    }
   }, [open]);
   return (
     <Modal id="bucket-dialog" open={open} onClose={onClose}>
@@ -384,7 +407,24 @@ export function BucketDialog({ open, onClose }: { open: boolean; onClose: () => 
         onSubmit={(e) => {
           e.preventDefault();
           void act(async () => {
-            await window.sb.createBucket(name);
+            const form = new FormData(document.getElementById('bucket-form') as HTMLFormElement);
+            await window.sb.createBucket(
+              name,
+              api
+                ? {
+                    kind: 'api',
+                    baseUrl: String(form.get('baseUrl')),
+                    adapter: form.get('adapter') as 'responses',
+                    credential: {
+                      file: String(form.get('credentialFile')),
+                      variable: String(form.get('credentialVariable')),
+                    },
+                    budgetUrl: String(form.get('budgetUrl')) || undefined,
+                    defaultModel: String(form.get('defaultModel')),
+                    allowMutableDefault: form.get('mutable') === 'on',
+                  }
+                : undefined,
+            );
             onClose();
           }, document.getElementById('bucket-submit'));
         }}
@@ -402,7 +442,48 @@ export function BucketDialog({ open, onClose }: { open: boolean; onClose: () => 
             onInput={(e) => setName((e.currentTarget as HTMLInputElement).value)}
           />
         </label>
-        <p class="hint">Create an empty bucket, then use Add account to sign in through the proxy.</p>
+        <label>
+          <input type="checkbox" checked={api} onChange={(e) => setApi(e.currentTarget.checked)} /> API upstream
+        </label>
+        {api ? (
+          <>
+            <label>
+              Base URL
+              <input name="baseUrl" type="url" required placeholder="https://api.example.com/v1" />
+            </label>
+            <label>
+              Protocol
+              <select name="adapter">
+                <option value="responses">Responses</option>
+              </select>
+            </label>
+            <label>
+              Credential file (absolute path)
+              <input name="credentialFile" required />
+            </label>
+            <label>
+              Credential variable
+              <input name="credentialVariable" required placeholder="SOCLAAS_API_KEY" />
+            </label>
+            <label>
+              Accounting URL (optional)
+              <input name="budgetUrl" type="url" />
+            </label>
+            <label>
+              Exact default model ID
+              <input name="defaultModel" required />
+            </label>
+            <label>
+              <input name="mutable" type="checkbox" /> Allow an experimental or mutable default
+            </label>
+            <p class="hint">
+              Enter a file reference only. The key stays outside the app window. Discovery checks the model before
+              creation. Use the CLI's --opencode option to also create an isolated OpenCode profile.
+            </p>
+          </>
+        ) : (
+          <p class="hint">Create an empty bucket, then use Add account to sign in through the proxy.</p>
+        )}
         <menu>
           <Btn variant="secondary" id="bucket-cancel" onClick={onClose}>
             Cancel

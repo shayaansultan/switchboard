@@ -1,10 +1,26 @@
 import * as path from 'node:path';
+import { holdLaunch, holdRemoval } from '../opencode/lifecycle';
+import { ApiObservation, inspectUpstream, readCredential, assertDefaultModel, type Upstream } from './upstream';
 import * as store from './store';
 import * as proxy from './proxy';
 import type { BucketView } from '../types';
 
 export { create, load, paths, withOpenCode } from './store';
 
+function cachedUpstream(id: string) {
+  try {
+    return ApiObservation.parse(store.readJson(path.join(store.paths(id).runtime, 'upstream.json')));
+  } catch {
+    return undefined;
+  }
+}
+export async function inspect(id: string) {
+  const upstream = store.load(id).upstream;
+  if (!upstream) throw new Error('This is an OAuth bucket');
+  const result = await inspectUpstream(upstream);
+  store.writeJson(path.join(store.paths(id).runtime, 'upstream.json'), result);
+  return result;
+}
 export async function snapshot(): Promise<BucketView[]> {
   return Promise.all(
     store.list().map(async (bucket): Promise<BucketView> => {
@@ -14,6 +30,7 @@ export async function snapshot(): Promise<BucketView[]> {
           ...bucket,
           status: status?.ready ? 'running' : proxy.receipt(bucket.id) ? 'unreachable' : 'stopped',
           accounts: status?.accounts ?? [],
+          api: bucket.upstream ? (status?.upstream ?? cachedUpstream(bucket.id)) : undefined,
         };
       } catch (error) {
         return {
@@ -27,12 +44,47 @@ export async function snapshot(): Promise<BucketView[]> {
   );
 }
 
+export async function setCredential(id: string, credential: Upstream['credential']): Promise<void> {
+  await stoppedUpdate(id, () => {
+    readCredential(credential);
+    store.setCredential(id, credential);
+  });
+}
+export async function setDefaultModel(id: string, model: string): Promise<void> {
+  await stoppedUpdate(id, async () => {
+    const upstream = store.load(id).upstream;
+    if (!upstream) throw new Error('This is an OAuth bucket');
+    const observed = await inspectUpstream(upstream);
+    if (observed.discovery.status !== 'ok') throw new Error('API discovery: ' + observed.discovery.status);
+    assertDefaultModel(upstream, observed.models, model);
+    store.setDefaultModel(id, model);
+  });
+}
+async function stoppedUpdate(id: string, update: () => void | Promise<void>): Promise<void> {
+  const releaseProfile = holdLaunch(id);
+  try {
+    store.load(id);
+    const release = proxy.holdStartLock(id);
+    try {
+      if (await proxy.control(id, 'status')) throw new Error('Stop this bucket before changing its upstream settings');
+      await proxy.recoverDeadWorker(id);
+      await update();
+    } finally {
+      release();
+    }
+  } finally {
+    releaseProfile();
+  }
+}
 export async function start(id: string): Promise<void> {
   await proxy.ensureWorker(id);
   await refresh(id);
 }
 export async function refresh(id: string): Promise<void> {
-  store.load(id);
+  if (store.load(id).upstream && !(await proxy.control(id, 'status'))) {
+    await inspect(id);
+    return;
+  }
   if (!(await proxy.control(id, 'refresh'))) throw new Error('Bucket is stopped. Start it to refresh account usage.');
 }
 export async function stop(id: string): Promise<void> {
@@ -51,6 +103,7 @@ export async function stop(id: string): Promise<void> {
   throw new Error('Bucket shutdown has not completed. Refresh its status before retrying.');
 }
 export async function loginCommand(id: string, provider: 'codex' | 'claude' = 'codex'): Promise<string[]> {
+  if (store.load(id).upstream) throw new Error('API buckets use a credential reference, not OAuth login');
   await proxy.ensureWorker(id);
   return [
     proxy.binary(),
@@ -78,16 +131,22 @@ export async function removeAccount(id: string, name: string): Promise<void> {
 // deleted under it. beforeDelete runs just before the one irreversible step;
 // if it throws, the bucket stays. An unreachable worker still holds its ports
 // and lease, so that bucket is left alone.
-export async function remove(id: string, beforeDelete: () => void = () => {}): Promise<void> {
+export async function remove(id: string, beforeDelete: () => unknown = () => {}): Promise<void> {
   store.load(id);
-  const release = proxy.holdStartLock(id);
+  // Bucket removal also removes its co-located OpenCode profile. Coordinate
+  // native launches here too, not only in the explicit oc remove command.
+  const releaseProfile = store.withOpenCode(id) ? holdRemoval(id) : () => {};
   try {
-    await stop(id);
-    if (proxy.receipt(id)) throw new Error(`Bucket ${id} still has a worker. Stop it before removing the bucket.`);
-    beforeDelete();
-  } catch (error) {
-    release();
-    throw error;
+    const release = proxy.holdStartLock(id);
+    try {
+      await stop(id);
+      if (proxy.receipt(id)) throw new Error(`Bucket ${id} still has a worker. Stop it before removing the bucket.`);
+      await beforeDelete();
+      store.remove(id);
+    } finally {
+      release();
+    }
+  } finally {
+    releaseProfile();
   }
-  store.remove(id);
 }

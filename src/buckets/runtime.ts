@@ -19,7 +19,7 @@ export interface Command {
   script: string;
 }
 
-type Script = 'desktop-stdio' | 'cli';
+type Script = 'desktop-stdio' | 'desktop-remote' | 'cli';
 
 export interface Runtime {
   execPath: string;

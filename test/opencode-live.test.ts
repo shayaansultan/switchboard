@@ -16,7 +16,7 @@ import { wrapperScript, codexBinary } from '../src/buckets/desktop';
 
 const live = process.env.SWITCHBOARD_LIVE_TESTS === '1' ? test : test.skip;
 const execute = promisify(execFile);
-const cli = path.resolve(import.meta.dir, '../out/opencode/cli.js');
+const cli = path.resolve(__dirname, '../out/opencode/cli.js');
 const installed = path.join(os.homedir(), '.switchboard/bin/cliproxyapi-7.3.2/cli-proxy-api');
 const delay = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
@@ -210,8 +210,11 @@ live(
         expect(config.instructions).not.toContain(path.join(os.homedir(), '.claude/CLAUDE.md'));
       }
 
-      const [first, second] = await Promise.all([ensureWorker(a.id, cli), ensureWorker(a.id, cli)]);
-      const other = await ensureWorker(b.id, cli);
+      const [first, second] = await Promise.all([
+        ensureWorker(a.id, { execPath: process.execPath, script: cli }),
+        ensureWorker(a.id, { execPath: process.execPath, script: cli }),
+      ]);
+      const other = await ensureWorker(b.id, { execPath: process.execPath, script: cli });
       expect(first.receipt.instance).toBe(second.receipt.instance);
       expect(other.receipt.proxyPort).not.toBe(first.receipt.proxyPort);
       expect(first.accounts).toEqual([]);

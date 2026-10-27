@@ -5,17 +5,20 @@
 
 import { useEffect, useState } from 'preact/hooks';
 import { Profiles } from './profiles';
-import { KeepAwake } from './awake';
+import { Caffeinate } from './caffeinate';
+import { FanControl } from './fans';
 import { Buckets } from './buckets';
 import { Cli } from './cli';
 import { Usage } from './usage';
+import { PhoneTab } from './phone';
 import { AddDialog, BucketDialog, SettingsDialog, type SetupRequest } from './dialogs';
-import { act, type ProfilesView, type ProfileView, type State, type Vendor } from './lib';
+import { ResetsDialog } from './resets';
+import { act, type ProfilesView, type ProfileView, type ResetTarget, type State, type Vendor } from './lib';
 import { ActionsCtx } from './ui/actions';
 import { OverlayProvider, useOverlays } from './ui/overlays';
 import { Icon, TipBtn, type IconName } from './ui/primitives';
 
-type Tab = 'profiles' | 'usage' | 'buckets' | 'cli';
+type Tab = 'profiles' | 'usage' | 'buckets' | 'cli' | 'phone';
 
 export function App() {
   const [state, setState] = useState<State | null>(null);
@@ -43,6 +46,7 @@ function Shell({ state, usageVersion }: { state: State | null; usageVersion: num
   const [setup, setSetup] = useState<SetupRequest>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [bucketOpen, setBucketOpen] = useState(false);
+  const [resets, setResets] = useState<ResetTarget | null>(null);
   const setTab = (t: Tab) => {
     closeMenu();
     hideTip();
@@ -59,11 +63,12 @@ function Shell({ state, usageVersion }: { state: State | null; usageVersion: num
   // The title bar holds only what applies to the whole app; a new profile
   // or bucket is made from the tab that lists them.
   return (
-    <ActionsCtx.Provider value={{ openSetup, newBucket }}>
+    <ActionsCtx.Provider value={{ openSetup, newBucket, openResets: setResets }}>
       <header class="titlebar">
         <div class="brand">Switchboard</div>
         <div class="actions">
-          <KeepAwake />
+          <Caffeinate />
+          <FanControl />
           <TipBtn
             variant="icon"
             icon="refresh"
@@ -108,6 +113,9 @@ function Shell({ state, usageVersion }: { state: State | null; usageVersion: num
         <TabButton id="tab-cli" icon="terminal" on={tab === 'cli'} onClick={() => setTab('cli')}>
           CLI
         </TabButton>
+        <TabButton id="tab-phone" icon="phone" on={tab === 'phone'} onClick={() => setTab('phone')}>
+          Phone
+        </TabButton>
       </nav>
       <main id="root" role="tabpanel">
         {!state ? null : tab === 'profiles' ? (
@@ -116,6 +124,8 @@ function Shell({ state, usageVersion }: { state: State | null; usageVersion: num
           <Usage state={state} version={usageVersion} />
         ) : tab === 'buckets' ? (
           <Buckets state={state} />
+        ) : tab === 'phone' ? (
+          <PhoneTab state={state} />
         ) : (
           <Cli state={state} />
         )}
@@ -125,6 +135,7 @@ function Shell({ state, usageVersion }: { state: State | null; usageVersion: num
           <AddDialog state={state} request={setup} onClose={() => setSetup(null)} />
           <SettingsDialog state={state} open={settingsOpen} onClose={() => setSettingsOpen(false)} />
           <BucketDialog open={bucketOpen} onClose={() => setBucketOpen(false)} />
+          <ResetsDialog state={state} target={resets} onClose={() => setResets(null)} />
         </>
       ) : null}
     </ActionsCtx.Provider>

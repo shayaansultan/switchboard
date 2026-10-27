@@ -7,6 +7,7 @@ import * as imports from '../src/opencode/imports';
 import { launchEnv, runtimeConfig } from '../src/opencode/launch';
 import { Identity, Profile, Service } from '../src/opencode/types';
 import { quotaWeight, control, ensureWorker } from '../src/buckets/proxy';
+import type { Command } from '../src/buckets/runtime';
 import { acquireWorkerLease } from '../src/buckets/worker-lease';
 import { gitEnvironment } from '../src/opencode/github';
 import { refreshModelInfo } from '../src/opencode/models';
@@ -62,6 +63,9 @@ test('worker ownership lasts until release and cannot remove another owner', () 
   expect(fs.existsSync(file)).toBe(false);
 });
 
+// These cases fail before a worker would start, so this one never runs.
+const UNUSED_WORKER: Command = { execPath: '/unused-cli', script: '/unused-worker.js' };
+
 test('an unreachable live worker is not replaced', async () => {
   const profile = profiles.create('Unreachable worker');
   profiles.writeJson(path.join(profiles.paths(profile.id).runtime, 'worker.json'), {
@@ -72,7 +76,7 @@ test('an unreachable live worker is not replaced', async () => {
     pid: process.pid,
     startedAt: new Date().toISOString(),
   });
-  await expect(ensureWorker(profile.id, '/unused-cli')).rejects.toThrow('alive but unreachable');
+  await expect(ensureWorker(profile.id, UNUSED_WORKER)).rejects.toThrow('alive but unreachable');
   expect(fs.existsSync(path.join(profiles.paths(profile.id).proxy, 'config.yaml'))).toBe(false);
 });
 
@@ -93,7 +97,7 @@ test('a listener on an old proxy port blocks stale worker recovery', async () =>
   });
   profiles.writeJson(path.join(runtime, 'worker.lock'), { pid: 99999999, instance: 'old-lease' });
   try {
-    await expect(ensureWorker(profile.id, '/unused-cli')).rejects.toThrow('listener on an old worker port');
+    await expect(ensureWorker(profile.id, UNUSED_WORKER)).rejects.toThrow('listener on an old worker port');
     expect(fs.existsSync(path.join(runtime, 'worker.json'))).toBe(true);
     expect(fs.existsSync(path.join(runtime, 'worker.lock'))).toBe(true);
   } finally {
@@ -398,7 +402,7 @@ test('native defaults preserve the pool selection and do not register a dead pro
   profiles.save(profile);
   const restored = profiles.load(profile.id);
   expect(restored.model).toBe('openrouter/company/model');
-  expect(selectedPoolModel(restored)).toBe('gpt-5.4');
+  expect(selectedPoolModel(restored)).toBe<string>('gpt-5.4');
   const native = runtimeConfig(restored, undefined, temporary);
   expect(native.model).toBe('openrouter/company/model');
   expect(native.provider).toEqual({});

@@ -10,20 +10,30 @@ import {
   clipboard,
   dialog,
   powerMonitor,
+  powerSaveBlocker,
   shell,
   systemPreferences,
 } from 'electron';
+import { serveAppControl } from './app-control';
+import { CliError, ref } from './cli/output';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import * as profiles from './profiles';
 import * as launch from './launch';
 import * as usage from './usage';
+import { prepareUsageReset, type ResetSession } from './usage-resets';
+import { prepareBucketUsageReset } from './buckets/usage-resets';
 import * as buckets from './buckets';
 import { shellQuote } from './shell';
 import { writeJson } from './storage';
 import { z } from 'zod';
-import { AwakeController, isAwakeValue, macAwakeSystem } from './awake';
+import { CaffeinateController, type SleepBlocker } from './caffeinate';
+import { FanController } from './fans';
+import { spawnSystemBridge } from './system-bridge';
+import { isCaffeinateMinutes } from './shared/caffeinate';
+import { isFanLevel, isFanMinutes } from './shared/fans';
 import { barPng, meterPng, stripPng } from './trayart';
 import { composeTrayText, type TrayText } from './tray-status';
 import { PollingPause, type PauseReason } from './polling-pause';
@@ -35,6 +45,12 @@ import { HOME } from './store';
 import { UsageHistory, type LedgerProfile, type LiveProfile } from './history';
 import { alertsFor } from './history/alerts';
 import { roomiest } from './history/windows';
+import { resetsIn } from './shared/time';
+import { DEFAULT_PORT, startHub, type Hub, type HubProfile, type HubSource } from './remote/hub';
+import { clearHubStatus, pairing, phoneStatus, publish, writeHubStatus } from './remote/status';
+import { revoke as revokeDevice } from './remote/pairing';
+import { controlSocket } from './remote/control';
+import { defaultClaudeLinked, hookedApps, linkDefaultClaude, reachOf, unlinkDefaultClaude } from './remote/reach';
 import type {
   AppState,
   CliStatus,
@@ -45,6 +61,8 @@ import type {
   LiveCache,
   Profile,
   ProfileView,
+  ResetList,
+  ResetResult,
   Settings,
   SetupItemView,
   State,
@@ -89,8 +107,30 @@ async function measureItemSizes(): Promise<void> {
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 const data: Store = profiles.load();
-const awake = new AwakeController(macAwakeSystem, (state) => {
-  if (win && !win.isDestroyed()) win.webContents.send('awake:state', state);
+// The system bridge sits beside the app's executable in Contents/MacOS, where
+// SMAppService looks for the helper's plist; a checkout run uses out/.
+const systemBridge = spawnSystemBridge(
+  app.isPackaged
+    ? path.join(path.dirname(process.execPath), 'system-bridge')
+    : path.join(__dirname, 'native', 'system-bridge'),
+);
+// One power assertion at a time; macOS drops it when Switchboard quits.
+let blockerId: number | null = null;
+const sleepBlocker: SleepBlocker = {
+  start() {
+    blockerId = powerSaveBlocker.start('prevent-display-sleep');
+  },
+  stop() {
+    if (blockerId !== null && powerSaveBlocker.isStarted(blockerId)) powerSaveBlocker.stop(blockerId);
+    blockerId = null;
+  },
+};
+const caffeinate = new CaffeinateController(systemBridge, sleepBlocker, (state) => {
+  if (win && !win.isDestroyed()) win.webContents.send('caffeinate:state', state);
+  rebuildTray();
+});
+const fans = new FanController(systemBridge, (state) => {
+  if (win && !win.isDestroyed()) win.webContents.send('fans:state', state);
   rebuildTray();
 });
 // Per-profile live state: what is running, who is signed in, last usage.
@@ -272,6 +312,7 @@ function applyReload(next: Store): void {
     schedulePolling();
     applyLoginItem();
     applyAppearance();
+    void applyPhoneAccess();
   }
   broadcast();
   for (const id of diff.added) void refreshAll(id).catch(() => {});
@@ -319,7 +360,8 @@ function byVendor<T>(fn: (v: Vendor) => T): Record<Vendor, T> {
 
 function stateSnapshot(): State {
   return {
-    awake: awake.snapshot(),
+    caffeinate: caffeinate.snapshot(),
+    fans: fans.snapshot(),
     buckets: bucketViews,
     bucketsError,
     settings: data.settings,
@@ -350,6 +392,113 @@ function stateSnapshot(): State {
     cli: cliStatus(),
     desktop: desktopSupport(),
   };
+}
+
+// ---- phone access ----
+// The hub serves the phone app from this process, so it sees the same
+// profiles, app states and usage the window does. It follows the
+// phoneAccess and phonePort settings, which the CLI can change too, and
+// records whether it is listening for `switchboard remote status`.
+let hub: Hub | null = null;
+let phoneAccessChange: Promise<void> = Promise.resolve();
+
+const hubSource: HubSource = {
+  profiles: () =>
+    data.profiles.map((p): Omit<HubProfile, 'label'> => {
+      const l = live.get(p.id) ?? {};
+      return {
+        id: p.id,
+        name: p.name,
+        vendor: p.vendor,
+        color: p.color,
+        isDefault: p.isDefault,
+        email: l.identity?.email ?? null,
+        plan: l.usage?.plan ?? l.identity?.plan ?? null,
+        app: l.app ?? null,
+        windows: (l.usage?.windows ?? []).map((w) => ({ label: w.label, pct: w.pct, resetsAt: w.resetsAt })),
+        reach: reachOf(p, appHooks.get(p.id), !!data.settings.phoneAccess),
+      };
+    }),
+  homes: () => data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, home: profiles.dirs(p).home })),
+  // Approvals go to the phone while nobody is at the Mac: the screen is
+  // locked, or there has been no input for AWAY_IDLE_S.
+  away: () => screenLocked || powerMonitor.getSystemIdleTime() >= AWAY_IDLE_S,
+  relaunch: (profileId) => {
+    const p = data.profiles.find((x) => x.id === profileId);
+    if (!p) return Promise.reject(new Error('No such profile'));
+    return relaunchForPhone(p);
+  },
+};
+
+// Quits a profile's app and opens it again with the phone's hook, for an app
+// opened from the Dock or before phone access was on.
+async function relaunchForPhone(p: Profile): Promise<void> {
+  if (!data.settings.phoneAccess) throw new Error('Turn on phone access first');
+  await launch.relaunchForPhone(p, {
+    quit: async (x) => {
+      await quitApp(x);
+    },
+    open: launchApp,
+  });
+}
+
+// Default Claude's settings entry follows the setting and phone access, and
+// goes when Switchboard quits (below); any other time the file is left
+// alone. A failure is shown in the Phone tab.
+let defaultClaudeError: string | null = null;
+function syncDefaultClaude(): void {
+  const wanted = !!data.settings.phoneAccess && !!data.settings.phoneDefaultClaude;
+  const plugin = launch.remotePlugin();
+  try {
+    if (wanted && plugin) linkDefaultClaude(plugin, controlSocket());
+    else if (defaultClaudeLinked()) unlinkDefaultClaude();
+    defaultClaudeError =
+      wanted && !plugin ? 'This build of Switchboard is missing its phone plugin; reinstall it.' : null;
+  } catch (error) {
+    defaultClaudeError = (error as Error).message;
+  }
+}
+
+// The entry points into this app's bundle and at its socket, both of which
+// are only there while Switchboard runs: take it out on quit, so a moved or
+// deleted Switchboard never leaves Claude a plugin folder that is gone. The
+// next start puts it back.
+app.on('will-quit', () => {
+  try {
+    if (defaultClaudeLinked()) unlinkDefaultClaude();
+  } catch {
+    // Left as it was; the next start reconciles it.
+  }
+});
+
+const AWAY_IDLE_S = 60;
+let screenLocked = false;
+
+function applyPhoneAccess(): Promise<void> {
+  // A lock pause was taken while phone access was off; with it on, the
+  // phone needs fresh numbers even while the Mac is locked.
+  if (data.settings.phoneAccess) void resumePolling('lock');
+  syncDefaultClaude();
+  phoneAccessChange = phoneAccessChange.then(async () => {
+    const port = data.settings.phoneAccess ? (data.settings.phonePort ?? DEFAULT_PORT) : null;
+    if (hub && hub.port === port) return;
+    if (hub) {
+      await hub.close();
+      hub = null;
+    }
+    if (port === null) {
+      clearHubStatus();
+      return;
+    }
+    try {
+      hub = await startHub({ source: hubSource, staticDir: path.join(__dirname, 'phone'), port });
+      writeHubStatus({ port: hub.port, error: null });
+    } catch (error) {
+      const busy = (error as NodeJS.ErrnoException).code === 'EADDRINUSE';
+      writeHubStatus({ port: null, error: busy ? `Port ${port} is in use by another program` : String(error) });
+    }
+  });
+  return phoneAccessChange;
 }
 
 function broadcast(): void {
@@ -385,6 +534,10 @@ function desktopSupport(): DesktopSupport {
   return { helper: !!helper, accessibility };
 }
 
+// Whether each running app carries the phone's hook (src/remote/reach.ts),
+// by profile id; read only while phone access is on.
+let appHooks = new Map<string, boolean | null>();
+
 // Returns whether anything changed. A failed `ps` keeps the last answer
 // rather than calling every app off; a failed window count only loses the
 // distinction between running and background.
@@ -407,6 +560,11 @@ async function refreshRunning(): Promise<boolean> {
       for (const [id, pid] of pids) if (counts.get(pid) === 0) windowless.add(id);
     }
   } else accessibility = 'off';
+  const running = data.profiles.flatMap((p) =>
+    pids.has(p.id) ? [{ id: p.id, pid: pids.get(p.id)!, vendor: p.vendor }] : [],
+  );
+  const hooks = data.settings.phoneAccess ? await hookedApps(running) : new Map<number, boolean | null>();
+  appHooks = new Map(running.map((r) => [r.id, hooks.get(r.pid) ?? null]));
   const changed = appStates.observe(alive, windowless);
   applyAppStates();
   return changed || before !== accessibility;
@@ -437,7 +595,7 @@ async function expectApp(p: Profile, kind: 'starting' | 'quitting') {
 }
 
 async function launchApp(p: Profile): Promise<void> {
-  await launch.launchDesktop(p);
+  await launch.launchDesktop(p, !!data.settings.phoneAccess);
   const { failedToStart } = await expectApp(p, 'starting');
   if (failedToStart)
     throw new Error(
@@ -468,13 +626,14 @@ async function openApp(p: Profile): Promise<void> {
 
 // Resolves once the app is gone or has passed the deadline; a stalled app is
 // shown as such, with Force quit, rather than reported as an error.
-async function quitApp(p: Profile, force = false): Promise<void> {
+async function quitApp(p: Profile, force = false) {
   const sent = force ? await launch.forceQuitDesktop(p) : await launch.quitDesktop(p);
   if (!sent) {
     desktopWatch.poke();
-    return;
+    return { profile: ref(p), quit: false, stopped: !launch.instanceFor(p, await launch.runningInstances()) };
   }
   await expectApp(p, 'quitting');
+  return { profile: ref(p), quit: true, stopped: !launch.instanceFor(p, await launch.runningInstances()) };
 }
 
 const IDENTITY_TTL = 60 * 60 * 1000;
@@ -562,7 +721,7 @@ function windowBackground(): string {
 }
 
 // The Appearance setting drives Electron's theme source, which in turn
-// drives the prefers-color-scheme media query the stylesheet keys on.
+// sets the colour scheme the stylesheet's light-dark() tokens follow.
 function applyAppearance(): void {
   nativeTheme.themeSource = data.settings.appearance ?? 'system';
 }
@@ -570,19 +729,46 @@ nativeTheme.on('updated', () => {
   if (win && !win.isDestroyed()) win.setBackgroundColor(windowBackground());
 });
 
+// For the UI tests (demo/): the window is never shown, the app never becomes
+// the active one and puts nothing in the Dock or the menu bar, so a test run
+// does not take the screen, or the Space, someone is working in. Playwright
+// drives and captures the page all the same.
+const BACKGROUND = process.env.SWITCHBOARD_BACKGROUND === '1';
+if (BACKGROUND && process.platform === 'darwin') app.setActivationPolicy('accessory');
+
+/** Where the traffic lights go for a page zoom: macOS draws them at a fixed
+ * size, while the title bar's 56 px grows and shrinks with the zoom. */
+function trafficLights(zoom: number): Electron.Point {
+  return { x: 20, y: Math.round(19 + 28 * (zoom - 1)) };
+}
+
+ipcMain.on('window:zoom', (event, zoom: unknown) => {
+  if (!win || event.sender !== win.webContents) return;
+  if (typeof zoom !== 'number' || !Number.isFinite(zoom) || zoom < 0.25 || zoom > 5) return;
+  win.setWindowButtonPosition(trafficLights(zoom));
+});
+
 function createWindow(): BrowserWindow {
   const w = new BrowserWindow({
+    show: !BACKGROUND,
     width: 760,
     height: 640,
     minWidth: 560,
     minHeight: 420,
     title: 'Switchboard',
     // The traffic lights sit on the title bar's centre line: the bar is 56 px
-    // and the lights draw 14 tall, so 19 from the top puts their centre on the text.
+    // and the lights draw 14 tall, so 19 from the top puts their centre on the
+    // text. At other page zooms the window reports its zoom and they follow.
     titleBarStyle: 'hidden',
-    trafficLightPosition: { x: 20, y: 19 },
+    trafficLightPosition: trafficLights(1),
     backgroundColor: windowBackground(),
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      // Hidden, the page would otherwise be throttled like a background tab.
+      backgroundThrottling: !BACKGROUND,
+    },
   });
   w.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   w.on('closed', () => {
@@ -591,7 +777,7 @@ function createWindow(): BrowserWindow {
   });
   w.on('focus', () => {
     noteInteraction();
-    void awake.refresh();
+    void caffeinate.refresh();
     desktopWatch.poke();
   });
   w.on('show', () => {
@@ -612,6 +798,7 @@ function createWindow(): BrowserWindow {
 
 function showWindow(): void {
   const w = win ?? createWindow();
+  if (BACKGROUND) return;
   w.show();
   w.focus();
 }
@@ -687,20 +874,26 @@ function rebuildTray(): void {
   const usageText = refreshTrayIcon();
   const remaining = data.settings.usageMode === 'remaining';
   const items: Electron.MenuItemConstructorOptions[] = [];
-  const awakeState = awake.snapshot();
-  const isAwake = awakeState.status === 'ready' && awakeState.value === 'on';
-  const text = composeTrayText(usageText, awakeState);
+  const awake = caffeinate.snapshot();
+  const text = composeTrayText(usageText, awake);
   tray.setTitle(text.title);
   tray.setToolTip(text.tooltip);
   items.push({
-    label:
-      awakeState.status === 'changing' ? 'Changing sleep setting…' : isAwake ? 'Turn keep awake off' : 'Keep awake…',
-    enabled: awakeState.status !== 'changing',
+    label: awake.active ? 'Decaf now' : 'Caffeinate…',
+    enabled: !awake.busy,
     click: () => {
-      if (isAwake) void awake.set('off');
+      if (awake.active) void caffeinate.stop();
       else showWindow();
     },
   });
+  const fanState = fans.snapshot();
+  if (fanState.status === 'ready' && fanState.level !== null) {
+    items.push({
+      label: `Stop fan boost (${fanState.level}%)`,
+      enabled: !fanState.busy,
+      click: () => void fans.system(),
+    });
+  }
   items.push({ type: 'separator' });
   for (const vendor of profiles.VENDOR_IDS) {
     // Where to go next: the account whose fullest window is emptiest.
@@ -807,13 +1000,7 @@ function applyLoginItem(): void {
 
 // "in 54m", "in 6d", for the tray's window lines.
 function relTime(iso: string): string {
-  const ms = Date.parse(iso) - Date.now();
-  if (Number.isNaN(ms) || ms <= 0) return 'now';
-  const m = Math.round(ms / 60000);
-  if (m < 60) return `in ${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 48) return `in ${h}h ${m % 60}m`;
-  return `in ${Math.round(h / 24)}d`;
+  return resetsIn(iso).replace(/^resets /, '') || 'now';
 }
 
 // ---- IPC ----
@@ -823,15 +1010,68 @@ function validateSender(event: Electron.IpcMainInvokeEvent): void {
   }
 }
 
-ipcMain.handle('awake:set', (event, value: unknown) => {
+ipcMain.handle('caffeinate:refresh', (event) => {
   validateSender(event);
-  if (!isAwakeValue(value)) throw new Error('Invalid keep-awake value');
-  return awake.set(value);
+  return caffeinate.refresh();
 });
-ipcMain.handle('awake:refresh', (event, reason: unknown) => {
+ipcMain.handle('caffeinate:start', (event, minutes: unknown, lid: unknown) => {
   validateSender(event);
-  if (reason !== 'observe' && reason !== 'recheck') throw new Error('Invalid keep-awake refresh');
-  return awake.refresh(reason);
+  if (!isCaffeinateMinutes(minutes) || typeof lid !== 'boolean') throw new Error('Invalid Caffeinate request');
+  return caffeinate.start(minutes, { lid });
+});
+ipcMain.handle('caffeinate:action', (event, action: unknown) => {
+  validateSender(event);
+  switch (action) {
+    case 'stop':
+      return caffeinate.stop();
+    case 'extend':
+      return caffeinate.extend();
+    case 'dismiss':
+      return caffeinate.dismiss();
+    case 'cancel':
+      return caffeinate.cancel();
+    case 'clear':
+      return caffeinate.clear();
+    case 'login-items':
+      return caffeinate.openLoginItems();
+    default:
+      throw new Error('Invalid Caffeinate action');
+  }
+});
+ipcMain.handle('fans:refresh', (event) => {
+  validateSender(event);
+  return fans.refresh();
+});
+ipcMain.handle('fans:set', (event, level: unknown, minutes: unknown) => {
+  validateSender(event);
+  if (!isFanLevel(level) || !isFanMinutes(minutes)) throw new Error('Invalid fan speed');
+  return fans.set(level, minutes);
+});
+ipcMain.handle('fans:adjust', (event, level: unknown) => {
+  validateSender(event);
+  if (!isFanLevel(level)) throw new Error('Invalid fan speed');
+  return fans.adjust(level);
+});
+ipcMain.handle('fans:action', (event, action: unknown) => {
+  validateSender(event);
+  switch (action) {
+    case 'system':
+      return fans.system();
+    case 'extend':
+      return fans.extend();
+    case 'cancel':
+      return fans.cancel();
+    case 'dismiss':
+      return fans.dismiss();
+    case 'install':
+      return fans.install();
+    case 'remove':
+      return fans.remove();
+    case 'login-items':
+      return fans.openLoginItems();
+    default:
+      throw new Error('Invalid fan action');
+  }
 });
 
 const byId = (id: string): Profile => {
@@ -849,9 +1089,17 @@ ipcMain.handle('buckets:assign', (event, id: string, bucket: unknown) => {
   mutate(() => profiles.setProxyBucket(data, id, target));
   broadcast();
 });
-ipcMain.handle('buckets:create', async (event, name: unknown) => {
+ipcMain.handle('buckets:create', async (event, name: unknown, input: unknown) => {
   validateSender(event);
-  buckets.create(z.string().parse(name));
+  if (input !== undefined) {
+    const { Upstream, inspectUpstream, assertDefaultModel } = await import('./buckets/upstream.js');
+    const upstream = Upstream.parse(input);
+    const observation = await inspectUpstream(upstream);
+    if (observation.discovery.status !== 'ok') throw new Error('API discovery: ' + observation.discovery.status);
+    assertDefaultModel(upstream, observation.models);
+    const bucket = buckets.create(z.string().parse(name), upstream);
+    await buckets.inspect(bucket.id);
+  } else buckets.create(z.string().parse(name));
   await refreshBuckets();
   broadcast();
 });
@@ -1021,6 +1269,64 @@ ipcMain.handle('state:measure', async () => {
   }
   return stateSnapshot();
 });
+// The usage-reset dialog lives in the window; the session it lists from
+// stays here, pinned to its account and grant. One at a time: opening the
+// dialog again replaces it and a redeem spends it, so a stale token can never
+// reach a vendor.
+let resets: { token: string; session: ResetSession; refresh: () => Promise<void>; busy: boolean } | null = null;
+// Each open bumps this; a prepare that finishes after a newer one started is
+// dropped rather than replacing the session the newer dialog will use.
+let resetsOpened = 0;
+const ResetTargetInput = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('profile'), id: z.string() }),
+  z.object({ kind: z.literal('bucket'), id: z.string(), account: z.string().min(1) }),
+]);
+ipcMain.handle('resets:list', async (event, input: unknown): Promise<ResetList> => {
+  validateSender(event);
+  const target = ResetTargetInput.parse(input);
+  if (resets?.busy) throw new Error('A usage reset is being spent. Wait for its result.');
+  resets = null;
+  const opened = ++resetsOpened;
+  let session: ResetSession;
+  let refresh: () => Promise<void>;
+  if (target.kind === 'profile') {
+    const p = byId(target.id);
+    session = await prepareUsageReset(p);
+    refresh = () => refreshAll(p.id, true);
+  } else {
+    const bucket = buckets.load(target.id);
+    session = await prepareBucketUsageReset(bucket.id, target.account);
+    refresh = async () => {
+      await refreshBuckets();
+      broadcast();
+    };
+  }
+  if (opened !== resetsOpened) throw new Error('Usage resets were reopened. Use the newer dialog.');
+  const token = randomUUID();
+  resets = { token, session, refresh, busy: false };
+  return { token, account: session.account, note: session.note, offers: session.offers };
+});
+ipcMain.handle('resets:redeem', async (event, token: unknown, offerId: unknown): Promise<ResetResult> => {
+  validateSender(event);
+  const current = resets;
+  if (!current || current.token !== z.string().parse(token))
+    throw new Error('This list of resets is out of date. Reopen Usage resets.');
+  if (current.busy) throw new Error('This reset is already being spent.');
+  const offer = current.session.offers.find((o) => o.id === z.string().parse(offerId));
+  if (!offer?.usable) throw new Error('This reset cannot be spent now.');
+  current.busy = true;
+  try {
+    return await current.session.redeem(offer.id);
+  } finally {
+    if (resets === current) resets = null;
+    // A failed usage refresh must not hide what the vendor said.
+    await current.refresh().catch(() => {});
+  }
+});
+ipcMain.handle('resets:close', (event, token: unknown) => {
+  validateSender(event);
+  if (resets?.token === z.string().parse(token) && !resets.busy) resets = null;
+});
 ipcMain.handle('state:refresh', async (_e, id?: string) => {
   noteInteraction();
   await refreshAll(id || undefined, true);
@@ -1106,6 +1412,29 @@ ipcMain.handle('cli:install', () => {
   broadcast();
   return cliStatus();
 });
+ipcMain.handle('remote:status', async () => {
+  await phoneAccessChange;
+  const status = await phoneStatus(data.settings, data.profiles);
+  return { ...status, defaultClaude: { ...status.defaultClaude, error: defaultClaudeError } };
+});
+ipcMain.handle('remote:pair', () => pairing());
+ipcMain.handle('remote:unpair', (_e, id: unknown) => {
+  revokeDevice(z.string().min(1).parse(id));
+});
+// Publish in the Phone tab. When Tailscale first wants Serve or HTTPS allowed
+// on the tailnet, its page opens in the browser: the person clicked Publish,
+// and that page is the rest of it.
+ipcMain.handle('remote:publish', async () => {
+  if (!data.settings.phoneAccess) throw new Error('Turn on phone access first');
+  const result = await publish(data.settings.phonePort ?? DEFAULT_PORT);
+  if (result.enableUrl) await shell.openExternal(result.enableUrl);
+  return result;
+});
+ipcMain.handle('remote:relaunch', async (_e, id: unknown) => {
+  const p = data.profiles.find((x) => x.id === z.string().min(1).parse(id));
+  if (!p) throw new Error('No such profile');
+  await relaunchForPhone(p);
+});
 ipcMain.handle('profiles:move', (_e, id: string, delta: number) => {
   const moved = mutate(() => profiles.move(data, id, delta));
   if (moved) broadcast();
@@ -1123,6 +1452,7 @@ ipcMain.handle('settings:save', (_e, s: Partial<Settings>) => {
   schedulePolling();
   applyLoginItem();
   applyAppearance();
+  void applyPhoneAccess();
   broadcast();
 });
 ipcMain.handle('app:launch', (_e, id: string) => launchApp(byId(id)));
@@ -1141,14 +1471,15 @@ ipcMain.handle('app:open', (event, id: unknown) => {
 function accessibilityTrusted(prompt = false): boolean {
   return process.platform === 'darwin' && systemPreferences.isTrustedAccessibilityClient(prompt);
 }
-ipcMain.handle('app:accessibility', async (_e, action: unknown) => {
+async function checkAccessibility(action: unknown) {
   const a = z.enum(['check', 'request', 'open']).parse(action);
   if (a === 'open')
     await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
   const trusted = accessibilityTrusted(a === 'request');
   if (trusted) desktopWatch.poke();
   return trusted;
-});
+}
+ipcMain.handle('app:accessibility', (_e, action: unknown) => checkAccessibility(action));
 ipcMain.handle('app:quitOthers', async (_e, id: string) => {
   const target = byId(id);
   const n = await launch.quitOthers(target);
@@ -1172,24 +1503,79 @@ app.on('second-instance', () => showWindow());
 app.whenReady().then(async () => {
   if (!app.requestSingleInstanceLock()) return;
   if (!app.isPackaged) app.dock?.setIcon(path.join(__dirname, '..', 'build', 'icon-1024.png'));
+  try {
+    const stopControl = await serveAppControl(async (command) => {
+      // A CLI add/rename may precede the debounced store watcher. Resolve the
+      // request against the same fresh store the CLI just read.
+      const next = profiles.readIfChanged();
+      if (next) applyReload(next);
+      switch (command.command) {
+        case 'caffeinate': {
+          const { action, minutes, lid } = command;
+          if (action === 'start') await caffeinate.start(minutes, { lid });
+          else if (action === 'extend') await caffeinate.extend(minutes);
+          else if (action === 'status') await caffeinate.refresh();
+          else await caffeinate[action]();
+          return caffeinate.snapshot();
+        }
+        case 'fans': {
+          if (command.action === 'set') await fans.set(command.level ?? -1, command.minutes ?? -1);
+          else if (command.action === 'extend') await fans.extend(command.minutes);
+          else if (command.action === 'status') await fans.refresh();
+          else await fans[command.action]();
+          return fans.snapshot();
+        }
+        case 'accessibility':
+          return {
+            trusted: await checkAccessibility(command.action === 'status' ? 'check' : 'open'),
+            identity: { name: app.getName(), executable: process.execPath, packaged: app.isPackaged },
+          };
+        case 'focus': {
+          const p = byId(command.profile);
+          if (!launch.instanceFor(p, await launch.runningInstances()))
+            throw new CliError('desktop-not-running', `${p.name} is not running. Focus only shows an existing app.`, 4);
+          await showApp(p);
+          return { profile: ref(p), shown: true };
+        }
+        case 'force-quit':
+          return quitApp(byId(command.profile), true);
+      }
+    });
+    app.on('will-quit', stopControl);
+  } catch (error) {
+    console.error('Local CLI control unavailable; continuing app startup:', error);
+  }
   await launch.adoptLoginShellPath();
   applyAppearance();
-  createTray();
-  void awake.refresh();
-  // Reads only. The toggle remains a macOS setting when Switchboard exits.
-  const awakePoll = setInterval(() => void awake.refresh(), 15_000);
-  awakePoll.unref();
-  powerMonitor.on('resume', () => void awake.refresh());
+  if (!BACKGROUND) createTray();
+  // The helper ends a boost on sleep; read why once awake again.
+  void caffeinate.refresh();
+  void fans.refresh();
+  powerMonitor.on('resume', () => {
+    void caffeinate.refresh();
+    void fans.refresh();
+  });
+  // Closing the bridge ends its connection, and the helper gives back any
+  // boost or lid-closed hold; the power assertion goes with the process.
+  app.on('will-quit', () => systemBridge?.close());
   // Launched at login: stay in the menu bar, don't pop the window.
   const hidden = app.getLoginItemSettings().wasOpenedAtLogin;
   if (!hidden) createWindow();
   void resumeInterruptedBuckets();
   // Asleep or locked, there is nobody to show numbers to.
   powerMonitor.on('suspend', () => pausePolling('sleep'));
-  powerMonitor.on('lock-screen', () => pausePolling('lock'));
+  // Locked, there is nobody at the Mac, but with phone access on the phone
+  // still shows usage and is told when a profile runs low.
+  powerMonitor.on('lock-screen', () => {
+    screenLocked = true;
+    if (!data.settings.phoneAccess) pausePolling('lock');
+  });
+  powerMonitor.on('unlock-screen', () => {
+    screenLocked = false;
+  });
   powerMonitor.on('resume', () => void resumePolling('sleep'));
   powerMonitor.on('unlock-screen', () => void resumePolling('lock'));
-  if (powerMonitor.getSystemIdleState(1) === 'locked') pollingPause.pause('lock');
+  if (powerMonitor.getSystemIdleState(1) === 'locked' && !data.settings.phoneAccess) pollingPause.pause('lock');
   desktopWatch.setPaused(pollingPause.paused);
   desktopWatch.start();
   app.on('will-quit', () => desktopWatch.stop());
@@ -1197,6 +1583,10 @@ app.whenReady().then(async () => {
   if (!pollingPause.paused) await refreshAll().catch(() => {});
   const stopWatching = profiles.watchStore(applyReload);
   app.on('will-quit', stopWatching);
+  void applyPhoneAccess();
+  app.on('will-quit', () => {
+    if (hub) clearHubStatus();
+  });
   // Dev aid: `electron . --screenshot=/tmp/x.png` captures the window and exits.
   const shot = process.argv.find((a) => a.startsWith('--screenshot='));
   if (shot) {

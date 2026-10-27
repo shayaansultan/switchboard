@@ -1,6 +1,8 @@
-// Putting a shell, a command or a sign-in inside a profile's environment.
+// Putting a shell, a command or a sign-in inside a profile's environment,
+// and running a Codex profile's CLI through its proxy bucket.
 
 import * as launch from '../launch';
+import { desktopEnvironment } from '../buckets/desktop';
 import { VENDORS, dirs, ensureDirs } from '../store';
 import { runInherit } from '../child';
 import { shellQuote } from '../shell';
@@ -65,6 +67,24 @@ export async function cliCommand(rest: string[], ctx: Context): Promise<number> 
   const profile = resolveProfile(ctx.data, required(rest[0], 'Profile'));
   const args = rest[1] === '--' ? rest.slice(2) : rest.slice(1);
   return runInside(profile, [VENDORS[profile.vendor].cli, ...args]);
+}
+
+// The vendor CLI routed through the profile's assigned bucket, the way its
+// desktop window is. The bucket's port changes whenever its worker restarts,
+// so a client that cannot be relaunched by Switchboard (T3 Code, a script)
+// points at this command instead of the wrapper file.
+export async function routedCommand(rest: string[], ctx: Context): Promise<number> {
+  const profile = resolveProfile(ctx.data, required(rest[0], 'Profile'));
+  if (profile.vendor !== 'codex' || !profile.proxyBucket)
+    throw refused(
+      'not-routed',
+      `${profile.id} is not a Codex profile assigned to a bucket`,
+      `switchboard assign ${profile.id} BUCKET`,
+    );
+  const args = rest[1] === '--' ? rest.slice(2) : rest.slice(1);
+  ensureDirs(profile);
+  const { CODEX_CLI_PATH: wrapper, ...secret } = await desktopEnvironment(profile, dirs(profile).home);
+  return runInherit(wrapper, args, { env: { ...execEnv(profile), ...secret } });
 }
 
 export async function terminalCommand(rest: string[], ctx: Context): Promise<void> {

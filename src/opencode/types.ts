@@ -1,12 +1,10 @@
 import { z } from 'zod';
+import { Upstream, OpaqueModelId } from '../buckets/upstream';
 import { ProfileId, Secrets } from '../storage';
 export { ProfileId, Secrets } from '../storage';
 
 export type ProfileId = z.infer<typeof ProfileId>;
-export const ModelId = z
-  .string()
-  .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]+$/)
-  .brand<'ModelId'>();
+export const ModelId = OpaqueModelId.brand<'ModelId'>();
 export type ModelId = z.infer<typeof ModelId>;
 // Native provider model names can contain slashes (e.g. an organization/model).
 export const ModelRef = z.union([ModelId, z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*\/[^\s]+$/)]);
@@ -45,6 +43,7 @@ const NativeAgents = z.object({
 });
 export const Profile = z.object({
   version: z.literal(1),
+  upstream: Upstream.optional(),
   id: ProfileId,
   name: z.string().min(1),
   createdAt: z.string(),
