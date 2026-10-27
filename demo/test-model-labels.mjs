@@ -20,11 +20,7 @@ async function models(labeled) {
   const wrapper = path.join(home, labeled ? 'labeled' : 'plain');
   await fs.writeFile(
     wrapper,
-    wrapperScript(
-      codexBinary(),
-      'http://127.0.0.1:9/v1',
-      labeled ? { bucket: 'AnswerThis', runtime, adapter } : undefined,
-    ),
+    wrapperScript(codexBinary(), 'http://127.0.0.1:9/v1', labeled ? { bucket: 'Acme', runtime, adapter } : undefined),
     { mode: 0o700 },
   );
   const child = spawn(

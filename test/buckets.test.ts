@@ -16,16 +16,16 @@ test('shared buckets reuse existing pool storage and credentials without adoptin
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-buckets-'));
   process.env.SWITCHBOARD_ROOT = temporary;
   try {
-    const legacy = profiles.create('AnswerThis');
+    const legacy = profiles.create('Acme');
     const key = profiles.secrets(legacy.id);
     expect(buckets.paths(legacy.id).auth).toBe(profiles.paths(legacy.id).auth);
     expect(buckets.paths(legacy.id).runtime).toBe(profiles.paths(legacy.id).runtime);
     expect(buckets.secrets(legacy.id)).toEqual(key);
-    expect(() => buckets.create('AnswerThis')).toThrow();
+    expect(() => buckets.create('Acme')).toThrow();
     const shared = buckets.create('Shared');
     expect(buckets.paths(shared.id).base).toBe(path.join(temporary, 'buckets', 'shared'));
     expect(() => profiles.create('Shared')).toThrow();
-    expect(buckets.list().map((b) => b.id)).toEqual(['answerthis', 'shared']);
+    expect(buckets.list().map((b) => b.id)).toEqual(['acme', 'shared']);
     expect(() => buckets.paths('../escape')).toThrow();
     fs.mkdirSync(path.join(temporary, 'buckets', legacy.id));
     expect(() => buckets.paths(legacy.id)).toThrow('Ambiguous');
@@ -77,9 +77,9 @@ test('each routed profile has one wrapper and one catalog, named for it', () => 
   const original = process.env.SWITCHBOARD_ROOT;
   process.env.SWITCHBOARD_ROOT = '/fixture-root';
   try {
-    expect(desktopRouting('codex-answerthis')).toEqual({
-      wrapper: '/fixture-root/desktop-routing/codex-codex-answerthis',
-      catalog: '/fixture-root/desktop-routing/models-codex-answerthis.json',
+    expect(desktopRouting('codex-acme')).toEqual({
+      wrapper: '/fixture-root/desktop-routing/codex-codex-acme',
+      catalog: '/fixture-root/desktop-routing/models-codex-acme.json',
     });
     // Desktop profile ids are slugs of any length, unlike bucket ids.
     expect(() => desktopRouting(`codex-${'a'.repeat(80)}`)).not.toThrow();

@@ -161,12 +161,9 @@ Mutable aliases retain their names. `x-test-1` is experimental/mutable, never a
 stable model identity; use an explicit per-run selection instead of a default for
 reproducible experiments. A mutable default requires `--allow-mutable-default`.
 
-For SoCLaaS, configured allowances and equivalent usage are reporting/fair-use
-settings, not subscription headroom or cash credits. The operators reported quotas
-were not enforced on October 11, 2026: https://t.me/c/4345150434/6. Display that date
-and attribution separately from refreshed `/api-key/budget` values. Continue to
-handle HTTP 429 normally. The mutable-model announcement is
-https://t.me/c/4345150434/7.
+An API bucket's configured allowances and equivalent usage are reporting or
+fair-use settings, not subscription headroom or cash credits. Whether a service
+enforces them is unknown; handle HTTP 429 normally.
 
 Codex routing remains explicit: `assign PROFILE BUCKET` affects that profile's next
 desktop launch and `routed PROFILE`; `cli PROFILE` retains the native provider.
@@ -176,11 +173,10 @@ Use `unassign PROFILE` to restore native desktop routing. Neither operation repl
 Codex's auth.json. Check installed Codex profile syntax before writing configuration:
 CLI 0.162.1 uses `--profile NAME` with `$CODEX_HOME/NAME.config.toml`, not the old
 nested `[profiles.NAME]` table. Switchboard's launch overrides need no profile-file
-edit. Preserve education logins and default routing unless explicitly asked.
+edit. Preserve existing logins and default routing unless explicitly asked.
 
 API profile rows report API health, not the native OAuth login. Missing accounting
-limits mean “not reported”, never zero usage or unlimited access. SoCLaaS's dated
-non-enforcement report stays separate from configured allowances and HTTP 429.
+limits mean “not reported”, never zero usage or unlimited access.
 The API adapter currently advertises no reasoning-effort choices; `oc effort`
 rejects API profiles. A generic Codex “Medium” label is not evidence of upstream
 thinking control. Verify capabilities before adding choices.

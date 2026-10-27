@@ -492,7 +492,7 @@ test('a checkout finds the band plugin it ships', () => {
 // file identifies this machine and this install.
 
 const GS = profiles.CODEX_GLOBAL_STATE;
-const ANSWER = { id: 'p-answer', name: 'answerThis', rootPaths: ['/w/answerThis'], createdAt: 1, updatedAt: 1 };
+const ANSWER = { id: 'p-answer', name: 'acmeWork', rootPaths: ['/w/acmeWork'], createdAt: 1, updatedAt: 1 };
 const AGENTS = { id: 'p-agents', name: 'agentfiles', rootPaths: ['/w/agentfiles'], createdAt: 2, updatedAt: 2 };
 const SOURCE_STATE = {
   'local-projects': { 'p-answer': ANSWER, 'p-agents': AGENTS },
@@ -515,7 +515,7 @@ const SOURCE_STATE = {
   'electron-local-remote-control-installation-id': 'this-machine',
   'app-server-projects-migration-by-host': { 'local:/src': { version: 1, projectsMigrated: true } },
   'app-server-project-id-by-legacy-project-id-by-host': { 'local:/src': { 'p-answer': 'srv-1' } },
-  'thread-writable-roots': { 't-wt': ['/w/answerThis'] },
+  'thread-writable-roots': { 't-wt': ['/w/acmeWork'] },
 };
 
 function writeSourceState(state = SOURCE_STATE) {
@@ -560,7 +560,7 @@ test('a project the profile re-added by hand keeps its id, and the source refere
   const data = profiles.load();
   const { profile } = profiles.add(data, { vendor: 'codex', name: 'Work' });
   const home = profiles.dirs(profile).home;
-  const own = { id: 'p-mine', name: 'answerThis', rootPaths: ['/w/answerThis'], createdAt: 9, updatedAt: 9 };
+  const own = { id: 'p-mine', name: 'acmeWork', rootPaths: ['/w/acmeWork'], createdAt: 9, updatedAt: 9 };
   fs.writeFileSync(
     path.join(home, GS),
     JSON.stringify({

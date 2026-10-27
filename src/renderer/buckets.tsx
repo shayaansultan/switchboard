@@ -137,13 +137,7 @@ function BucketPanel({ bucket, state }: { bucket: BucketView; state: State }) {
           {Object.entries(bucket.api?.accounting.values ?? {}).map(([name, value]) => (
             <div key={name}>{accountingLabel(name, value)}</div>
           ))}
-          <p>
-            {bucket.api?.enforcement.status === 'operator-reported-not-enforced'
-              ? 'Operators reported quotas were not enforced on ' +
-                bucket.api.enforcement.reportedAt +
-                '. HTTP 429 still applies.'
-              : 'Enforcement status is unknown.'}
-          </p>
+          <p>Enforcement status is unknown.</p>
           <p>Observed: {bucket.api?.observedAt ?? 'never'}. Refresh to check current status.</p>
           <details>
             <summary>Upstream models ({bucket.api?.models.length ?? 0})</summary>

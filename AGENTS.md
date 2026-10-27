@@ -79,6 +79,18 @@ bun run cli -- list --human     # the CLI straight from source
   screenshot capture and the Playwright end-to-end scripts. `docs/`: design
   notes and the README images. `build/`: icons and packaging assets.
 
+## The repository is public
+
+Everything tracked, including tests, fixtures, docs and the app-owned agent
+guide in `skills/`, ships to everyone. Never commit links into private chats,
+real email addresses, home folders, client or employer names, signing
+identities, or notes about one person's own setup (their accounts, their
+school's services, what someone said in a private group). Fixtures use
+example domains (`you@example.com`) and placeholder people (`me`, `someone`).
+`test/public-repo.test.ts` fails on the common patterns; private names that
+cannot be written down here go in `~/.config/switchboard/private-words`,
+which that test also reads.
+
 ## Conventions the tools do not enforce
 
 - Every colour is a token in `src/design/tokens.css`, shared by the window

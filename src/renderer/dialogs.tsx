@@ -442,7 +442,7 @@ export function BucketDialog({ open, onClose }: { open: boolean; onClose: () => 
           <>
             <label>
               Base URL
-              <input name="baseUrl" type="url" required placeholder="https://soclaas-api.comp.nus.edu.sg/v1" />
+              <input name="baseUrl" type="url" required placeholder="https://api.example.com/v1" />
             </label>
             <label>
               Protocol

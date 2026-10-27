@@ -127,11 +127,9 @@ test('API bucket persists only references; discovery preserves aliases, redacts 
     expect(result.models[1].mutable).toBe(true);
     expect(result.accounting.values?.requests_per_minute).toBe(17);
     expect(JSON.stringify(result)).not.toContain('fixture-secret');
-    expect(result.enforcement.status).toBe('unknown');
     emptyAccounting = true;
     const noLimits = await inspectUpstream(upstream);
     expect(noLimits.accounting).toEqual({ status: 'ok', httpStatus: 200, values: {} });
-    expect(noLimits.enforcement.status).toBe('unknown');
     emptyAccounting = false;
     const config = proxyConfig(bucket.id, 12345, result.models);
     expect(fs.statSync(config).mode & 0o777).toBe(0o600);
