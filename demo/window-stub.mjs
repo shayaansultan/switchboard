@@ -122,6 +122,7 @@ export async function usageReports(ranges = [7, 30, 90]) {
 export function serveRenderer({ port = 0, inject = null } = {}) {
   return Bun.serve({
     port,
+    hostname: '127.0.0.1',
     async fetch(req) {
       const p = new URL(req.url).pathname;
       if (inject && p === '/__bridge.js')

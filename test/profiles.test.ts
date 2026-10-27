@@ -688,3 +688,13 @@ test('the Default Codex home is never written to when it is the target of nothin
   profiles.add(data, { vendor: 'codex', name: 'Work', sourceId: 'codex-default', items: ['history'], mode: 'copy' });
   expect(fs.readFileSync(path.join(CODEX_HOME, GS), 'utf8')).toBe(before);
 });
+
+test('a bad plan price from the window changes nothing about the profile', () => {
+  const data = profiles.load();
+  const p = profiles.add(data, { vendor: 'claude', name: 'Priced' }).profile;
+  for (const bad of [NaN, -1, 20_000, 'abc' as unknown as number])
+    expect(() => profiles.update(data, p.id, { name: 'Renamed', planPrice: bad })).toThrow();
+  expect(p.name).toBe('Priced');
+  expect(profiles.update(data, p.id, { planPrice: 19.999 }).planPrice).toBe(20);
+  expect(profiles.update(data, p.id, { planPrice: null })).not.toHaveProperty('planPrice');
+});

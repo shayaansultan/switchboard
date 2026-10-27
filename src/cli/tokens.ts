@@ -171,7 +171,7 @@ export function digestCommand(rest: string[], ctx: Context, dir = USAGE_DIR, now
         : '';
     const where = d.hits.map((h) => `${name(h.profile)} ${h.label}, ${day(dayOf(Date.parse(h.at)))}`).join('; ');
     const hits = d.limitHits
-      ? `Limits: hit ${d.limitHits === 1 ? 'once' : `${d.limitHits} times`}${where ? ` (${where})` : ''}, waited ${hm(d.waitedMs)}`
+      ? `Limits: hit ${d.limitHits === 1 ? 'once' : `${d.limitHits} times`}${where ? ` (${d.hits.length < d.limitHits ? 'including ' : ''}${where})` : ''}, waited ${hm(d.waitedMs)}`
       : 'Limits: none hit';
     return [
       `Week of ${day(d.from)} to ${day(d.to)}`,

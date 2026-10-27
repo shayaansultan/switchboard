@@ -7,7 +7,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { planCostOver } from '../shared/usage';
 import type { UsageReport } from '../types';
-import { dayOf, DAY_MS } from './ledger';
+import { dayOf } from './ledger';
 
 export interface Digest {
   // The week's first and last day, local dates.
@@ -60,7 +60,10 @@ export function buildDigest(report: UsageReport, plans: Record<string, number | 
     .filter((b) => b.hitAt && Date.parse(b.hitAt) >= fromMs)
     .map((b) => ({ profile: b.profile, label: b.label, at: b.hitAt as string }))
     .sort((a, b) => b.at.localeCompare(a.at));
-  const twoWeeksBack = dayOf(fromMs - 7 * DAY_MS);
+  // By the calendar, so a week that loses an hour to daylight saving does not ask for a day more.
+  const back = new Date(fromMs);
+  back.setDate(back.getDate() - 7);
+  const twoWeeksBack = dayOf(back.getTime());
   return {
     from,
     to,

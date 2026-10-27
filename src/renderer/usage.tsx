@@ -319,7 +319,8 @@ function Forecast({ state, report }: { state: State; report: UsageReport }) {
   const setDismissed = (d: Dismissed) => setDismissedState((dismissedForecast = d));
   if (!f || sameWarning(dismissed, f) || !known(state, f.profile)) return null;
   const early = Date.parse(f.resetsAt) - Date.parse(f.fullAt);
-  const gap = early >= 3_600_000 ? 'over an hour' : `${Math.round(early / 60_000)} minutes`;
+  const minutes = Math.max(1, Math.round(early / 60_000));
+  const gap = early >= 3_600_000 ? 'over an hour' : minutes === 1 ? 'a minute' : `${minutes} minutes`;
   const alt = f.alternative;
   const other = alt ? profileById(state, alt.profile) : undefined;
   const otherName = other ? profileName(state, other.id) : '';
@@ -332,7 +333,7 @@ function Forecast({ state, report }: { state: State; report: UsageReport }) {
           resets at {clock(f.resetsAt)}.
         </b>
         <span>
-          {paceWords(f.pace) ? `${paceWords(f.pace)}.` : ''}
+          {paceWords(f.pace, true) ? `${paceWords(f.pace, true)}.` : ''}
           {alt && other ? ` ${otherName} has ${100 - alt.pct}% of its ${alt.label} window left.` : ''}
         </span>
       </div>
@@ -360,7 +361,10 @@ function Forecast({ state, report }: { state: State; report: UsageReport }) {
   );
 }
 
-function paceWords(pace: number | null): string {
+// `early` is whether the shared pace says the window runs out before it
+// resets; then it is ahead however the points round.
+function paceWords(pace: number | null, early: boolean): string {
+  if (pace !== null && early && pace < 3) return 'Just ahead of an even pace';
   if (pace === null || Math.abs(pace) < 3) return pace === null ? '' : 'On an even pace';
   return pace > 0 ? `${pace} points ahead of an even pace` : `${-pace} points behind an even pace`;
 }
@@ -373,7 +377,7 @@ function AccountCard({ state, id, t }: { state: State; id: string; t: WindowPace
   const shown = (pct: number) => shownPct(pct, remaining);
   const tipLines =
     t && t.pace !== null
-      ? [paceWords(t.pace), `The tick is where an even burn across the ${t.label} window would be now.`]
+      ? [paceWords(t.pace, !!t.runsOutAt), `The tick is where an even burn across the ${t.label} window would be now.`]
       : null;
   const tip = useTip(tipLines);
   return (
@@ -783,6 +787,9 @@ function PlanPrice({ id, monthly }: { id: string; monthly: number | undefined })
     if (done) return;
     done = true;
     setEditing(false);
+    // Text the field cannot read ("1e", "-") reads back as empty; keep the
+    // price rather than clearing it.
+    if (input && (input.validity.badInput || !input.checkValidity())) input = null;
     const text = input?.value.trim() ?? '';
     const next = input === null ? (monthly ?? null) : text === '' ? null : Number(text);
     if (next !== (monthly ?? null)) void act(() => window.sb.updateProfile(id, { planPrice: next }));

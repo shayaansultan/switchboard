@@ -311,6 +311,9 @@ function sendDigest(): void {
       history.report(liveProfiles(), 7, lastWeekEnd(now)),
       Object.fromEntries(data.profiles.map((p) => [p.id, p.planPrice])),
     );
+    // Marked first: a marker that cannot be written must not repeat the
+    // notification at every poll.
+    markDigest(USAGE_DIR, week);
     if (d.ready) {
       const note = digestNote(d, (id) => {
         const p = data.profiles.find((x) => x.id === id);
@@ -318,7 +321,6 @@ function sendDigest(): void {
       });
       new Notification({ title: note.title, body: note.body }).show();
     }
-    markDigest(USAGE_DIR, week);
   } catch {
     /* as above: the next poll tries again */
   }

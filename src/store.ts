@@ -345,10 +345,13 @@ export function move(data: Store, id: string, delta: number): boolean {
 export function update(data: Store, id: string, patch: ProfilePatch): Profile {
   const p = data.profiles.find((x) => x.id === id);
   if (!p) throw new Error('no such profile');
+  // Checked before anything changes, so a bad price leaves the profile as it was.
+  const price =
+    patch.planPrice === null || patch.planPrice === undefined ? patch.planPrice : planPrice(patch.planPrice);
   if (typeof patch.name === 'string' && patch.name.trim()) p.name = patch.name.trim();
   if (typeof patch.color === 'string') p.color = patch.color;
-  if (patch.planPrice === null) delete p.planPrice;
-  else if (patch.planPrice !== undefined) p.planPrice = planPrice(patch.planPrice);
+  if (price === null) delete p.planPrice;
+  else if (price !== undefined) p.planPrice = price;
   save(data);
   return p;
 }
