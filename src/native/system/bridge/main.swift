@@ -1,14 +1,16 @@
-// The fan bridge: the process Switchboard's main process starts to reach the
-// fan helper, the same way it starts app-events. It lives in Contents/MacOS
-// so Bundle.main is the app and SMAppService finds the helper's plist there.
+// The system bridge: the process Switchboard's main process starts to reach
+// the system helper, the same way it starts app-events. It lives in
+// Contents/MacOS so Bundle.main is the app and SMAppService finds the
+// helper's plist there.
 //
 // It speaks JSON lines on stdin and stdout: each request carries an `id`,
-// and its reply carries the same id. Fan readings come straight from the SMC,
-// which needs no root, so the window can show speeds before the helper is
-// installed. Only set and system go through the helper. While the helper is
-// holding a speed, the bridge sends it a heartbeat every second; when stdin
-// closes (Switchboard quit or crashed) the bridge exits, the connection ends,
-// and the helper hands the fans back to macOS.
+// and its reply carries the same id. Fan readings, the sleep setting, the
+// battery and whether there is a lid need no root, so they come straight
+// from the bridge and the window can show them before the helper is
+// installed. Holds go through the helper: a fan boost and a lid-closed sleep
+// hold. While either is held, the bridge sends a heartbeat every second;
+// when stdin closes (Switchboard quit or crashed) the bridge exits, the
+// connection ends, and the helper gives both back to macOS.
 import Foundation
 import ServiceManagement
 
@@ -22,14 +24,14 @@ func object(_ data: Data) -> [String: Any] {
 }
 
 let team = ownSigningTeam()
-let service = SMAppService.daemon(plistName: FanNames.plist)
+let service = SMAppService.daemon(plistName: SystemNames.plist)
 let smc = try? SMC()
 let temperature = smc.map(CPUTemperature.init)
 
 // A plist that has never been registered also reads as notFound, so only a
 // bundle without the plist (a checkout run) is "not packaged".
 let packaged = FileManager.default.fileExists(
-  atPath: Bundle.main.bundleURL.appendingPathComponent("Contents/Library/LaunchDaemons/\(FanNames.plist)").path)
+  atPath: Bundle.main.bundleURL.appendingPathComponent("Contents/Library/LaunchDaemons/\(SystemNames.plist)").path)
 
 func serviceName() -> String {
   switch service.status {
@@ -48,21 +50,21 @@ final class Helper {
   private var holding = false
   private let lock = NSLock()
 
-  private func proxy(_ failed: @escaping (Error) -> Void) -> FanHelperProtocol? {
+  private func proxy(_ failed: @escaping (Error) -> Void) -> SystemHelperProtocol? {
     lock.lock()
     defer { lock.unlock() }
     guard let team else { return nil }
     if connection == nil {
-      let next = NSXPCConnection(machServiceName: FanNames.helper, options: .privileged)
-      next.remoteObjectInterface = NSXPCInterface(with: FanHelperProtocol.self)
+      let next = NSXPCConnection(machServiceName: SystemNames.helper, options: .privileged)
+      next.remoteObjectInterface = NSXPCInterface(with: SystemHelperProtocol.self)
       // Talk only to our own helper, never to something squatting on the name.
-      next.setCodeSigningRequirement(FanNames.requirement(identifier: FanNames.helper, team: team))
+      next.setCodeSigningRequirement(SystemNames.requirement(identifier: SystemNames.helper, team: team))
       next.interruptionHandler = { [weak self] in self?.lost() }
       next.invalidationHandler = { [weak self] in self?.lost() }
       next.resume()
       connection = next
     }
-    return connection?.remoteObjectProxyWithErrorHandler(failed) as? FanHelperProtocol
+    return connection?.remoteObjectProxyWithErrorHandler(failed) as? SystemHelperProtocol
   }
 
   private func lost() {
@@ -75,7 +77,7 @@ final class Helper {
   }
 
   /// One round trip, bounded, failing fast when the helper can't be reached.
-  func call(_ body: (FanHelperProtocol, @escaping (Data) -> Void) -> Void) -> [String: Any] {
+  func call(_ body: (SystemHelperProtocol, @escaping (Data) -> Void) -> Void) -> [String: Any] {
     let done = DispatchSemaphore(value: 0)
     var result: [String: Any] = ["error": "helper-unavailable"]
     let finish: ([String: Any]) -> Void = { value in
@@ -94,7 +96,8 @@ final class Helper {
   private func track(_ status: [String: Any]) {
     guard status["error"] as? String != "helper-unavailable" else { return }
     lock.lock()
-    holding = status["controlling"] as? Bool ?? false
+    let awake = status["awake"] as? [String: Any]
+    holding = (status["controlling"] as? Bool ?? false) || (awake?["held"] as? Bool ?? false)
     let drop = !holding ? connection : nil
     if drop != nil { connection = nil }
     lock.unlock()
@@ -107,7 +110,11 @@ final class Helper {
     lock.unlock()
     guard active else { return }
     let status = call { helper, reply in helper.heartbeat(reply: reply) }
-    if status["controlling"] as? Bool == false { send(["event": "status", "status": status]) }
+    // A hold the helper ended on its own: say so, so the app asks why.
+    let awake = status["awake"] as? [String: Any]
+    if status["controlling"] as? Bool == false || awake?["held"] as? Bool == false {
+      send(["event": "status"])
+    }
   }
 }
 
@@ -129,6 +136,9 @@ func handle(_ request: [String: Any]) -> [String: Any] {
   case "state":
     var reply = readings()
     reply["helper"] = team == nil ? "unsigned" : serviceName()
+    reply["lid"] = hasLid()
+    reply["sleepDisabled"] = sleepDisabled()
+    if let power = battery() { reply["battery"] = ["percent": power.percent, "onBattery": power.onBattery] }
     return reply
   case "install":
     do { try service.register() } catch {
@@ -153,6 +163,13 @@ func handle(_ request: [String: Any]) -> [String: Any] {
     return helper.call { helper, reply in helper.setLevel(level, seconds: seconds, reply: reply) }
   case "system":
     return helper.call { helper, reply in helper.restoreSystem(reply: reply) }
+  case "awake-hold":
+    guard let seconds = request["seconds"] as? Int else { return ["error": "invalid-request"] }
+    return helper.call { helper, reply in helper.holdAwake(seconds: seconds, reply: reply) }
+  case "awake-release":
+    return helper.call { helper, reply in helper.releaseAwake(reply: reply) }
+  case "sleep-clear":
+    return helper.call { helper, reply in helper.clearSleepDisabled(reply: reply) }
   default:
     return ["error": "invalid-request"]
   }

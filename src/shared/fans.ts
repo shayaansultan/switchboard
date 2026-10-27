@@ -77,17 +77,17 @@ export const STOP_TEXT: Record<FanStop, string> = {
   sleep: 'the Mac went to sleep',
   'system-took-over': 'macOS took the fans back',
   'thermal-pressure': 'the Mac reported serious thermal pressure',
-  'helper-stopped': 'the fan helper was stopped, as at restart or shutdown',
-  recovery: 'the fan helper restarted',
+  'helper-stopped': 'the system helper was stopped, as at restart or shutdown',
+  recovery: 'the system helper restarted',
   'control-failed': 'the fans did not take the requested speed',
 };
 
 export const NOTICE_TEXT: Record<FanNotice, string> = {
   'already-controlled': 'Another app is controlling the fans. Quit it, or set it back to automatic, then check again.',
   'control-failed': 'The fans didn’t take that speed, so macOS kept control.',
-  'install-failed': 'macOS did not install the fan helper.',
-  'remove-failed': 'macOS did not remove the fan helper.',
-  'helper-unavailable': 'Could not reach the fan helper.',
+  'install-failed': 'macOS did not install the system helper.',
+  'remove-failed': 'macOS did not remove the system helper.',
+  'helper-unavailable': 'Could not reach the system helper.',
   'needs-approval':
     'Turn on Switchboard under Allow in the Background in System Settings › General › Login Items & Extensions. The boost starts once it’s allowed.',
 };
@@ -97,7 +97,7 @@ export const UNAVAILABLE_TEXT: Record<FanUnavailable, string> = {
   unsigned:
     'Fan control needs Switchboard signed with a certificate: reinstall with SWITCHBOARD_SIGN_IDENTITY set (see the README).',
   'not-packaged': 'Fan control needs the installed app; a checkout run can only read fan speeds.',
-  'no-bridge': 'This build of Switchboard has no fan bridge.',
+  'no-bridge': 'This build of Switchboard has no system bridge.',
 };
 
 /** One or two lines for `switchboard fans --human`. */
@@ -113,8 +113,8 @@ export function describeFans(state: FanState, now = Date.now()): string {
     mode = `boosting at ${state.level}% ${left}`;
   }
   const lines = [`Fans: ${mode} · ${speeds}${heat}`];
-  if (state.helper !== 'installed') lines.push(`Fan helper: ${state.helper.replace('-', ' ')}`);
-  if (state.queued) lines.push('A boost is waiting for the fan helper to be allowed.');
+  if (state.helper !== 'installed') lines.push(`System helper: ${state.helper.replace('-', ' ')}`);
+  if (state.queued) lines.push('A boost is waiting for the system helper to be allowed.');
   if (state.stop) lines.push(`Boost ended because ${STOP_TEXT[state.stop]}.`);
   if (state.notice) lines.push(NOTICE_TEXT[state.notice]);
   return lines.join('\n');

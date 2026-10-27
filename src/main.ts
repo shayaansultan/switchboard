@@ -9,6 +9,7 @@ import {
   clipboard,
   dialog,
   powerMonitor,
+  powerSaveBlocker,
   shell,
   systemPreferences,
 } from 'electron';
@@ -27,8 +28,10 @@ import * as buckets from './buckets';
 import { shellQuote } from './shell';
 import { writeJson } from './storage';
 import { z } from 'zod';
-import { AwakeController, isAwakeValue, macAwakeSystem } from './awake';
-import { FanController, spawnFanBridge } from './fans';
+import { CaffeinateController, type SleepBlocker } from './caffeinate';
+import { FanController } from './fans';
+import { spawnSystemBridge } from './system-bridge';
+import { isCaffeinateMinutes } from './shared/caffeinate';
 import { isFanLevel, isFanMinutes } from './shared/fans';
 import { barPng, meterPng, stripPng } from './trayart';
 import { composeTrayText, type TrayText } from './tray-status';
@@ -99,16 +102,29 @@ async function measureItemSizes(): Promise<void> {
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 const data: Store = profiles.load();
-const awake = new AwakeController(macAwakeSystem, (state) => {
-  if (win && !win.isDestroyed()) win.webContents.send('awake:state', state);
+// The system bridge sits beside the app's executable in Contents/MacOS, where
+// SMAppService looks for the helper's plist; a checkout run uses out/.
+const systemBridge = spawnSystemBridge(
+  app.isPackaged
+    ? path.join(path.dirname(process.execPath), 'system-bridge')
+    : path.join(__dirname, 'native', 'system-bridge'),
+);
+// One power assertion at a time; macOS drops it when Switchboard quits.
+let blockerId: number | null = null;
+const sleepBlocker: SleepBlocker = {
+  start(screen) {
+    blockerId = powerSaveBlocker.start(screen ? 'prevent-display-sleep' : 'prevent-app-suspension');
+  },
+  stop() {
+    if (blockerId !== null && powerSaveBlocker.isStarted(blockerId)) powerSaveBlocker.stop(blockerId);
+    blockerId = null;
+  },
+};
+const caffeinate = new CaffeinateController(systemBridge, sleepBlocker, (state) => {
+  if (win && !win.isDestroyed()) win.webContents.send('caffeinate:state', state);
   rebuildTray();
 });
-// The fan bridge sits beside the app's executable in Contents/MacOS, where
-// SMAppService looks for the helper's plist; a checkout run uses out/.
-const fanBridge = spawnFanBridge(
-  app.isPackaged ? path.join(path.dirname(process.execPath), 'fan-bridge') : path.join(__dirname, 'fan-bridge'),
-);
-const fans = new FanController(fanBridge, (state) => {
+const fans = new FanController(systemBridge, (state) => {
   if (win && !win.isDestroyed()) win.webContents.send('fans:state', state);
   rebuildTray();
 });
@@ -252,7 +268,7 @@ function byVendor<T>(fn: (v: Vendor) => T): Record<Vendor, T> {
 
 function stateSnapshot(): State {
   return {
-    awake: awake.snapshot(),
+    caffeinate: caffeinate.snapshot(),
     fans: fans.snapshot(),
     buckets: bucketViews,
     bucketsError,
@@ -641,7 +657,7 @@ function createWindow(): BrowserWindow {
   });
   w.on('focus', () => {
     noteInteraction();
-    void awake.refresh();
+    void caffeinate.refresh();
     desktopWatch.poke();
   });
   w.on('show', () => {
@@ -738,17 +754,15 @@ function rebuildTray(): void {
   const usageText = refreshTrayIcon();
   const remaining = data.settings.usageMode === 'remaining';
   const items: Electron.MenuItemConstructorOptions[] = [];
-  const awakeState = awake.snapshot();
-  const isAwake = awakeState.status === 'ready' && awakeState.value === 'on';
-  const text = composeTrayText(usageText, awakeState);
+  const awake = caffeinate.snapshot();
+  const text = composeTrayText(usageText, awake);
   tray.setTitle(text.title);
   tray.setToolTip(text.tooltip);
   items.push({
-    label:
-      awakeState.status === 'changing' ? 'Changing sleep setting…' : isAwake ? 'Turn keep awake off' : 'Keep awake…',
-    enabled: awakeState.status !== 'changing',
+    label: awake.active ? 'Decaf now' : 'Caffeinate…',
+    enabled: !awake.busy,
     click: () => {
-      if (isAwake) void awake.set('off');
+      if (awake.active) void caffeinate.stop();
       else showWindow();
     },
   });
@@ -867,15 +881,34 @@ function validateSender(event: Electron.IpcMainInvokeEvent): void {
   }
 }
 
-ipcMain.handle('awake:set', (event, value: unknown) => {
+ipcMain.handle('caffeinate:refresh', (event) => {
   validateSender(event);
-  if (!isAwakeValue(value)) throw new Error('Invalid keep-awake value');
-  return awake.set(value);
+  return caffeinate.refresh();
 });
-ipcMain.handle('awake:refresh', (event, reason: unknown) => {
+ipcMain.handle('caffeinate:start', (event, minutes: unknown, screen: unknown, lid: unknown) => {
   validateSender(event);
-  if (reason !== 'observe' && reason !== 'recheck') throw new Error('Invalid keep-awake refresh');
-  return awake.refresh(reason);
+  if (!isCaffeinateMinutes(minutes) || typeof screen !== 'boolean' || typeof lid !== 'boolean')
+    throw new Error('Invalid Caffeinate request');
+  return caffeinate.start(minutes, { screen, lid });
+});
+ipcMain.handle('caffeinate:action', (event, action: unknown) => {
+  validateSender(event);
+  switch (action) {
+    case 'stop':
+      return caffeinate.stop();
+    case 'extend':
+      return caffeinate.extend();
+    case 'dismiss':
+      return caffeinate.dismiss();
+    case 'cancel':
+      return caffeinate.cancel();
+    case 'clear':
+      return caffeinate.clear();
+    case 'login-items':
+      return caffeinate.openLoginItems();
+    default:
+      throw new Error('Invalid Caffeinate action');
+  }
 });
 ipcMain.handle('fans:refresh', (event) => {
   validateSender(event);
@@ -1287,10 +1320,13 @@ app.whenReady().then(async () => {
       const next = profiles.readIfChanged();
       if (next) applyReload(next);
       switch (command.command) {
-        case 'awake': {
-          if (command.action === 'on' || command.action === 'off') await awake.set(command.action);
-          else await awake.refresh(command.action === 'recheck' ? 'recheck' : 'observe');
-          return awake.snapshot();
+        case 'caffeinate': {
+          const { action, minutes, screen, lid } = command;
+          if (action === 'start') await caffeinate.start(minutes, { screen, lid });
+          else if (action === 'extend') await caffeinate.extend(minutes);
+          else if (action === 'status') await caffeinate.refresh();
+          else await caffeinate[action]();
+          return caffeinate.snapshot();
         }
         case 'fans': {
           if (command.action === 'set') await fans.set(command.level ?? -1, command.minutes ?? -1);
@@ -1322,16 +1358,16 @@ app.whenReady().then(async () => {
   await launch.adoptLoginShellPath();
   applyAppearance();
   if (!BACKGROUND) createTray();
-  void awake.refresh();
-  // Reads only. The toggle remains a macOS setting when Switchboard exits.
-  const awakePoll = setInterval(() => void awake.refresh(), 15_000);
-  awakePoll.unref();
-  powerMonitor.on('resume', () => void awake.refresh());
-  // The helper hands the fans back on sleep; read why once awake again.
+  // The helper ends a boost on sleep; read why once awake again.
+  void caffeinate.refresh();
   void fans.refresh();
-  powerMonitor.on('resume', () => void fans.refresh());
-  // Closing the bridge ends its connection, and the helper hands the fans back.
-  app.on('will-quit', () => fanBridge?.close());
+  powerMonitor.on('resume', () => {
+    void caffeinate.refresh();
+    void fans.refresh();
+  });
+  // Closing the bridge ends its connection, and the helper gives back any
+  // boost or lid-closed hold; the power assertion goes with the process.
+  app.on('will-quit', () => systemBridge?.close());
   // Launched at login: stay in the menu bar, don't pop the window.
   const hidden = app.getLoginItemSettings().wasOpenedAtLogin;
   if (!hidden) createWindow();

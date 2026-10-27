@@ -119,9 +119,18 @@ Switchboard. Say "phone access", not "remote" or
 
 Boosting the Mac's fans for a short while. A **boost** holds every fan at a
 **speed** (a percentage of each fan's range) for a **time limit**, or until
-stopped; otherwise **macOS controls the fans**. The **fan helper** is the root
-process that writes the speed, installed once after the person allows it in
-Login Items; the **fan bridge** is the child process the app talks to it
+stopped; otherwise **macOS controls the fans**. The **system helper** is the
+root process that writes the speed, installed once after the person allows it
+in Login Items; the **system bridge** is the child process the app talks to it
 through. When the helper ends a boost on its own, the window says why the
 **boost ended**. Say "boost", "fans" and "speed" in the window, not
 "manual", "RPM control" or "cooling".
+
+## Caffeinate
+
+Keeping the Mac awake for a while. **Caffeinated** is a running session;
+**Decaf** is the resting state, when the Mac sleeps as usual, and **Decaf
+now** ends a session. A session may keep **the screen on too**, and **also
+with the lid closed**, which is the system helper's **lid-closed hold** on
+macOS's sleep setting. Say "Caffeinate" and "Decaf" in the window, not "Keep
+awake" or "Amphetamine".

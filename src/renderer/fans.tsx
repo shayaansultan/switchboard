@@ -114,10 +114,10 @@ export function FanControl() {
   if (ready?.queued && ready.notice === 'needs-approval') {
     body = (
       <>
-        <div class="fans-note warn" role="status">
+        <div class="pop-note warn" role="status">
           <span>{NOTICE_TEXT['needs-approval']}</span>
         </div>
-        <div class="fans-buttons">
+        <div class="pop-buttons">
           <Btn variant="secondary" onClick={run('cancel')}>
             Cancel
           </Btn>
@@ -131,13 +131,13 @@ export function FanControl() {
     const share = ready.limit && left !== null ? Math.min(1, left / ready.limit) : 1;
     body = (
       <>
-        <div class="fans-boosting" role="status">
-          <div class="fans-boosting-row">
+        <div class="pop-card warm" role="status">
+          <div class="pop-card-row">
             <b>Boosting at {held}%</b>
             <span>{left !== null ? `${left} min left` : 'until you stop'}</span>
           </div>
           {left !== null ? (
-            <div class="fans-drain" aria-hidden="true">
+            <div class="pop-drain" aria-hidden="true">
               <span style={{ width: `${Math.round(share * 100)}%` }} />
             </div>
           ) : null}
@@ -148,7 +148,7 @@ export function FanControl() {
           onInput={setDraft}
           onCommit={(level) => void act(() => window.sb.adjustFans(level))}
         />
-        <div class="fans-buttons">
+        <div class="pop-buttons">
           {left !== null ? (
             <Btn id="fans-extend" variant="secondary" disabled={busy} onClick={run('extend')}>
               +15 min
@@ -168,24 +168,24 @@ export function FanControl() {
     if (busy) start = 'Starting boost…';
     body = (
       <>
-        <p class="fans-line">
+        <p class="pop-line">
           <span class={`dot ${foreign ? 'warn' : 'on'}`} aria-hidden="true" />
           {foreign ? 'Another app is controlling the fans' : 'macOS is controlling the fans'}
         </p>
         {ready.stop ? (
-          <div class="fans-note" role="status">
+          <div class="pop-note" role="status">
             <span>Boost ended because {STOP_TEXT[ready.stop]}.</span>
-            <button type="button" class="fans-dismiss" aria-label="Dismiss" onClick={run('dismiss')}>
+            <button type="button" class="pop-dismiss" aria-label="Dismiss" onClick={run('dismiss')}>
               ×
             </button>
           </div>
         ) : null}
         {ready.notice ? (
-          <div class={`fans-note ${ready.notice === 'control-failed' ? 'bad' : 'warn'}`} id="fans-notice" role="alert">
+          <div class={`pop-note ${ready.notice === 'control-failed' ? 'bad' : 'warn'}`} id="fans-notice" role="alert">
             <span>{NOTICE_TEXT[ready.notice]}</span>
           </div>
         ) : null}
-        <section class="fans-boost" aria-labelledby="fans-boost-heading">
+        <section class="pop-section" aria-labelledby="fans-boost-heading">
           <h3 id="fans-boost-heading">Boost</h3>
           {ready.helper !== 'installed' ? (
             <p class="hint">
@@ -201,7 +201,7 @@ export function FanControl() {
             disabled={busy || foreign}
             onChange={setDuration}
           />
-          <div class="fans-buttons">
+          <div class="pop-buttons">
             {foreign ? (
               <Btn variant="secondary" onClick={(e) => act(() => window.sb.refreshFans(), e.currentTarget)}>
                 Check again
@@ -227,7 +227,7 @@ export function FanControl() {
         type="button"
         id="fans-toggle"
         ref={toggle}
-        class={`ghost ${held !== null ? 'is-boosted' : ''}`}
+        class={`ghost title-toggle ${held !== null ? 'is-warm' : ''}`}
         popovertarget="fans-popover"
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -238,16 +238,26 @@ export function FanControl() {
         <span class="lbl">{label}</span>
         <Icon name="chevron" size={14} class="chev" />
       </button>
-      <div id="fans-popover" popover="auto" role="dialog" aria-labelledby="fans-heading" aria-busy={busy} ref={popover}>
-        <div class="awake-heading-row">
+      <div
+        id="fans-popover"
+        class="title-popover"
+        popover="auto"
+        role="dialog"
+        aria-labelledby="fans-heading"
+        aria-busy={busy}
+        ref={popover}
+      >
+        <div class="title-popover-head">
           <h2 id="fans-heading">Fans</h2>
-          <span class="fans-temp">{ready?.temperature != null ? `CPU ${Math.round(ready.temperature)} °C` : ''}</span>
+          <span class="title-popover-meta">
+            {ready?.temperature != null ? `CPU ${Math.round(ready.temperature)} °C` : ''}
+          </span>
           <button
             type="button"
             popovertarget="fans-popover"
             popovertargetaction="hide"
             aria-label="Close fans"
-            class="awake-close"
+            class="title-popover-close"
           >
             ×
           </button>

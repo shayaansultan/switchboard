@@ -9,7 +9,21 @@ import { root } from './storage';
 import { CliError, classify, refused } from './cli/output';
 
 export const AppCommand = z.discriminatedUnion('command', [
-  z.object({ command: z.literal('awake'), action: z.enum(['status', 'on', 'off', 'recheck']) }).strict(),
+  z
+    .object({
+      command: z.literal('caffeinate'),
+      action: z.enum(['status', 'start', 'extend', 'stop', 'dismiss', 'cancel', 'clear']),
+      minutes: z.number().int().min(0).max(1440).optional(),
+      screen: z.boolean().optional(),
+      lid: z.boolean().optional(),
+    })
+    .strict()
+    .refine(
+      (c) =>
+        (c.action === 'start' || c.action === 'extend' || c.minutes === undefined) &&
+        (c.action === 'start' || (c.screen === undefined && c.lid === undefined)),
+      { message: 'start takes minutes, screen and lid; extend takes minutes; other actions take none' },
+    ),
   z
     .object({
       command: z.literal('fans'),

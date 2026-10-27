@@ -1,5 +1,5 @@
 // The smallest SMC client fan control needs. Reads work as any user; writes
-// need root, so only the fan helper calls write. Layout mirrors the C
+// need root, so only the system helper calls write. Layout mirrors the C
 // SMCParamStruct (80 bytes); Swift packs a nested struct by size, not stride,
 // so KeyInfo carries explicit padding or every field after it shifts.
 import Foundation

@@ -46,60 +46,55 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 }
 .titlebar .actions { -webkit-app-region: no-drag; display: flex; gap: 8px; margin-left: auto; }
 .brand { font-weight: 600; font-size: 15px; }
-#awake-toggle { white-space: nowrap; }
-#awake-toggle .ico.chev { width: 14px; height: 14px; }
-#awake-toggle.is-awake { color: var(--run-text); }
-#awake-toggle.needs-attention { color: var(--warn-text); border-color: var(--warn); background: var(--btn-bg); }
-#awake-popover {
-  position: fixed; inset: auto; margin: 0; width: 320px; max-width: calc(100vw - 16px);
-  max-height: calc(100vh - 76px); overflow: auto; padding: 16px 20px;
-  background: var(--panel); color: var(--text); border: 1px solid var(--line);
-  border-radius: 12px; box-shadow: var(--shadow-2);
-}
-.awake-heading-row { display: flex; align-items: center; justify-content: space-between; }
-.awake-heading-row h2 { margin: 0; font-size: 15px; font-weight: 600; }
-.awake-close { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; padding: 0; font-size: 18px; }
-#awake-status { font-weight: 550; margin: 10px 0; }
-#awake-notice { color: var(--muted); margin: 12px 0 0; }
-#awake-error { color: var(--bad-text); margin: 12px 0 0; }
-.awake-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-/* Fans: Keep awake's popover holding a boost. Idle shows who controls the
-   fans and the boost set-up; a running boost is a warm card with a
-   countdown. Warm text on the button while a boost runs. */
-#fans-toggle { white-space: nowrap; }
-#fans-toggle[hidden] { display: none; }
-#fans-toggle .ico.chev { width: 14px; height: 14px; }
-#fans-toggle.is-boosted { color: var(--warn-text); }
-#fans-popover {
+/* The title bar's popovers (Caffeinate, Fans): a button that shows the state
+   without opening it, and a panel under it. A session that is running is a
+   card with a countdown: green for Caffeinate, warm for a fan boost. */
+.title-toggle { white-space: nowrap; }
+.title-toggle[hidden] { display: none; }
+.title-toggle .ico.chev { width: 14px; height: 14px; }
+.title-toggle.is-on { color: var(--run-text); }
+.title-toggle.is-warm { color: var(--warn-text); }
+.title-popover {
   position: fixed; inset: auto; margin: 0; width: 340px; max-width: calc(100vw - 16px);
   max-height: calc(100vh - 76px); overflow: auto; padding: 16px 20px;
   background: var(--panel); color: var(--text); border: 1px solid var(--line);
   border-radius: 12px; box-shadow: var(--shadow-2);
 }
-#fans-popover[popover]:popover-open { display: grid; gap: 14px; }
-#fans-popover .awake-heading-row { gap: 8px; }
-#fans-popover .awake-heading-row h2 { flex: 1; }
-#fans-popover .hint { margin: 0; }
-.fans-temp { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
-.fans-line { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; color: var(--text-2); }
-.fans-note { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); color: var(--text-2); font-size: 13px; line-height: 1.45; }
-.fans-note span { flex: 1; }
-.fans-note.warn { background: var(--warn-bg); color: var(--warn-text); }
-.fans-note.bad { background: var(--danger-bg); color: var(--bad-text); }
-.fans-dismiss { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; padding: 0; font-size: 16px; }
-.fans-boost { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--line); }
-.fans-boost h3 { margin: 0; font-size: 13px; font-weight: 600; }
-.fans-boosting { display: grid; gap: 10px; padding: 14px; border-radius: 12px; background: var(--warn-bg); color: var(--warn-text); }
-.fans-boosting-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; }
-.fans-boosting-row b { font-size: 15px; font-weight: 600; }
-.fans-drain { height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
-.fans-drain span { display: block; height: 100%; background: var(--warn); }
+.title-popover[popover]:popover-open { display: grid; gap: 14px; }
+.title-popover .hint { margin: 0; }
+.title-popover-head { display: flex; align-items: center; gap: 8px; }
+.title-popover-head h2 { flex: 1; margin: 0; font-size: 15px; font-weight: 600; }
+.title-popover-meta { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.title-popover-close { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; padding: 0; font-size: 18px; }
+.pop-line { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; color: var(--text-2); }
+.pop-line .dot.idle { display: inline-block; background: var(--switch-off); }
+.pop-note { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); color: var(--text-2); font-size: 13px; line-height: 1.45; }
+.pop-note span { flex: 1; }
+.pop-note.warn { background: var(--warn-bg); color: var(--warn-text); }
+.pop-note.bad { background: var(--danger-bg); color: var(--bad-text); }
+.pop-dismiss { border: 0; background: transparent; color: inherit; opacity: 0.7; width: 28px; height: 28px; padding: 0; font-size: 16px; }
+.pop-section { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--line); }
+.pop-section h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.pop-card { display: grid; gap: 8px; padding: 14px; border-radius: 12px; }
+.pop-card.warm { background: var(--warn-bg); color: var(--warn-text); }
+.pop-card.run { background: var(--run-bg); color: var(--run-text); }
+.pop-card-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; }
+.pop-card-row b { font-size: 15px; font-weight: 600; }
+.pop-card p { margin: 0; font-size: 13px; }
+.pop-tag { justify-self: start; padding: 3px 8px; border-radius: 6px; background: var(--panel); font-size: 12px; }
+.pop-drain { height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
+.pop-drain span { display: block; height: 100%; background: currentColor; opacity: 0.7; }
+.pop-buttons { display: flex; gap: 8px; }
+.pop-buttons > button { flex: 1; height: 38px; }
+.pop-options { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.pop-option { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: start; font-size: 13px; color: var(--text); }
+.pop-option input { width: 16px; height: 16px; margin: 1px 0 0; accent-color: var(--ink); }
+.pop-option small { grid-column: 2; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.pop-option.off { opacity: 0.55; }
 .fans-speed { display: grid; grid-template-columns: 1fr auto; gap: 6px; font-size: 13px; }
 .fans-speed label { color: var(--text-2); }
 .fans-speed output { font-weight: 600; font-variant-numeric: tabular-nums; }
 .fans-speed input { grid-column: 1 / -1; width: 100%; margin: 0; accent-color: var(--ink); }
-.fans-buttons { display: flex; gap: 8px; }
-.fans-buttons > button { flex: 1; height: 38px; }
 .fans-list { list-style: none; margin: 0; padding: 12px 0 0; border-top: 1px solid var(--line); display: grid; gap: 10px; }
 .fans-list li { display: grid; grid-template-columns: 52px minmax(0, 1fr) 84px; align-items: center; gap: 12px; font-size: 13px; color: var(--text-2); }
 .fans-track { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }

@@ -30,7 +30,7 @@ bun run typecheck               # bun check for main, renderer and phone
 bun run build                   # out/ for Electron
 bunx electron .                 # run from the checkout (see below)
 bun run test:buckets-ui         # Playwright against the real window, buckets tab
-bun run test:awake-ui           # same, keep-awake control
+bun run test:caffeinate-ui      # same, Caffeinate popover (simulated sleep)
 bun run test:fans-ui            # same, fans popover (simulated helper)
 bun run demo                    # regenerate docs/screenshot.png and the social card
 bun run cli -- list --human     # the CLI straight from source
@@ -53,12 +53,16 @@ bun run cli -- list --human     # the CLI straight from source
   reports app launches and quits, counts windows and reopens them;
   `bun run build` compiles it on macOS and skips it elsewhere, and the app
   falls back to polling (and no window counts) without it.
-- `src/fans.ts`, `src/shared/fans.ts`, `src/native/fans/`: fan control. A
-  root fan helper (installed with SMAppService, so only in a build signed
-  with a certificate) writes the SMC; a fan bridge the main process runs as a
-  child reads fans and talks to the helper over XPC. `build/sign.sh` gives
-  both their identifiers. The helper, not the app, decides when manual
-  control ends; see [Fan control](docs/fan-control.md).
+- `src/native/system/`, `src/system-bridge.ts`: the root system helper
+  (installed with SMAppService, so only in a build signed with a
+  certificate), which writes fan speeds and holds system sleep off, and the
+  system bridge the main process runs as a child to reach it over XPC.
+  `build/sign.sh` gives both their identifiers. The helper, not the app,
+  decides when a hold ends.
+- `src/fans.ts`, `src/shared/fans.ts`: fan boosts; see
+  [Fan control](docs/fan-control.md). `src/caffeinate.ts`,
+  `src/shared/caffeinate.ts`: keeping the Mac awake, lid closed optional; see
+  [Caffeinate](docs/caffeinate.md).
 - `src/cli.ts` and `src/cli/`: the `switchboard` command. JSON on stdout by
   default, `--human` for prose; `src/cli/output.ts` is the contract.
 - `src/buckets/`: proxy buckets, the local proxy and its worker.

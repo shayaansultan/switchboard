@@ -1,6 +1,6 @@
 // The floating things: a menu anchored to a button (or to the pointer, for a
 // right-click), a tooltip above whatever is hovered or focused, and the
-// title bar's popovers (Keep awake, Fans). Menus and tooltips are rendered
+// title bar's popovers (Caffeinate, Fans). Menus and tooltips are rendered
 // once at the root and driven through context, so a re-render of the row
 // underneath never removes them. A title-bar popover is the browser's own
 // popover, which owns light dismissal and Escape; useTitlePopover only

@@ -1,16 +1,15 @@
-// Fan control: holding the Mac's fans at a chosen speed for a short boost,
-// then handing them back to macOS. The work happens in two native pieces
-// (src/native/fans/): a root fan helper that writes the SMC, and a fan bridge
-// this process runs as a child and talks to in JSON lines. This module owns
-// the bridge child and the state the window, tray and CLI read.
+// Fan control: boosting the Mac's fans to a chosen speed for a short while,
+// then handing them back to macOS. The work happens in the root system
+// helper (src/native/system/), reached through the system bridge
+// (src/system-bridge.ts). This module keeps the state the window, tray and
+// CLI read.
 //
 // The helper, not this process, decides when control ends: it hands the fans
 // back when the bridge disconnects or stops sending heartbeats, when the time
 // limit runs out, on sleep, on serious thermal pressure, when macOS takes the
 // fans back, and at restart. This module only learns why, and reports it.
-import { spawn, type ChildProcess } from 'node:child_process';
-import * as fs from 'node:fs';
 import { z } from 'zod';
+import { ensureHelper, type BridgeReply, type SystemBridge } from './system-bridge';
 import {
   DEFAULT_FAN_MINUTES,
   FAN_STOPS,
@@ -42,15 +41,6 @@ const HelperStatus = Readings.extend({
   detail: z.string().nullish(),
 });
 const Failure = z.object({ error: z.string() });
-
-export type BridgeReply = Record<string, unknown>;
-
-/** The fan bridge as this module sees it; tests pass a fake. */
-export interface FanBridge {
-  request(request: Record<string, unknown>): Promise<BridgeReply>;
-  onEvent(listener: (event: BridgeReply) => void): void;
-  close(): void;
-}
 
 const round = (fan: z.infer<typeof Fan>): FanView => ({
   actual: Math.round(fan.actual),
@@ -87,7 +77,7 @@ export class FanController {
   private queued: { level: number; minutes: number } | null = null;
 
   constructor(
-    private readonly bridge: FanBridge | null,
+    private readonly bridge: SystemBridge | null,
     private readonly changed: (state: FanState) => void,
     private readonly now: () => number = Date.now,
   ) {
@@ -295,19 +285,11 @@ export class FanController {
 
   /** True once the helper is installed and enabled. */
   private async installHelper(): Promise<boolean> {
-    const reply = await this.ask({ op: 'install' });
+    if (!this.bridge) return false;
+    const outcome = await ensureHelper(this.bridge);
     await this.readState();
-    const helper = this.ready()?.helper;
-    if (helper === 'installed') return true;
-    if (helper === 'needs-approval') {
-      // macOS only enables a new helper after the user allows it in Login
-      // Items; take them there and say so.
-      await this.ask({ op: 'open-login-items' });
-      this.patch({ notice: 'needs-approval' });
-    } else {
-      const failure = Failure.safeParse(reply);
-      this.patch({ notice: failure.success ? noticeOf(failure.data.error) : 'install-failed' });
-    }
+    if (outcome === 'installed') return true;
+    this.patch({ notice: outcome === 'needs-approval' ? 'needs-approval' : 'install-failed' });
     return false;
   }
 
@@ -332,87 +314,4 @@ export class FanController {
       await this.ask({ op: 'open-login-items' });
     });
   }
-}
-
-/**
- * Runs the fan bridge as a child process. It is started on first use and
- * again after it exits; closing stdin ends it, and the helper then hands the
- * fans back.
- */
-export function spawnFanBridge(executable: string, timeout = 25_000): FanBridge | null {
-  if (process.platform !== 'darwin' || !fs.existsSync(executable)) return null;
-  let child: ChildProcess | null = null;
-  let buffer = '';
-  let nextId = 1;
-  const pending = new Map<number, { resolve: (reply: BridgeReply) => void; reject: (error: Error) => void }>();
-  const listeners: ((event: BridgeReply) => void)[] = [];
-
-  const fail = (error: Error) => {
-    for (const { reject } of pending.values()) reject(error);
-    pending.clear();
-  };
-  const start = (): ChildProcess => {
-    if (child && child.exitCode === null && !child.killed) return child;
-    buffer = '';
-    const next = spawn(executable, [], { stdio: ['pipe', 'pipe', 'ignore'] });
-    next.stdout?.setEncoding('utf8');
-    next.stdout?.on('data', (chunk: string) => {
-      buffer += chunk;
-      for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
-        const line = buffer.slice(0, end);
-        buffer = buffer.slice(end + 1);
-        let message: BridgeReply;
-        try {
-          message = JSON.parse(line) as BridgeReply;
-        } catch {
-          continue;
-        }
-        const waiting = typeof message.id === 'number' ? pending.get(message.id) : undefined;
-        if (waiting) {
-          pending.delete(message.id as number);
-          waiting.resolve(message);
-        } else if (typeof message.event === 'string') {
-          for (const listener of listeners) listener(message);
-        }
-      }
-    });
-    next.on('exit', () => {
-      if (child === next) child = null;
-      fail(new Error('The fan bridge exited'));
-    });
-    next.on('error', (error) => fail(error));
-    next.stdin?.on('error', () => {});
-    child = next;
-    return next;
-  };
-
-  return {
-    request(request) {
-      return new Promise((resolve, reject) => {
-        const id = nextId++;
-        const timer = setTimeout(() => {
-          pending.delete(id);
-          reject(new Error('The fan bridge did not reply'));
-        }, timeout);
-        pending.set(id, {
-          resolve: (reply) => {
-            clearTimeout(timer);
-            resolve(reply);
-          },
-          reject: (error) => {
-            clearTimeout(timer);
-            reject(error);
-          },
-        });
-        start().stdin?.write(JSON.stringify({ ...request, id }) + '\n');
-      });
-    },
-    onEvent(listener) {
-      listeners.push(listener);
-    },
-    close() {
-      child?.stdin?.end();
-      child = null;
-    },
-  };
 }

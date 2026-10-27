@@ -54,10 +54,11 @@ test('CLI resolves profiles and requires force confirmation before contacting th
   for (const args of [
     ['quit', 'claude/Fixture', '--force', '--yes'],
     ['focus', 'claude/Fixture'],
-    ['awake', 'status'],
-    ['awake', 'on'],
-    ['awake', 'off'],
-    ['awake', 'recheck'],
+    ['caffeinate', 'status'],
+    ['caffeinate', 'start'],
+    ['caffeinate', 'start', '--minutes', '0', '--screen', '--lid'],
+    ['caffeinate', 'extend', '--minutes', '30'],
+    ['caffeinate', 'stop'],
     ['accessibility', 'status'],
     ['accessibility', 'open'],
   ])
@@ -65,19 +66,27 @@ test('CLI resolves profiles and requires force confirmation before contacting th
   expect(calls).toEqual([
     { command: 'force-quit', profile: 'claude-fixture' },
     { command: 'focus', profile: 'claude-fixture' },
-    ...['status', 'on', 'off', 'recheck'].map((action) => ({ command: 'awake', action })),
+    { command: 'caffeinate', action: 'status' },
+    { command: 'caffeinate', action: 'start', minutes: 60, screen: false, lid: false },
+    { command: 'caffeinate', action: 'start', minutes: 0, screen: true, lid: true },
+    { command: 'caffeinate', action: 'extend', minutes: 30 },
+    { command: 'caffeinate', action: 'stop' },
     { command: 'accessibility', action: 'status' },
     { command: 'accessibility', action: 'open' },
   ]);
   for (const args of [
-    ['awake', 'bad'],
-    ['awake', 'status', 'extra'],
+    ['caffeinate', 'bad'],
+    ['caffeinate', 'status', 'extra'],
+    ['caffeinate', 'stop', '--minutes', '5'],
+    ['caffeinate', 'extend', '--lid'],
+    ['caffeinate', 'extend', '--minutes', '0'],
+    ['awake', 'status'],
     ['accessibility', 'request'],
     ['focus', 'missing'],
   ]) {
     expect((await run(...args)).code).not.toBe(0);
   }
-  expect(calls).toHaveLength(8);
+  expect(calls).toHaveLength(9);
 });
 
 test('fans commands reach the app only with a valid speed and time limit', async () => {

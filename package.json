@@ -16,7 +16,7 @@
     "test": "oxlint && bun run typecheck && bun test",
     "check": "bun format --check && bun run test && bun run build",
     "test:claude-pty": "bun run build && node --test test/claude-pty.node.cjs",
-    "test:awake-ui": "bun run build && bun demo/test-awake.mjs",
+    "test:caffeinate-ui": "bun run build && bun demo/test-caffeinate.mjs",
     "test:fans-ui": "bun run build && bun demo/test-fans.mjs",
     "test:phone-ui": "bun run build && bun demo/test-phone.mjs",
     "test:buckets-ui": "bun run build && bun demo/test-buckets.mjs",
@@ -101,8 +101,7 @@
     ],
     "files": [
       "out/**/*",
-      "!out/fan-helper",
-      "!out/fan-bridge",
+      "!out/native/**",
       "build/trayTemplate.png",
       "build/trayTemplate@2x.png",
       "build/icon-1024.png",
@@ -114,16 +113,16 @@
     },
     "extraFiles": [
       {
-        "from": "out/fan-helper",
-        "to": "MacOS/fan-helper"
+        "from": "out/native/system-helper",
+        "to": "MacOS/system-helper"
       },
       {
-        "from": "out/fan-bridge",
-        "to": "MacOS/fan-bridge"
+        "from": "out/native/system-bridge",
+        "to": "MacOS/system-bridge"
       },
       {
-        "from": "src/native/fans/dev.shayaan.switchboard.fan-helper.plist",
-        "to": "Library/LaunchDaemons/dev.shayaan.switchboard.fan-helper.plist"
+        "from": "src/native/system/dev.shayaan.switchboard.system-helper.plist",
+        "to": "Library/LaunchDaemons/dev.shayaan.switchboard.system-helper.plist"
       }
     ]
   },

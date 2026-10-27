@@ -1,6 +1,6 @@
 # Fan control
 
-**Fans**, beside Keep awake in the title bar, boosts every fan to one speed for
+**Fans**, beside Caffeinate in the title bar, boosts every fan to one speed for
 a short while, then hands them back to macOS. A boost is an action, not a
 mode: the popover changes nothing until Boost is pressed, and a running boost
 shows as a countdown with Stop. Nothing in Switchboard keeps a boost beyond
@@ -8,12 +8,12 @@ its time limit, after sleep, or across a restart.
 
 ## Pieces
 
-| Piece                                 | Runs as                               | Job                                                                                         |
-| ------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `src/native/fans/helper` (fan helper) | root, started by launchd              | Writes the SMC. Decides when manual control ends.                                           |
-| `src/native/fans/bridge` (fan bridge) | the user, a child of the main process | Reads fans and CPU temperature (no root needed), installs the helper, talks to it over XPC. |
-| `src/fans.ts`                         | Electron main process                 | Runs the bridge, keeps the state the window, tray and CLI read.                             |
-| `src/renderer/fans.tsx`               | the window                            | The button and popover.                                                                     |
+| Piece                                      | Runs as                               | Job                                                                                         |
+| ------------------------------------------ | ------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `src/native/system/helper` (system helper) | root, started by launchd              | Writes the SMC. Decides when manual control ends.                                           |
+| `src/native/system/bridge` (system bridge) | the user, a child of the main process | Reads fans and CPU temperature (no root needed), installs the helper, talks to it over XPC. |
+| `src/fans.ts`, `src/system-bridge.ts`      | Electron main process                 | Runs the bridge, keeps the state the window, tray and CLI read.                             |
+| `src/renderer/fans.tsx`                    | the window                            | The button and popover.                                                                     |
 
 The bridge lives in `Contents/MacOS`, beside the app's executable, so
 `SMAppService` finds the helper's launchd plist in

@@ -1,5 +1,5 @@
 // Exercises the shipped Fans popover with invented accounts and a simulated
-// fan helper. No test installs the helper or changes this Mac's fans.
+// system helper. No test installs the helper or changes this Mac's fans.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -16,7 +16,20 @@ const fan = (actual) => ({ actual, minimum: 2317, maximum: 7826, target: actual,
 const state = {
   palette: PALETTE,
   desktop: { helper: true, accessibility: 'off' },
-  awake: { status: 'ready', value: 'off', notice: null },
+  caffeinate: {
+    active: false,
+    endsAt: null,
+    limit: null,
+    screen: false,
+    lid: false,
+    lidSupport: 'available',
+    helper: 'installed',
+    sleepDisabledElsewhere: false,
+    stop: null,
+    notice: null,
+    queued: false,
+    busy: false,
+  },
   fans: { status: 'unavailable', reason: 'no-fans' },
   settings: fixture.settings,
   terminals: fixture.terminals,
@@ -82,9 +95,8 @@ try {
     window.sb = {
       getState: async () => initial,
       onState: () => {},
-      onAwakeState: () => {},
-      refreshAwake: noop,
-      setAwake: noop,
+      onCaffeinateState: () => {},
+      refreshCaffeinate: noop,
       onFanState: (listener) => {
         fanListener = listener;
       },
@@ -126,7 +138,7 @@ try {
     };
     document.addEventListener('DOMContentLoaded', () => {
       const label = document.createElement('div');
-      label.textContent = 'UI demo · simulated fan helper';
+      label.textContent = 'UI demo · simulated system helper';
       label.style.cssText =
         'position:fixed;bottom:8px;right:8px;z-index:20;padding:4px 8px;border-radius:4px;background:#1d1d1b;color:#fff;font:11px system-ui;pointer-events:none';
       document.body.append(label);
@@ -153,9 +165,9 @@ try {
   assert.equal(await toggle.isVisible(), false);
   await publish(system);
   await toggle.waitFor({ state: 'visible' });
-  const awakeBox = await page.locator('#awake-toggle').boundingBox();
+  const caffeinateBox = await page.locator('#caffeinate-toggle').boundingBox();
   const fansBox = await toggle.boundingBox();
-  assert.ok(awakeBox.x < fansBox.x, 'Fans sits after Keep awake');
+  assert.ok(caffeinateBox.x < fansBox.x, 'Fans sits after Caffeinate');
 
   // Idle: who controls the fans, and a boost set-up that changes nothing yet.
   await toggle.click();

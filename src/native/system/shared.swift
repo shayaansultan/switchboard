@@ -1,21 +1,26 @@
-// What the fan helper and the fan bridge agree on: names, the XPC protocol,
-// the status they exchange, and how a speed level maps onto a fan. Both are
-// built from this file, so there is one definition of each.
+// What the system helper and the system bridge agree on: names, the XPC
+// protocol, the status they exchange, how a speed level maps onto a fan, and
+// how to read the sleep setting, the battery and the lid. Both are built from
+// this file, so there is one definition of each.
 //
 // Neither side hard-codes a signing team. Each reads its own team from its
 // signature and only trusts the other when it carries the same team, so an
 // install signed with any certificate works, and an ad-hoc build (no team)
 // never reaches the helper at all.
 import Foundation
+import IOKit
+import IOKit.ps
 import Security
 
-enum FanNames {
-  static let helper = "dev.shayaan.switchboard.fan-helper"
-  static let bridge = "dev.shayaan.switchboard.fan-bridge"
+enum SystemNames {
+  static let helper = "dev.shayaan.switchboard.system-helper"
+  static let bridge = "dev.shayaan.switchboard.system-bridge"
   static let plist = "\(helper).plist"
   static let heartbeatLimit: TimeInterval = 7
   /// Missed checks in a row before the helper decides macOS took the fans back.
   static let takeoverLimit = 3
+  /// On battery below this, a lid-closed hold ends.
+  static let batteryFloor = 20
 
   static func requirement(identifier: String, team: String) -> String {
     "identifier \"\(identifier)\" and anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
@@ -37,11 +42,16 @@ func ownSigningTeam() -> String? {
   return values[kSecCodeInfoTeamIdentifier as String] as? String
 }
 
-@objc protocol FanHelperProtocol {
+@objc protocol SystemHelperProtocol {
   func status(reply: @escaping (Data) -> Void)
   /// A level from 0 to 100 in steps of 5, held for `seconds` (0: until told).
   func setLevel(_ level: Int, seconds: Int, reply: @escaping (Data) -> Void)
   func restoreSystem(reply: @escaping (Data) -> Void)
+  /// Turns system sleep off, lid closed included, for `seconds` (0: until told).
+  func holdAwake(seconds: Int, reply: @escaping (Data) -> Void)
+  func releaseAwake(reply: @escaping (Data) -> Void)
+  /// Turns sleep back on when something other than a hold turned it off.
+  func clearSleepDisabled(reply: @escaping (Data) -> Void)
   func heartbeat(reply: @escaping (Data) -> Void)
 }
 
@@ -62,6 +72,16 @@ struct FanStatus: Codable {
   var stop: String?
   var error: String?
   var detail: String?
+  var awake: AwakeStatus
+}
+
+/// The lid-closed hold, as the helper sees it.
+struct AwakeStatus: Codable {
+  var held: Bool
+  var endsIn: Int?
+  var stop: String?
+  /// macOS's SleepDisabled setting right now, whoever set it.
+  var sleepDisabled: Bool
 }
 
 func encode<T: Encodable>(_ value: T) -> Data {
@@ -135,4 +155,47 @@ final class CPUTemperature {
     guard values.count < 2 || Set(values).count > 1 else { return nil }
     return values.filter(CPUTemperature.plausible).max()
   }
+}
+
+/// macOS's system-wide SleepDisabled, from `pmset -g`. Readable as any user.
+func sleepDisabled() -> Bool {
+  let pmset = Process()
+  pmset.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+  pmset.arguments = ["-g"]
+  let pipe = Pipe()
+  pmset.standardOutput = pipe
+  pmset.standardError = FileHandle.nullDevice
+  guard (try? pmset.run()) != nil else { return false }
+  let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+  pmset.waitUntilExit()
+  return output.split(separator: "\n").contains { line in
+    let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+    return parts.count == 2 && parts[0] == "SleepDisabled" && parts[1] == "1"
+  }
+}
+
+/// The internal battery's charge and whether the Mac runs on it, or nil on a
+/// Mac without one.
+func battery() -> (percent: Int, onBattery: Bool)? {
+  guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+    let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef]
+  else { return nil }
+  for source in list {
+    guard let values = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any],
+      values[kIOPSTypeKey] as? String == kIOPSInternalBatteryType,
+      let current = values[kIOPSCurrentCapacityKey] as? Int,
+      let maximum = values[kIOPSMaxCapacityKey] as? Int, maximum > 0
+    else { continue }
+    let onBattery = values[kIOPSPowerSourceStateKey] as? String == kIOPSBatteryPowerValue
+    return (current * 100 / maximum, onBattery)
+  }
+  return nil
+}
+
+/// Whether this Mac has a lid: only laptops publish a clamshell state.
+func hasLid() -> Bool {
+  let root = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
+  guard root != 0 else { return false }
+  defer { IOObjectRelease(root) }
+  return IORegistryEntryCreateCFProperty(root, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0) != nil
 }

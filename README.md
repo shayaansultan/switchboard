@@ -183,17 +183,26 @@ from the Dock** in the Phone tab. Read
 
 ## Keep the Mac awake
 
-Use **Keep awake** beside Refresh to turn macOS's system sleep setting on or
-off. macOS handles administrator authorization. The control reads the actual
-setting, including after you reopen Switchboard; closing or crashing the app
-leaves the setting as you chose it.
+**Decaf** in the title bar means the Mac sleeps as usual. Open it to
+**Caffeinate**: choose 1, 2 or 4 hours, **Until I stop**, or **Custom**
+minutes, and the button reads **Caffeinated · 1h** until the time is up, you
+press **Decaf now**, or Switchboard quits. Two options, both off by default:
 
-For implementation details and closed-lid hardware verification, read
-[Keep awake](docs/keep-awake.md).
+- **Keep the screen on too** stops the display sleeping as well.
+- **Also with the lid closed** keeps a closed MacBook awake, as for a long
+  agent run in a bag. It turns off macOS's system sleep through the same root
+  helper Fans uses, so it asks once to allow Switchboard in Login Items, and it
+  ends by itself if the battery drops below 20% or the Mac gets seriously hot.
+  The button reads **· lid** while it is on.
+
+With the lid open Caffeinate needs no password: it holds a macOS power
+assertion that goes away with Switchboard. If sleep was left off system-wide
+by an older Keep awake or `pmset`, the popover offers to turn it back on. Read
+[Caffeinate](docs/caffeinate.md) for how it works.
 
 ## Boost the fans
 
-When the Mac runs hot, **Fans** beside Keep awake boosts every fan to a speed
+When the Mac runs hot, **Fans** beside Caffeinate boosts every fan to a speed
 you pick for a short while, then hands them back to macOS. Nothing changes
 until you press **Boost**: set the speed, then choose 15 minutes, 30 minutes,
 an hour, **Until I stop**, or **Custom** minutes. While a boost runs the
@@ -244,10 +253,11 @@ find-generic-password` for the entry the Claude Code CLI already created.
   helper then counts the Claude and ChatGPT windows each profile has open,
   through the Accessibility API and an undocumented macOS call that says which
   desktop a window is on. It reads counts, not window contents.
-- **Fan control, only if you use it.** The fan bridge reads fan speeds and
-  CPU temperature from the Mac's System Management Controller, which needs no
-  permission. A boost installs a root helper, after you allow it in Login
-  Items, that accepts only a speed and a time limit, or a stop, from
+- **Fans and lid-closed Caffeinate, only if you use them.** The system bridge
+  reads fan speeds, CPU temperature, the battery and the sleep setting, which
+  needs no permission. A boost or a lid-closed session installs a root system
+  helper, after you allow it in Login Items, that accepts only a fan speed with
+  a time limit, a hold on system sleep with a time limit, or a stop, from
   Switchboard's own bridge. Remove it with `switchboard fans remove`.
 - **Usage requests per signed-in profile, on a timer.** Normally one call to the same endpoints
   the two CLIs use for their own usage screens, authorised with that profile's
@@ -363,19 +373,20 @@ eval "$(switchboard env work)"        # put the current shell into a profile
 switchboard launch work               # open its desktop window
 switchboard focus work                # show its existing window; never launch another profile
 switchboard quit work --force --yes   # force quit; reports whether it actually stopped
-switchboard awake status              # read the system keep-awake setting
+switchboard caffeinate start --minutes 120 --lid   # stay awake 2 h, lid closed too
+switchboard fans set 75               # boost the fans to 75% for 15 minutes
 switchboard accessibility status      # permission of the running Switchboard app
 switchboard export work --format t3   # print a T3 provider configuration
 switchboard add codex Client --from codex   # a new profile, set up like the Default
 switchboard routed work app-server    # Codex through work's proxy bucket, as its window runs
 ```
 
-`awake status|on|off|recheck`, `accessibility status|open`, `focus` and forced
-`quit` use the running Switchboard app through a local socket accessible only to
-your user account. Start the matching app first; these commands never start it
-implicitly. Keep-awake shares the window's controller and macOS authorization.
-Its result reports the observed state and any cancellation or failure notice;
-exit 0 alone does not mean the requested setting was applied. Accessibility
+`caffeinate`, `fans`, `accessibility status|open`, `focus` and forced `quit` use
+the running Switchboard app through a local socket accessible only to your user
+account. Start the matching app first; these commands never start it
+implicitly. Caffeinate and Fans share the window's controllers; their results
+report the observed state and any notice, so exit 0 alone does not mean a
+session started. Accessibility
 reports the app's executable identity, not the terminal's permission. `open`
 opens the macOS Accessibility pane. Force quit asks for confirmation unless
 `--yes` is supplied and waits for the result; `stopped: false` means the app

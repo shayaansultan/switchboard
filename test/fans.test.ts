@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { FanController, type BridgeReply, type FanBridge } from '../src/fans';
+import { FanController } from '../src/fans';
+import type { BridgeReply, SystemBridge } from '../src/system-bridge';
 import { describeFans, isFanLevel, type FanState } from '../src/shared/fans';
 
 const fan = (actual: number, manual = false) => ({ actual, minimum: 2317, maximum: 7826, target: actual, manual });
@@ -22,7 +23,7 @@ function fakeBridge(start: { helper?: string; fans?: unknown[] } = {}) {
     stop,
     ...extra,
   });
-  const bridge: FanBridge = {
+  const bridge: SystemBridge = {
     async request(request) {
       asked.push(String(request.op));
       switch (request.op) {

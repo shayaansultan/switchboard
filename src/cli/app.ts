@@ -7,12 +7,14 @@ import { parse, required } from './context';
 import { resolveProfile } from './resolve';
 import { refused, usageError } from './output';
 import { DEFAULT_FAN_MINUTES, describeFans, isFanLevel, isFanMinutes, type FanState } from '../shared/fans';
+import {
+  DEFAULT_CAFFEINATE_MINUTES,
+  describeCaffeinate,
+  isCaffeinateMinutes,
+  type CaffeinateState,
+} from '../shared/caffeinate';
 
-export async function appCommand(
-  command: 'awake' | 'accessibility' | 'focus',
-  rest: string[],
-  ctx: Context,
-): Promise<void> {
+export async function appCommand(command: 'accessibility' | 'focus', rest: string[], ctx: Context): Promise<void> {
   const { positionals } = parse(rest, {});
   if (positionals.length !== 1) throw usageError(`${command} requires exactly one argument`);
   const input =
@@ -84,4 +86,38 @@ export async function fansCommand(rest: string[], ctx: Context): Promise<void> {
   }
   const state = (await requestApp(command)) as FanState;
   ctx.out.result(state, () => describeFans(state));
+}
+
+const CAFFEINATE_ACTIONS = ['status', 'start', 'extend', 'stop', 'dismiss', 'cancel', 'clear'] as const;
+
+// Caffeinate runs in the app: it owns the power assertion, and the bridge to
+// the system helper for the lid-closed option.
+export async function caffeinateCommand(rest: string[], ctx: Context): Promise<void> {
+  const { values, positionals } = parse(rest, {
+    minutes: { type: 'string' },
+    screen: { type: 'boolean' },
+    lid: { type: 'boolean' },
+  });
+  const [action, extra] = positionals;
+  if (!(CAFFEINATE_ACTIONS as readonly string[]).includes(action ?? '') || extra !== undefined)
+    throw usageError(
+      'Use: switchboard caffeinate status|stop|dismiss|cancel|clear, caffeinate start [--minutes N] [--screen] [--lid], or caffeinate extend [--minutes N]',
+    );
+  const timed = action === 'start' || action === 'extend';
+  if (values.minutes !== undefined && !timed) throw usageError('--minutes only applies to start and extend');
+  if ((values.screen || values.lid) && action !== 'start') throw usageError('--screen and --lid only apply to start');
+  const minutes = values.minutes === undefined ? DEFAULT_CAFFEINATE_MINUTES : Number(values.minutes);
+  if (timed && (!isCaffeinateMinutes(minutes) || (action === 'extend' && minutes === 0)))
+    throw usageError('--minutes is a whole number from 0 (until stopped) to 1440; extend needs at least 1');
+  let command: AppCommand;
+  if (action === 'start')
+    command = { command: 'caffeinate', action, minutes, screen: !!values.screen, lid: !!values.lid };
+  else if (action === 'extend') command = { command: 'caffeinate', action, minutes };
+  else
+    command = {
+      command: 'caffeinate',
+      action: action as Exclude<(typeof CAFFEINATE_ACTIONS)[number], 'start' | 'extend'>,
+    };
+  const state = (await requestApp(command)) as CaffeinateState;
+  ctx.out.result(state, () => describeCaffeinate(state));
 }

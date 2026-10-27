@@ -59,10 +59,15 @@ uses the same force quit as the window, waits, and reports `quit` and `stopped`.
 It loses unsaved work, so use it only after authorization. A false `stopped`
 is not a successful shutdown. Ordinary quit remains available without the app.
 
-`awake status|on|off|recheck` shares the running app's keep-awake controller.
-On/off can trigger macOS authorization; leave that prompt to the user. Inspect
-`status`, `value` and `notice` in the result, not just exit 0. `recheck`
-reads again and clears old notices without changing the system setting.
+`caffeinate status|start [--minutes N] [--screen] [--lid]|extend [--minutes N]|stop|dismiss|cancel|clear`
+shares the running app's Caffeinate. `start` keeps the Mac awake N minutes
+(default 60; 0 until `stop`), `--screen` keeps the display on, and `--lid`
+keeps a closed laptop awake through the system helper, ending by itself below
+20% battery or in serious heat. `--lid` may need the user to allow the helper
+in Login Items (`notice: needs-approval`, `queued: true`); leave that to the
+user. `clear` turns system sleep back on when something outside Caffeinate
+left it off (`sleepDisabledElsewhere`); it may ask for a password. Read
+`active`, `endsAt`, `lid`, `stop` and `notice` in the result, not just exit 0.
 `fans status|set LEVEL [--minutes N]|extend [--minutes N]|system|dismiss|install|remove`
 shares the running app's fan control. `set` boosts every fan to LEVEL% (0-100,
 steps of 5) for N minutes (default 15; 0 runs until `system`); `extend` adds

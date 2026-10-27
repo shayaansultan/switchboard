@@ -8,10 +8,11 @@ const api: SwitchboardApi = {
   setBucketAccount: (id, name, enabled) => ipcRenderer.invoke('buckets:account', id, name, enabled),
   removeBucket: (id) => ipcRenderer.invoke('buckets:remove', id),
   removeBucketAccount: (id, name) => ipcRenderer.invoke('buckets:removeAccount', id, name),
-  setAwake: (value) => ipcRenderer.invoke('awake:set', value),
-  refreshAwake: (reason = 'observe') => ipcRenderer.invoke('awake:refresh', reason),
-  onAwakeState: (fn) => {
-    ipcRenderer.on('awake:state', (_event, state) => fn(state));
+  refreshCaffeinate: () => ipcRenderer.invoke('caffeinate:refresh'),
+  startCaffeinate: (minutes, screen, lid) => ipcRenderer.invoke('caffeinate:start', minutes, screen, lid),
+  caffeinateAction: (action) => ipcRenderer.invoke('caffeinate:action', action),
+  onCaffeinateState: (fn) => {
+    ipcRenderer.on('caffeinate:state', (_event, state) => fn(state));
   },
   refreshFans: () => ipcRenderer.invoke('fans:refresh'),
   setFans: (level, minutes) => ipcRenderer.invoke('fans:set', level, minutes),

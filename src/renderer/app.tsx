@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'preact/hooks';
 import { Profiles } from './profiles';
-import { KeepAwake } from './awake';
+import { Caffeinate } from './caffeinate';
 import { FanControl } from './fans';
 import { Buckets } from './buckets';
 import { Cli } from './cli';
@@ -63,7 +63,7 @@ function Shell({ state }: { state: State | null }) {
       <header class="titlebar">
         <div class="brand">Switchboard</div>
         <div class="actions">
-          <KeepAwake />
+          <Caffeinate />
           <FanControl />
           <TipBtn
             variant="icon"
