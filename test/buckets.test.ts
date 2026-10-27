@@ -25,7 +25,7 @@ test('shared buckets reuse existing pool storage and credentials without adoptin
     const shared = buckets.create('Shared');
     expect(buckets.paths(shared.id).base).toBe(path.join(temporary, 'buckets', 'shared'));
     expect(() => profiles.create('Shared')).toThrow();
-    expect(buckets.list().map((b) => b.id)).toEqual(['acme', 'shared']);
+    expect(buckets.list().map((b) => b.id)).toEqual<string[]>(['acme', 'shared']);
     expect(() => buckets.paths('../escape')).toThrow();
     fs.mkdirSync(path.join(temporary, 'buckets', legacy.id));
     expect(() => buckets.paths(legacy.id)).toThrow('Ambiguous');

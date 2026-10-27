@@ -4,13 +4,16 @@
 //
 // The test preload points HOME at a scratch directory before any module loads.
 
-const { test, expect, beforeEach, afterEach } = require('bun:test');
-const fs = require('fs');
-const path = require('path');
+import { afterEach, beforeEach, expect, test } from 'bun:test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
-const { sandboxHome: SANDBOX } = require('./setup');
+import { sandboxHome as SANDBOX } from './setup';
 
-const profiles = require('../src/profiles');
+import { remoteWrapper } from '../src/buckets/desktop';
+import * as launch from '../src/launch';
+import * as profiles from '../src/profiles';
+import type { Profile } from '../src/types';
 
 // Every test deletes directories. If the module did not pick up the sandbox
 // home, those deletes would land on the real ~/.switchboard, so stop here
@@ -34,8 +37,14 @@ function reset() {
 beforeEach(reset);
 afterEach(reset);
 
-const claudeSource = () => profiles.load().profiles.find((p) => p.id === 'claude-default');
-const codexSource = () => profiles.load().profiles.find((p) => p.id === 'codex-default');
+// Each vendor's Default profile, which the store always lists.
+function defaultProfile(id: string): Profile {
+  const profile = profiles.load().profiles.find((p) => p.id === id);
+  if (!profile) throw new Error(`the store lists no ${id} profile`);
+  return profile;
+}
+const claudeSource = () => defaultProfile('claude-default');
+const codexSource = () => defaultProfile('codex-default');
 
 test('the sandbox is in effect, so no test can touch the real home', () => {
   expect(profiles.ROOT.startsWith(SANDBOX)).toBe(true);
@@ -374,12 +383,9 @@ test('the store survives a round trip and never persists the load error', () => 
 // leaves the app's embedded agent writing into the default home, which fails
 // silently rather than visibly.
 
-const launch = require('../src/launch');
-const { remoteWrapper } = require('../src/buckets/desktop');
-
 test('a non-default profile is launched with both isolations, for both apps', () => {
   const data = profiles.load();
-  for (const vendor of ['claude', 'codex']) {
+  for (const vendor of ['claude', 'codex'] as const) {
     const p = profiles.add(data, { vendor, name: 'Second' }).profile;
     const args = launch.launchArgs(p, false);
     const d = profiles.dirs(p);
@@ -449,7 +455,7 @@ test('with phone access on, launches carry what the phone replies through; off, 
     SWITCHBOARD_PROFILE: 'claude-default',
   });
 
-  const engine = path.join(process.env.HOME, 'codex-engine');
+  const engine = path.join(process.env.HOME!, 'codex-engine');
   fs.writeFileSync(engine, '');
   const plain = launch.remoteEnvironment(codex, true, false, null, (p) => remoteWrapper(p, () => engine));
   expect(fs.readFileSync(plain.CODEX_CLI_PATH, 'utf8')).toContain('desktop-remote');
@@ -470,7 +476,7 @@ test('with phone access on, launches carry what the phone replies through; off, 
 });
 
 test("the band runs only Switchboard's own launcher, never a foreign one", () => {
-  const file = path.join(process.env.HOME, '.local', 'bin', 'switchboard');
+  const file = path.join(process.env.HOME!, '.local', 'bin', 'switchboard');
   // Never the real launcher: this test writes and deletes the file.
   expect(file).toContain('switchboard-tests-');
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -518,7 +524,7 @@ const SOURCE_STATE = {
   'thread-writable-roots': { 't-wt': ['/w/acmeWork'] },
 };
 
-function writeSourceState(state = SOURCE_STATE) {
+function writeSourceState(state: Record<string, unknown> = SOURCE_STATE) {
   fs.mkdirSync(path.join(CODEX_HOME, 'sessions'), { recursive: true });
   fs.writeFileSync(path.join(CODEX_HOME, GS), JSON.stringify(state));
 }

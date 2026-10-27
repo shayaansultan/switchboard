@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { FanController } from '../src/fans';
 import type { BridgeReply, SystemBridge } from '../src/system-bridge';
-import { describeFans, isFanLevel, type FanState } from '../src/shared/fans';
+import { describeFans, isFanLevel, type FanState, type FanUnavailable } from '../src/shared/fans';
 
 const fan = (actual: number, manual = false) => ({ actual, minimum: 2317, maximum: 7826, target: actual, manual });
 
@@ -86,7 +86,7 @@ describe('fan control', () => {
       [{ fans: [] }, 'no-fans'],
       [{ helper: 'unsigned' }, 'unsigned'],
       [{ helper: 'not-packaged' }, 'not-packaged'],
-    ] as [{ helper?: string; fans?: unknown[] }, string][]) {
+    ] as [{ helper?: string; fans?: unknown[] }, FanUnavailable][]) {
       const controller = new FanController(fakeBridge(setup).bridge, () => {});
       await controller.refresh();
       expect(controller.snapshot()).toEqual({ status: 'unavailable', reason });

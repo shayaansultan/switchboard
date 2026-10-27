@@ -1,5 +1,6 @@
 // Verify the proxy account boundary, including post-reset routing recovery.
 import { run as cli, withoutTty } from './cli-helpers';
+import { fakeFetch } from './fake-fetch';
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import { create, paths } from '../src/buckets/store';
 import { writeJson } from '../src/storage';
@@ -74,69 +75,71 @@ beforeEach(() => {
   );
   mocks.push(spyOn(launch, 'run').mockResolvedValue({ stdout: '2.1.285', stderr: '' }));
   mocks.push(
-    spyOn(globalThis, 'fetch').mockImplementation(async (url, options) => {
-      const route = new URL(String(url));
-      expect(route.hostname).toBe('127.0.0.1');
-      const body = options?.body ? JSON.parse(String(options.body)) : undefined;
-      requests.push({ path: route.pathname + route.search, body });
-      if (route.pathname === '/status') return Response.json(worker);
-      if (route.pathname === '/refresh-account')
-        return Response.json({
-          ...worker,
-          accounts: [
-            { name: account.name, provider: account.provider, status: refreshStatus, windows: [], weight: 100 },
-          ],
-        });
-      if (route.pathname.endsWith('/auth-files'))
-        return Response.json({
-          files: [account, { ...account, name: 'other.json', auth_index: 'other-index', email: 'other@example.com' }],
-        });
-      if (route.pathname.endsWith('/reset-quota'))
-        return failRecovery
-          ? new Response('', { status: 503 })
-          : Response.json({ status: 'ok', auth_index: account.auth_index });
-      expect(route.pathname).toBe('/v0/management/api-call');
-      expect(body.auth_index).toBe('selected-index');
-      expect(body.header.Authorization).toBe('Bearer $TOKEN$');
-      let result: unknown;
-      if (body.method === 'POST') result = account.provider === 'claude' ? { result: outcome } : { code: outcome };
-      else if (body.url.endsWith('/profile'))
-        result = {
-          account: { email: account.email, uuid: '00000000-0000-4000-8000-000000000001' },
-          organization: { uuid: '00000000-0000-4000-8000-000000000002' },
-        };
-      else if (body.url.includes('cedar_ember'))
-        result = {
-          cedar_ember: {
-            eligible: true,
-            next_grant_id: 'launch-grant',
-            grants: [
+    spyOn(globalThis, 'fetch').mockImplementation(
+      fakeFetch(async (url, options) => {
+        const route = new URL(String(url));
+        expect(route.hostname).toBe('127.0.0.1');
+        const body = options?.body ? JSON.parse(String(options.body)) : undefined;
+        requests.push({ path: route.pathname + route.search, body });
+        if (route.pathname === '/status') return Response.json(worker);
+        if (route.pathname === '/refresh-account')
+          return Response.json({
+            ...worker,
+            accounts: [
+              { name: account.name, provider: account.provider, status: refreshStatus, windows: [], weight: 100 },
+            ],
+          });
+        if (route.pathname.endsWith('/auth-files'))
+          return Response.json({
+            files: [account, { ...account, name: 'other.json', auth_index: 'other-index', email: 'other@example.com' }],
+          });
+        if (route.pathname.endsWith('/reset-quota'))
+          return failRecovery
+            ? new Response('', { status: 503 })
+            : Response.json({ status: 'ok', auth_index: account.auth_index });
+        expect(route.pathname).toBe('/v0/management/api-call');
+        expect(body.auth_index).toBe('selected-index');
+        expect(body.header.Authorization).toBe('Bearer $TOKEN$');
+        let result: unknown;
+        if (body.method === 'POST') result = account.provider === 'claude' ? { result: outcome } : { code: outcome };
+        else if (body.url.endsWith('/profile'))
+          result = {
+            account: { email: account.email, uuid: '00000000-0000-4000-8000-000000000001' },
+            organization: { uuid: '00000000-0000-4000-8000-000000000002' },
+          };
+        else if (body.url.includes('cedar_ember'))
+          result = {
+            cedar_ember: {
+              eligible: true,
+              next_grant_id: 'launch-grant',
+              grants: [
+                {
+                  id: 'launch-grant',
+                  label: 'Full reset',
+                  resets_left: 1,
+                  usable_now: true,
+                  paused: false,
+                  ends_at: '2099-01-01T00:00:00Z',
+                  clears: ['five_hour'],
+                },
+              ],
+            },
+          };
+        else
+          result = {
+            credits: [
               {
-                id: 'launch-grant',
-                label: 'Full reset',
-                resets_left: 1,
-                usable_now: true,
-                paused: false,
-                ends_at: '2099-01-01T00:00:00Z',
-                clears: ['five_hour'],
+                id: 'credit-one',
+                title: 'Full reset',
+                reset_type: 'codex_rate_limits',
+                status: 'available',
+                is_supported_by_plan: true,
               },
             ],
-          },
-        };
-      else
-        result = {
-          credits: [
-            {
-              id: 'credit-one',
-              title: 'Full reset',
-              reset_type: 'codex_rate_limits',
-              status: 'available',
-              is_supported_by_plan: true,
-            },
-          ],
-        };
-      return Response.json({ status_code: 200, body: JSON.stringify(result) });
-    }),
+          };
+        return Response.json({ status_code: 200, body: JSON.stringify(result) });
+      }),
+    ),
   );
 });
 afterEach(() => {

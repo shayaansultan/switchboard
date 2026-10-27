@@ -8,7 +8,7 @@ const execute = promisify(execFile);
 const live = process.env.SWITCHBOARD_LIVE_TESTS === '1' ? test : test.skip;
 
 async function probe(exercise: boolean, variant = 'production') {
-  const result = await execute(process.execPath, [path.resolve(import.meta.dir, '../demo/claude-context-probe.ts')], {
+  const result = await execute(process.execPath, [path.resolve(__dirname, '../demo/claude-context-probe.ts')], {
     env: {
       ...process.env,
       SWITCHBOARD_PROBE_VARIANT: variant,

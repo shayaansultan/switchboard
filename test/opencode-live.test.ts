@@ -16,7 +16,7 @@ import { wrapperScript, codexBinary } from '../src/buckets/desktop';
 
 const live = process.env.SWITCHBOARD_LIVE_TESTS === '1' ? test : test.skip;
 const execute = promisify(execFile);
-const cli = path.resolve(import.meta.dir, '../out/opencode/cli.js');
+const cli = path.resolve(__dirname, '../out/opencode/cli.js');
 const installed = path.join(os.homedir(), '.switchboard/bin/cliproxyapi-7.3.2/cli-proxy-api');
 const delay = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 

@@ -234,6 +234,7 @@ test('profiles that share a name are told apart by their app, and others keep th
     id,
     name,
     vendor,
+    reach: null,
     color: '#000',
     isDefault: false,
     email: null,

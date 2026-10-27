@@ -27,7 +27,7 @@
     "fmt": "oxfmt",
     "format": "oxfmt",
     "lint": "oxlint",
-    "typecheck": "bun check --no-script && bun check --no-script -p src/renderer && bun check --no-script -p src/phone",
+    "typecheck": "bun check --no-script && bun check --no-script -p src/renderer && bun check --no-script -p src/phone && bun check --no-script -p test",
     "build": "rm -rf out && tsc && bun build src/renderer/main.tsx --outdir out/renderer --target browser && cp src/renderer/index.html out/renderer/ && cat src/design/tokens.css src/renderer/style.css > out/renderer/style.css && cp -R src/design/fonts out/renderer/fonts && sh src/phone/build.sh && sh src/native/build.sh"
   },
   "dependencies": {
@@ -43,6 +43,7 @@
     "@tanstack/react-virtual": "^3.14.21",
     "@trpc/client": "^11.19.0",
     "@trpc/tanstack-react-query": "^11.19.0",
+    "@types/bun": "^1.4.4",
     "@types/node": "^22.20.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

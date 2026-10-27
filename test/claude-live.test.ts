@@ -151,7 +151,7 @@ live(
         wrapperScript(codexBinary(), `http://127.0.0.1:${port}/v1`, {
           bucket: 'Fixture',
           runtime: process.execPath,
-          adapter: path.resolve(import.meta.dir, '../out/buckets/desktop-stdio.js'),
+          adapter: path.resolve(__dirname, '../out/buckets/desktop-stdio.js'),
           catalog,
         }),
         { mode: 0o700 },

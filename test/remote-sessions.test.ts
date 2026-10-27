@@ -10,7 +10,7 @@ import * as path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { sandboxHome } from './setup';
 import { SessionReader, STALE_MS, type ProfileHome } from '../src/remote/sessions';
-import type { Entry } from '../src/remote/model';
+import type { Entry, Transcript } from '../src/remote/model';
 import { sessionMode, PAGE_BYTES } from '../src/remote/claude';
 
 const root = path.join(sandboxHome, 'remote-sessions');
@@ -351,7 +351,7 @@ test('a record longer than a page (an inline screenshot) does not stop paging', 
   let before: number | null = null;
   const cursors: number[] = [];
   for (let page = 0; page < 10; page++) {
-    const t = reader.transcript([claude], claude.id, transcript.session.id, before)!;
+    const t: Transcript = reader.transcript([claude], claude.id, transcript.session.id, before)!;
     for (const e of t.entries) if (e.kind === 'message' && e.role === 'user') seen.push(e.text);
     if (t.before === null) break;
     if (before !== null) expect(t.before).toBeLessThan(before);
@@ -403,7 +403,7 @@ test('a long session is read a page at a time, from the end back to the start', 
   const pages: Entry[][] = [];
   let before: number | null = null;
   do {
-    const page = reader.transcript([claude], claude.id, 's1', before)!;
+    const page: Transcript = reader.transcript([claude], claude.id, 's1', before)!;
     pages.push(page.entries);
     before = page.before;
   } while (before !== null);
