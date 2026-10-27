@@ -5,7 +5,9 @@ import { describeCaffeinate } from '../src/shared/caffeinate';
 
 // A bridge that answers like the real one: facts from `state`, and a
 // lid-closed hold the helper can end on its own.
-function fakeBridge(start: { helper?: string; lid?: boolean; sleepDisabled?: boolean; battery?: number } = {}) {
+function fakeBridge(
+  start: { helper?: string; lid?: boolean; sleepDisabled?: boolean; battery?: number; stuck?: boolean } = {},
+) {
   let helper = start.helper ?? 'installed';
   let sleepDisabled = start.sleepDisabled ?? false;
   let held = false;
@@ -37,7 +39,8 @@ function fakeBridge(start: { helper?: string; lid?: boolean; sleepDisabled?: boo
           return awake();
         case 'awake-release':
           held = false;
-          sleepDisabled = false;
+          // `stuck`: pmset refused, and the helper is still retrying.
+          sleepDisabled = start.stuck ?? false;
           return awake();
         case 'sleep-clear':
           sleepDisabled = false;
@@ -150,6 +153,14 @@ describe('Caffeinate', () => {
     expect(controller.snapshot()).toMatchObject({ endsAt: 10_800_000, limit: 180 });
     await controller.stop();
     expect(fake.asked()).toContain('awake-release');
+    expect(controller.snapshot()).toMatchObject({ active: false, sleepDisabledElsewhere: false });
+  });
+
+  test('a release that leaves sleep off says so instead of a plain Decaf', async () => {
+    const controller = new CaffeinateController(fakeBridge({ stuck: true }).bridge, fakeBlocker().blocker, () => {});
+    await controller.start(60, { lid: true });
+    await controller.stop();
+    expect(controller.snapshot()).toMatchObject({ active: false, sleepDisabledElsewhere: true });
   });
 
   test('the helper ending a lid-closed hold ends the session and says why', async () => {

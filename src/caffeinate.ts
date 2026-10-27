@@ -229,8 +229,13 @@ export class CaffeinateController {
     this.cancelTimer?.();
     this.cancelTimer = null;
     this.blocker.stop();
-    if (this.state.lid) await this.ask({ op: 'awake-release' });
+    const lid = this.state.lid;
+    if (lid) await this.ask({ op: 'awake-release' });
     this.patch({ active: false, endsAt: null, limit: null, lid: false, stop: reason });
+    // A release the helper could not finish leaves sleep off while it
+    // retries; reading the facts shows that, with Turn sleep on, rather than
+    // a Decaf that is not true yet.
+    if (lid) await this.readFacts();
   }
 
   private async checkHold(): Promise<void> {

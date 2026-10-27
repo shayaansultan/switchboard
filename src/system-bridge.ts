@@ -25,6 +25,7 @@ export function spawnSystemBridge(executable: string, timeout = 25_000): SystemB
   let child: ChildProcess | null = null;
   let buffer = '';
   let nextId = 1;
+  let lostAt = 0;
   const pending = new Map<number, { resolve: (reply: BridgeReply) => void; reject: (error: Error) => void }>();
   const listeners: ((event: BridgeReply) => void)[] = [];
 
@@ -36,6 +37,7 @@ export function spawnSystemBridge(executable: string, timeout = 25_000): SystemB
     if (child && child.exitCode === null && !child.killed) return child;
     buffer = '';
     const next = spawn(executable, [], { stdio: ['pipe', 'pipe', 'ignore'] });
+    let answered = false;
     next.stdout?.setEncoding('utf8');
     next.stdout?.on('data', (chunk: string) => {
       buffer += chunk;
@@ -50,6 +52,7 @@ export function spawnSystemBridge(executable: string, timeout = 25_000): SystemB
         }
         const waiting = typeof message.id === 'number' ? pending.get(message.id) : undefined;
         if (waiting) {
+          answered = true;
           pending.delete(message.id as number);
           waiting.resolve(message);
         } else if (typeof message.event === 'string') {
@@ -57,15 +60,17 @@ export function spawnSystemBridge(executable: string, timeout = 25_000): SystemB
         }
       }
     });
-    const startedAt = Date.now();
     next.on('exit', () => {
       fail(new Error('The system bridge exited'));
       // Not one close() ended. The helper ends whatever this bridge held, so
-      // the controllers ask what is left. One that dies at once is not
-      // reported, so a bridge that cannot start does not loop.
+      // the controllers ask what is left. One that never answered held
+      // nothing, and the reports are spaced out, so a bridge that keeps
+      // dying does not loop.
       if (child !== next) return;
       child = null;
-      if (Date.now() - startedAt > 2_000) for (const listener of listeners) listener({ event: 'helper-lost' });
+      if (!answered || Date.now() - lostAt < 5_000) return;
+      lostAt = Date.now();
+      for (const listener of listeners) listener({ event: 'helper-lost' });
     });
     next.on('error', (error) => fail(error));
     next.stdin?.on('error', () => {});

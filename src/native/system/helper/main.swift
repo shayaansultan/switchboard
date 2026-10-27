@@ -228,8 +228,10 @@ final class Fans {
     return automatic
   }
 
+  /// An unreadable SMC counts as manual: handing back a fan that is already
+  /// automatic is harmless, missing one that is not is not.
   func handBackIfManual(reason: String) {
-    if level != nil || ((try? smc.readings()) ?? []).contains(where: { $0.manual }) {
+    if level != nil || ((try? smc.readings())?.contains(where: { $0.manual }) ?? true) {
       restore(reason: reason)
     }
   }
@@ -265,6 +267,9 @@ final class AwakeHold {
   private(set) var owner: ObjectIdentifier?
   private var endsAt: TimeInterval?
   private(set) var stop: String?
+  /// Sleep was already off when the hold began, set by someone else; the
+  /// hold then leaves it as it found it.
+  private var borrowed = false
 
   func status() -> AwakeStatus {
     AwakeStatus(
@@ -290,11 +295,14 @@ final class AwakeHold {
     if let battery = battery(), battery.onBattery, battery.percent < SystemNames.batteryFloor {
       return "battery-low"
     }
-    try? FileManager.default.createDirectory(
-      at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
-    guard FileManager.default.createFile(atPath: marker.path, contents: Data("v1\n".utf8)), pmset(1) else {
-      release(reason: "control-failed")
-      return "control-failed"
+    if owner == nil { borrowed = sleepDisabled() && !FileManager.default.fileExists(atPath: marker.path) }
+    if !borrowed {
+      try? FileManager.default.createDirectory(
+        at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+      guard FileManager.default.createFile(atPath: marker.path, contents: Data("v1\n".utf8)), pmset(1) else {
+        release(reason: "control-failed")
+        return "control-failed"
+      }
     }
     owner = session
     endsAt = seconds > 0 ? uptime() + TimeInterval(seconds) : nil
@@ -311,12 +319,13 @@ final class AwakeHold {
   /// Turns sleep back on. `reason` is nil when someone asked.
   func release(reason: String?) {
     let held = owner != nil
-    if held || FileManager.default.fileExists(atPath: marker.path) {
+    if (held && !borrowed) || FileManager.default.fileExists(atPath: marker.path) {
       if pmset(0) { try? FileManager.default.removeItem(at: marker) } else { log.error("sleep not re-enabled; will retry") }
     }
     if held || reason == "recovery" { stop = reason }
     owner = nil
     endsAt = nil
+    borrowed = false
     log.info("sleep enabled (\(reason ?? "asked", privacy: .public))")
   }
 
@@ -507,6 +516,14 @@ for number in [SIGTERM, SIGINT] {
   source.setEventHandler {
     fans.handBackIfManual(reason: "helper-stopped")
     if awake.owner != nil { awake.release(reason: "helper-stopped") }
+    // launchd allows a few seconds before SIGKILL. Anything still refused
+    // after that is left to recovery at the next start, which the sleep
+    // marker survives.
+    for _ in 0..<4 where fans.retrying > 0 || awake.pending {
+      Thread.sleep(forTimeInterval: 1)
+      if fans.retrying > 0 { fans.check(sessions) }
+      if awake.pending { awake.check(sessions) }
+    }
     exit(0)
   }
   source.resume()

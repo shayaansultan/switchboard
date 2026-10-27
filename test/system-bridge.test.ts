@@ -15,14 +15,14 @@ function script(body: string): string {
 }
 
 test.if(darwin)(
-  'a bridge that dies after running tells the controllers; close() and a bridge that never started do not',
+  'a bridge that dies after answering tells the controllers; close() and a bridge that never answered do not',
   async () => {
     const events: BridgeReply[] = [];
     // Answers one request, then dies, as a crashed bridge would.
-    const dying = spawnSystemBridge(script('read line; echo \'{"id":1,"ok":true}\'; sleep 2.5; exit 1'))!;
+    const dying = spawnSystemBridge(script('read line; echo \'{"id":1,"ok":true}\'; sleep 0.2; exit 1'))!;
     dying.onEvent((event) => events.push(event));
     expect(await dying.request({ op: 'state' })).toMatchObject({ ok: true });
-    await Bun.sleep(3_000);
+    await Bun.sleep(600);
     expect(events).toEqual([{ event: 'helper-lost' }]);
 
     const quick = spawnSystemBridge(script('exit 1'))!;
@@ -32,7 +32,6 @@ test.if(darwin)(
     const closed = spawnSystemBridge(script('read line; echo \'{"id":1}\'; sleep 5'))!;
     closed.onEvent((event) => events.push(event));
     await closed.request({ op: 'state' });
-    await Bun.sleep(2_100);
     closed.close();
     await Bun.sleep(200);
     expect(events).toHaveLength(1);
