@@ -26,12 +26,17 @@ let service = SMAppService.daemon(plistName: FanNames.plist)
 let smc = try? SMC()
 let temperature = smc.map(CPUTemperature.init)
 
+// A plist that has never been registered also reads as notFound, so only a
+// bundle without the plist (a checkout run) is "not packaged".
+let packaged = FileManager.default.fileExists(
+  atPath: Bundle.main.bundleURL.appendingPathComponent("Contents/Library/LaunchDaemons/\(FanNames.plist)").path)
+
 func serviceName() -> String {
   switch service.status {
   case .notRegistered: return "not-installed"
   case .enabled: return "installed"
   case .requiresApproval: return "needs-approval"
-  case .notFound: return "not-packaged"
+  case .notFound: return packaged ? "not-installed" : "not-packaged"
   @unknown default: return "unknown"
   }
 }

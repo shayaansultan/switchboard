@@ -104,19 +104,34 @@ extension SMC {
   }
 }
 
-/// The hottest CPU sensor, in °C. Apple silicon names its CPU core sensors
-/// Tp…; Intel Macs report the package as TC0P. The key list is read once.
+/// The hottest CPU sensor, in °C. Apple silicon names its CPU sensors Tp…,
+/// but not every Tp key is live: some hold fixed placeholders (40.0, -4.0,
+/// 0 on an M4 Pro). Those read as whole numbers or below any working
+/// temperature, so keys are kept only if they read like a live sensor when
+/// first listed. Intel Macs report the package as TC0P. The list is kept once
+/// it finds a sensor; an empty or stale listing is tried again on the next read.
 final class CPUTemperature {
   private let smc: SMC
-  private lazy var keys: [String] = {
-    let all = (try? smc.allKeys()) ?? []
-    let cores = all.filter { $0.hasPrefix("Tp") }
-    return cores.isEmpty ? all.filter { $0 == "TC0P" || $0 == "TC0D" } : cores
-  }()
+  private var keys: [String] = []
 
   init(smc: SMC) { self.smc = smc }
 
+  static func plausible(_ value: Double) -> Bool { value >= 20 && value <= 110 }
+
+  private func discover() -> [String] {
+    let all = (try? smc.allKeys()) ?? []
+    let readings = all.filter { $0.hasPrefix("Tp") }.compactMap { key in (try? smc.readNumber(key)).map { (key, $0) } }
+    // Now and then the SMC answers every key with one stale value; real
+    // sensors never agree exactly, so treat that as no reading and retry.
+    guard Set(readings.map(\.1)).count > 1 else { return [] }
+    let live = readings.filter { CPUTemperature.plausible($0.1) && $0.1.rounded() != $0.1 }.map(\.0)
+    return live.isEmpty ? all.filter { $0 == "TC0P" || $0 == "TC0D" } : live
+  }
+
   func hottest() -> Double? {
-    keys.compactMap { try? smc.readNumber($0) }.filter { $0 > 5 && $0 < 125 }.max()
+    if keys.isEmpty { keys = discover() }
+    let values = keys.compactMap { try? smc.readNumber($0) }
+    guard values.count < 2 || Set(values).count > 1 else { return nil }
+    return values.filter(CPUTemperature.plausible).max()
   }
 }
