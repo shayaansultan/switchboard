@@ -6,6 +6,7 @@ import type { Context } from './context';
 import { parse, required } from './context';
 import { resolveProfile } from './resolve';
 import { refused, usageError } from './output';
+import { DEFAULT_FAN_MINUTES, describeFans, isFanLevel, isFanMinutes, type FanState } from '../shared/fans';
 
 export async function appCommand(
   command: 'awake' | 'accessibility' | 'focus',
@@ -51,4 +52,28 @@ export function exportCommand(rest: string[], ctx: Context): void {
       },
     },
   });
+}
+
+const FAN_ACTIONS = ['status', 'set', 'system', 'dismiss', 'install', 'remove'] as const;
+
+// Fan control runs in the app, which owns the bridge to the root helper.
+export async function fansCommand(rest: string[], ctx: Context): Promise<void> {
+  const { values, positionals } = parse(rest, { minutes: { type: 'string' } });
+  const [action, level, extra] = positionals;
+  const known = (FAN_ACTIONS as readonly string[]).includes(action ?? '');
+  if (!known || extra !== undefined || (action === 'set') !== (level !== undefined))
+    throw usageError('Use: switchboard fans status|system|dismiss|install|remove, or fans set LEVEL [--minutes N]');
+  if (values.minutes !== undefined && action !== 'set') throw usageError('--minutes only applies to fans set');
+  let command: AppCommand;
+  if (action === 'set') {
+    const speed = Number(level);
+    const minutes = values.minutes === undefined ? DEFAULT_FAN_MINUTES : Number(values.minutes);
+    if (!isFanLevel(speed)) throw usageError('LEVEL is a percentage from 0 to 100 in steps of 5');
+    if (!isFanMinutes(minutes)) throw usageError('--minutes is a whole number from 0 (until System) to 1440');
+    command = { command: 'fans', action: 'set', level: speed, minutes };
+  } else {
+    command = { command: 'fans', action: action as Exclude<(typeof FAN_ACTIONS)[number], 'set'> };
+  }
+  const state = (await requestApp(command)) as FanState;
+  ctx.out.result(state, () => describeFans(state));
 }

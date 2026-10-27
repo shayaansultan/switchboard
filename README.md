@@ -191,6 +191,27 @@ leaves the setting as you chose it.
 For implementation details and closed-lid hardware verification, read
 [Keep awake](docs/keep-awake.md).
 
+## Boost the fans
+
+When the Mac runs hot, **Fans** beside Keep awake holds every fan at a speed
+you pick for a short while, then hands them back to macOS. Choose **Manual**,
+set the speed, and pick how long: 15 minutes by default, 30 minutes, an hour,
+or until you choose **System** again. The button reads **Fans · 60%** while a
+speed is held, and the menu bar menu offers to hand the fans back.
+
+macOS takes the fans back on its own whenever there is any doubt: when the
+time is up, when the Mac sleeps or restarts, when Switchboard quits or stops
+responding, when macOS reclaims them itself, or when the Mac reports serious
+thermal pressure. The popover says which. Switchboard never resumes a speed
+after sleep or a restart.
+
+Changing fan speed needs a small helper that runs as root. The first time you
+choose Manual, macOS asks you to allow Switchboard in System Settings ›
+General › Login Items & Extensions; after that the slider needs no prompts.
+The helper only works in an install signed with a certificate (see
+[Install](#install)); an ad-hoc build hides Fans. It is hidden on a Mac with no
+fans. Read [Fan control](docs/fan-control.md) for how it works.
+
 ## Requirements
 
 - A macOS whose `open` supports `--env`, which is how a profile's config home
@@ -222,6 +243,11 @@ find-generic-password` for the entry the Claude Code CLI already created.
   helper then counts the Claude and ChatGPT windows each profile has open,
   through the Accessibility API and an undocumented macOS call that says which
   desktop a window is on. It reads counts, not window contents.
+- **Fan control, only if you use it.** The fan bridge reads fan speeds and
+  CPU temperature from the Mac's System Management Controller, which needs no
+  permission. Holding a speed installs a root helper, after you allow it in
+  Login Items, that accepts only a speed or System from Switchboard's own
+  bridge. Remove it with `switchboard fans remove`.
 - **Usage requests per signed-in profile, on a timer.** Normally one call to the same endpoints
   the two CLIs use for their own usage screens, authorised with that profile's
   existing CLI token. The interval in Settings is the rate while you are using

@@ -79,3 +79,39 @@ test('CLI resolves profiles and requires force confirmation before contacting th
   }
   expect(calls).toHaveLength(8);
 });
+
+test('fans commands reach the app only with a valid speed and time limit', async () => {
+  const calls: AppCommand[] = [];
+  stop = await serveAppControl(async (command) => {
+    calls.push(command);
+    return { status: 'unavailable', reason: 'no-fans' };
+  });
+  for (const args of [
+    ['fans', 'status'],
+    ['fans', 'set', '60'],
+    ['fans', 'set', '100', '--minutes', '0'],
+    ['fans', 'system'],
+    ['fans', 'install'],
+  ])
+    expect((await run(...args)).json()).toEqual({ status: 'unavailable', reason: 'no-fans' });
+  expect((await run('fans', 'status', '--human')).out.trim()).toBe('This Mac has no fans to control.');
+  for (const args of [
+    ['fans'],
+    ['fans', 'set'],
+    ['fans', 'set', '33'],
+    ['fans', 'set', '60', '--minutes', '-1'],
+    ['fans', 'set', '60', '--minutes', 'soon'],
+    ['fans', 'system', '--minutes', '5'],
+    ['fans', 'status', 'extra'],
+    ['fans', 'boost'],
+  ])
+    expect((await run(...args)).code).toBe(2);
+  expect(calls).toEqual([
+    { command: 'fans', action: 'status' },
+    { command: 'fans', action: 'set', level: 60, minutes: 15 },
+    { command: 'fans', action: 'set', level: 100, minutes: 0 },
+    { command: 'fans', action: 'system' },
+    { command: 'fans', action: 'install' },
+    { command: 'fans', action: 'status' },
+  ]);
+});

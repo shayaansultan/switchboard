@@ -46,7 +46,7 @@ function bridge(state) {
     const noop = () => Promise.resolve();
     window.sb = {
       getState: () => Promise.resolve(window.__state),
-      refreshAwake: noop, setAwake: noop, onAwakeState: () => {},
+      refreshAwake: noop, setAwake: noop, onAwakeState: () => {}, onFanState: () => {}, refreshFans: noop,
       measureSizes: () => Promise.resolve(window.__state),
       onState: (fn) => { window.__push = fn; },
       refresh: noop, addProfile: () => Promise.resolve({ result: { done: [], skipped: [] } }),

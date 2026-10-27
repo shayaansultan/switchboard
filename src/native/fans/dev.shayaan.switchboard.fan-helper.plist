@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The fan helper's launchd job, installed from inside the app by SMAppService.
+     RunAtLoad starts it at boot so a restart always ends with the fans on
+     System, even before Switchboard opens; it exits again when idle. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.shayaan.switchboard.fan-helper</string>
+  <key>BundleProgram</key>
+  <string>Contents/MacOS/fan-helper</string>
+  <key>MachServices</key>
+  <dict>
+    <key>dev.shayaan.switchboard.fan-helper</key>
+    <true/>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+</dict>
+</plist>

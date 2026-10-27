@@ -12,11 +12,12 @@
     "start": "bun run build && electron .",
     "icons": "electron build/render-icons.js",
     "dist": "bun run build && electron-builder --mac --dir",
-    "install-app": "bun run dist && APP=$(ls -d dist/mac*/Switchboard.app | head -1) && rm -rf /Applications/Switchboard.app && ditto \"$APP\" /Applications/Switchboard.app && codesign --force --deep --sign \"${SWITCHBOARD_SIGN_IDENTITY:--}\" /Applications/Switchboard.app && rm -rf dist && open /Applications/Switchboard.app",
+    "install-app": "bun run dist && APP=$(ls -d dist/mac*/Switchboard.app | head -1) && rm -rf /Applications/Switchboard.app && ditto \"$APP\" /Applications/Switchboard.app && sh build/sign.sh /Applications/Switchboard.app && rm -rf dist && open /Applications/Switchboard.app",
     "test": "oxlint && bun run typecheck && bun test",
     "check": "bun format --check && bun run test && bun run build",
     "test:claude-pty": "bun run build && node --test test/claude-pty.node.cjs",
     "test:awake-ui": "bun run build && bun demo/test-awake.mjs",
+    "test:fans-ui": "bun run build && bun demo/test-fans.mjs",
     "test:phone-ui": "bun run build && bun demo/test-phone.mjs",
     "test:buckets-ui": "bun run build && bun demo/test-buckets.mjs",
     "test:usage-resets": "bun run build && bun demo/test-usage-resets.mjs && bun demo/test-reset-worker.mjs",
@@ -100,6 +101,8 @@
     ],
     "files": [
       "out/**/*",
+      "!out/fan-helper",
+      "!out/fan-bridge",
       "build/trayTemplate.png",
       "build/trayTemplate@2x.png",
       "build/icon-1024.png",
@@ -108,7 +111,21 @@
     ],
     "directories": {
       "output": "dist"
-    }
+    },
+    "extraFiles": [
+      {
+        "from": "out/fan-helper",
+        "to": "MacOS/fan-helper"
+      },
+      {
+        "from": "out/fan-bridge",
+        "to": "MacOS/fan-bridge"
+      },
+      {
+        "from": "src/native/fans/dev.shayaan.switchboard.fan-helper.plist",
+        "to": "Library/LaunchDaemons/dev.shayaan.switchboard.fan-helper.plist"
+      }
+    ]
   },
   "trustedDependencies": [
     "electron",

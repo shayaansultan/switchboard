@@ -31,6 +31,7 @@ bun run build                   # out/ for Electron
 bunx electron .                 # run from the checkout (see below)
 bun run test:buckets-ui         # Playwright against the real window, buckets tab
 bun run test:awake-ui           # same, keep-awake control
+bun run test:fans-ui            # same, fans popover (simulated helper)
 bun run demo                    # regenerate docs/screenshot.png and the social card
 bun run cli -- list --human     # the CLI straight from source
 ```
@@ -52,6 +53,12 @@ bun run cli -- list --human     # the CLI straight from source
   reports app launches and quits, counts windows and reopens them;
   `bun run build` compiles it on macOS and skips it elsewhere, and the app
   falls back to polling (and no window counts) without it.
+- `src/fans.ts`, `src/shared/fans.ts`, `src/native/fans/`: fan control. A
+  root fan helper (installed with SMAppService, so only in a build signed
+  with a certificate) writes the SMC; a fan bridge the main process runs as a
+  child reads fans and talks to the helper over XPC. `build/sign.sh` gives
+  both their identifiers. The helper, not the app, decides when manual
+  control ends; see [Fan control](docs/fan-control.md).
 - `src/cli.ts` and `src/cli/`: the `switchboard` command. JSON on stdout by
   default, `--human` for prose; `src/cli/output.ts` is the contract.
 - `src/buckets/`: proxy buckets, the local proxy and its worker.
@@ -97,8 +104,8 @@ which that test also reads.
   and the phone app, written `light-dark(light, dark)` so both values sit
   on one line. Never write a literal colour in a rule; add a token.
 - The renderer only ever receives percentages, reset times, email, plan,
-  the proxy's reason an account is unavailable, and usage-reset offers (id,
-  title, count, expiry). A reset session stays in the main process; the
+  the proxy's reason an account is unavailable, usage-reset offers (id,
+  title, count, expiry), and fan speeds and CPU temperature. A reset session stays in the main process; the
   window holds only the token that names it.
   Tokens and credentials are read in the main process, used once, dropped.
 - Renderer buttons call the main process through `act()` in

@@ -28,6 +28,8 @@ import { shellQuote } from './shell';
 import { writeJson } from './storage';
 import { z } from 'zod';
 import { AwakeController, isAwakeValue, macAwakeSystem } from './awake';
+import { FanController, spawnFanBridge } from './fans';
+import { isFanLevel, isFanMinutes } from './shared/fans';
 import { barPng, meterPng, stripPng } from './trayart';
 import { composeTrayText, type TrayText } from './tray-status';
 import { PollingPause, type PauseReason } from './polling-pause';
@@ -99,6 +101,15 @@ let tray: Tray | null = null;
 const data: Store = profiles.load();
 const awake = new AwakeController(macAwakeSystem, (state) => {
   if (win && !win.isDestroyed()) win.webContents.send('awake:state', state);
+  rebuildTray();
+});
+// The fan bridge sits beside the app's executable in Contents/MacOS, where
+// SMAppService looks for the helper's plist; a checkout run uses out/.
+const fanBridge = spawnFanBridge(
+  app.isPackaged ? path.join(path.dirname(process.execPath), 'fan-bridge') : path.join(__dirname, 'fan-bridge'),
+);
+const fans = new FanController(fanBridge, (state) => {
+  if (win && !win.isDestroyed()) win.webContents.send('fans:state', state);
   rebuildTray();
 });
 // Per-profile live state: what is running, who is signed in, last usage.
@@ -242,6 +253,7 @@ function byVendor<T>(fn: (v: Vendor) => T): Record<Vendor, T> {
 function stateSnapshot(): State {
   return {
     awake: awake.snapshot(),
+    fans: fans.snapshot(),
     buckets: bucketViews,
     bucketsError,
     settings: data.settings,
@@ -740,6 +752,14 @@ function rebuildTray(): void {
       else showWindow();
     },
   });
+  const fanState = fans.snapshot();
+  if (fanState.status === 'ready' && fanState.level !== null) {
+    items.push({
+      label: `Fans at ${fanState.level}% · hand back to System`,
+      enabled: !fanState.busy,
+      click: () => void fans.system(),
+    });
+  }
   items.push({ type: 'separator' });
   for (const vendor of profiles.VENDOR_IDS) {
     items.push({ label: profiles.VENDORS[vendor].label, enabled: false });
@@ -856,6 +876,32 @@ ipcMain.handle('awake:refresh', (event, reason: unknown) => {
   validateSender(event);
   if (reason !== 'observe' && reason !== 'recheck') throw new Error('Invalid keep-awake refresh');
   return awake.refresh(reason);
+});
+ipcMain.handle('fans:refresh', (event) => {
+  validateSender(event);
+  return fans.refresh();
+});
+ipcMain.handle('fans:set', (event, level: unknown, minutes: unknown) => {
+  validateSender(event);
+  if (!isFanLevel(level) || !isFanMinutes(minutes)) throw new Error('Invalid fan speed');
+  return fans.set(level, minutes);
+});
+ipcMain.handle('fans:action', (event, action: unknown) => {
+  validateSender(event);
+  switch (action) {
+    case 'system':
+      return fans.system();
+    case 'dismiss':
+      return fans.dismiss();
+    case 'install':
+      return fans.install();
+    case 'remove':
+      return fans.remove();
+    case 'login-items':
+      return fans.openLoginItems();
+    default:
+      throw new Error('Invalid fan action');
+  }
 });
 
 const byId = (id: string): Profile => {
@@ -1237,6 +1283,12 @@ app.whenReady().then(async () => {
           else await awake.refresh(command.action === 'recheck' ? 'recheck' : 'observe');
           return awake.snapshot();
         }
+        case 'fans': {
+          if (command.action === 'set') await fans.set(command.level ?? -1, command.minutes ?? -1);
+          else if (command.action === 'status') await fans.refresh();
+          else await fans[command.action]();
+          return fans.snapshot();
+        }
         case 'accessibility':
           return {
             trusted: await checkAccessibility(command.action === 'status' ? 'check' : 'open'),
@@ -1265,6 +1317,11 @@ app.whenReady().then(async () => {
   const awakePoll = setInterval(() => void awake.refresh(), 15_000);
   awakePoll.unref();
   powerMonitor.on('resume', () => void awake.refresh());
+  // The helper hands the fans back on sleep; read why once awake again.
+  void fans.refresh();
+  powerMonitor.on('resume', () => void fans.refresh());
+  // Closing the bridge ends its connection, and the helper hands the fans back.
+  app.on('will-quit', () => fanBridge?.close());
   // Launched at login: stay in the menu bar, don't pop the window.
   const hidden = app.getLoginItemSettings().wasOpenedAtLogin;
   if (!hidden) createWindow();

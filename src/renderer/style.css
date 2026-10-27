@@ -63,6 +63,43 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 #awake-notice { color: var(--muted); margin: 12px 0 0; }
 #awake-error { color: var(--bad-text); margin: 12px 0 0; }
 .awake-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+/* Fans: Keep awake's popover, with a mode switch, a speed slider and one
+   bar per fan. Warm text on the button while a speed is held. */
+#fans-toggle { white-space: nowrap; }
+#fans-toggle[hidden] { display: none; }
+#fans-toggle .ico.chev { width: 14px; height: 14px; }
+#fans-toggle.is-boosted { color: var(--warn-text); }
+#fans-popover {
+  position: fixed; inset: auto; margin: 0; width: 340px; max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 76px); overflow: auto; padding: 16px 20px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line);
+  border-radius: 12px; box-shadow: var(--shadow-2);
+}
+#fans-popover[popover]:popover-open { display: grid; gap: 14px; }
+#fans-popover .awake-heading-row { gap: 8px; }
+#fans-popover .awake-heading-row h2 { flex: 1; }
+#fans-popover .segmented { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.fans-temp { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.fans-mode-note { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.5; }
+.fans-speed { display: grid; grid-template-columns: 1fr auto; gap: 6px; font-size: 13px; }
+.fans-speed label { color: var(--text-2); }
+.fans-speed output { font-weight: 600; font-variant-numeric: tabular-nums; }
+.fans-speed input { grid-column: 1 / -1; width: 100%; margin: 0; accent-color: var(--ink); }
+.fans-scale { grid-column: 1 / -1; display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
+.fans-limit { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--text-2); }
+.fans-limit span { white-space: nowrap; }
+.fans-limit select {
+  font: 400 13px/18px 'Figtree', system-ui, sans-serif; color: var(--text); background: var(--field);
+  border: 1px solid var(--line-2); border-radius: 8px; height: 30px; padding: 0 8px;
+}
+.fans-list { list-style: none; margin: 0; padding: 12px 0 0; border-top: 1px solid var(--line); display: grid; gap: 10px; }
+.fans-list li { display: grid; grid-template-columns: 52px minmax(0, 1fr) 84px; align-items: center; gap: 12px; font-size: 13px; color: var(--text-2); }
+.fans-track { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.fans-track span { display: block; height: 100%; background: var(--fill); border-radius: 3px; }
+.fans-rpm { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+.fans-callout { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--warn-bg); color: var(--warn-text); font-size: 13px; line-height: 1.45; }
+.fans-callout span { flex: 1; }
+#fans-popover .hint { margin: 0; }
 @media (max-width: 620px) {
   .titlebar { gap: 8px; }
   .titlebar .actions button:not(.icon-btn) { padding-left: 8px; padding-right: 8px; }

@@ -114,3 +114,14 @@ phone can **reach** was launched with that hook; one opened from the Dock is
 **relaunched for phone control**, which quits it and opens it again from
 Switchboard. Say "phone access", not "remote" or
 "mobile", in the window and the docs; `switchboard remote` is the command.
+
+## Fan control
+
+Holding the Mac's fans at a chosen speed for a short boost. **System** means
+macOS is choosing fan speeds; **Manual** means Switchboard is holding them at a
+**speed** (a percentage of each fan's range) until its **time limit** ends.
+The **fan helper** is the root process that writes the speed, installed once
+after the person allows it in Login Items; the **fan bridge** is the child
+process the app talks to it through. When the helper ends a manual session on
+its own, the window says why it went **back on System**. Say "fans" and
+"speed" in the window, not "RPM control" or "cooling".

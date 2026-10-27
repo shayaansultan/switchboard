@@ -80,6 +80,8 @@ try {
       onState: (listener) => {
         appListener = listener;
       },
+      onFanState: () => {},
+      refreshFans: noop,
       onAwakeState: (listener) => {
         awakeListener = listener;
       },

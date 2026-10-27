@@ -13,6 +13,12 @@ const api: SwitchboardApi = {
   onAwakeState: (fn) => {
     ipcRenderer.on('awake:state', (_event, state) => fn(state));
   },
+  refreshFans: () => ipcRenderer.invoke('fans:refresh'),
+  setFans: (level, minutes) => ipcRenderer.invoke('fans:set', level, minutes),
+  fanAction: (action) => ipcRenderer.invoke('fans:action', action),
+  onFanState: (fn) => {
+    ipcRenderer.on('fans:state', (_event, state) => fn(state));
+  },
   getState: () => ipcRenderer.invoke('state:get'),
   measureSizes: () => ipcRenderer.invoke('state:measure'),
   refresh: (id?: string) => ipcRenderer.invoke('state:refresh', id),

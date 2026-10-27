@@ -102,6 +102,8 @@ try {
         listener = fn;
       },
       onAwakeState: () => {},
+      onFanState: () => {},
+      refreshFans: async () => {},
       refreshAwake: noop,
       setAwake: noop,
       measureSizes: async () => initial,

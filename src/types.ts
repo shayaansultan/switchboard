@@ -3,6 +3,7 @@
 // stays a plain script with no module wrapper.
 
 import type { AwakeRefresh, AwakeState, AwakeValue } from './awake';
+import type { FanState } from './shared/fans';
 
 export type Vendor = 'claude' | 'codex';
 
@@ -199,6 +200,7 @@ export interface CliStatus {
 // Everything the window renders from. Never a token.
 export interface State {
   awake: AwakeState;
+  fans: FanState;
   settings: Settings;
   palette: string[];
   terminals: { id: string; label: string }[];
@@ -257,6 +259,10 @@ export interface SwitchboardApi {
   setAwake(value: AwakeValue): Promise<void>;
   refreshAwake(reason?: AwakeRefresh): Promise<void>;
   onAwakeState(fn: (s: AwakeState) => void): void;
+  refreshFans(): Promise<void>;
+  setFans(level: number, minutes: number): Promise<void>;
+  fanAction(action: 'system' | 'dismiss' | 'install' | 'remove' | 'login-items'): Promise<void>;
+  onFanState(fn: (s: FanState) => void): void;
   getState(): Promise<State>;
   setProxyBucket(id: string, bucket: string | null): Promise<void>;
   createBucket(name: string, upstream?: import('./buckets/upstream').Upstream): Promise<void>;
