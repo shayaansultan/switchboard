@@ -175,7 +175,20 @@ try {
   assert.match(await text(), /CPU 71 °C/);
   assert.match(await text(), /macOS is controlling the fans/);
   assert.match(await text(), /Fan 1\s+2,317 rpm/);
-  assert.match(await text(), /allow it once in Login Items/);
+  // Detail lives in the (i) tooltip, not in paragraphs, and shows above the popover.
+  assert.doesNotMatch(await text(), /helper that runs as root|always ends on its own/);
+  const info = popover.locator('.info-tip');
+  assert.match(await info.getAttribute('aria-label'), /always ends on its own/);
+  await info.hover();
+  const tip = page.locator('.tip');
+  await tip.waitFor({ state: 'visible' });
+  assert.match(await tip.innerText(), /serious heat/);
+  // Opened after the panel in the top layer, so it draws above it.
+  const onTop = await page.evaluate(() => document.querySelector('.tip').matches(':popover-open'));
+  assert.ok(onTop, 'The tooltip draws above the open popover');
+  await page.waitForTimeout(200); // past the tooltip's fade-in
+  await page.screenshot({ path: path.join(output, 'info-tip.png') });
+  await page.mouse.move(5, 300);
   assert.equal(await button('Set up and boost').isVisible(), true);
   assert.deepEqual(await calls(), []);
   await page.screenshot({ path: path.join(output, 'idle-first.png') });

@@ -42,6 +42,7 @@ const PATHS = {
   // A launch or quit on its way (spun in CSS), and forcing one through.
   loader: '<path d="M21 12a9 9 0 1 1-6.22-8.56"/>',
   zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
   fan: '<path d="M10.83 8.41a4.5 4.5 0 1 1 6.33 3.12"/><path d="M15.59 10.83a4.5 4.5 0 1 1-3.12 6.33"/><path d="M13.17 15.59a4.5 4.5 0 1 1-6.33-3.12"/><path d="M8.41 13.17a4.5 4.5 0 1 1 3.12-6.33"/><circle cx="12" cy="12" r="1.5"/>',
   window: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 8h20"/><path d="M6 4v4"/><path d="M10 4v4"/>',
 };
@@ -84,6 +85,17 @@ export function Btn({ variant = 'outline', icon, class: cls, children, type = 'b
 export function TipBtn({ tip, ...props }: ButtonProps & { tip: string[] }) {
   const handlers = useTip(tip);
   return <Btn {...props} {...handlers} />;
+}
+
+// A small (i) whose tooltip carries detail a panel would otherwise spell out
+// in a paragraph. Screen readers get the whole text as its label.
+export function InfoTip({ lines }: { lines: string[] }) {
+  const handlers = useTip(lines);
+  return (
+    <button type="button" class="info-tip" aria-label={lines.join(' ')} {...handlers}>
+      <Icon name="info" size={15} />
+    </button>
+  );
 }
 
 // The one panel every tab is built from: a header band of fixed height that

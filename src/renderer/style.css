@@ -61,10 +61,13 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
   border-radius: 12px; box-shadow: var(--shadow-2);
 }
 .title-popover[popover]:popover-open { display: grid; gap: 14px; }
-.title-popover .hint { margin: 0; }
 .title-popover-head { display: flex; align-items: center; gap: 8px; }
-.title-popover-head h2 { flex: 1; margin: 0; font-size: 15px; font-weight: 600; }
+.title-popover-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+/* The (i) sits beside the title; whatever follows goes to the right. */
+.title-popover-head h2 + .info-tip { margin-right: auto; }
 .title-popover-meta { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.info-tip { border: 0; background: transparent; color: var(--muted); width: 22px; height: 22px; padding: 0; display: inline-grid; place-items: center; border-radius: 50%; }
+.info-tip:hover, .info-tip:focus-visible { color: var(--text); background: var(--hover); }
 .title-popover-close { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; padding: 0; font-size: 18px; }
 .pop-line { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; color: var(--text-2); }
 .pop-line .dot.idle { display: inline-block; background: var(--switch-off); }
@@ -87,10 +90,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 .pop-buttons { display: flex; gap: 8px; }
 .pop-buttons > button { flex: 1; height: 38px; }
 .pop-options { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
-.pop-option { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: start; font-size: 13px; color: var(--text); }
-.pop-option input { width: 16px; height: 16px; margin: 1px 0 0; accent-color: var(--ink); }
-.pop-option small { grid-column: 2; color: var(--muted); font-size: 12px; line-height: 1.4; }
-.pop-option.off { opacity: 0.55; }
+.pop-option { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text); }
+.pop-option label { display: flex; align-items: center; gap: 10px; }
+.pop-option input { width: 16px; height: 16px; margin: 0; accent-color: var(--ink); }
+.pop-option.off label { opacity: 0.55; }
 .fans-speed { display: grid; grid-template-columns: 1fr auto; gap: 6px; font-size: 13px; }
 .fans-speed label { color: var(--text-2); }
 .fans-speed output { font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -254,7 +257,7 @@ main { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; p
 .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); cursor: pointer; }
 
 /* --- tooltip, menu, notes --- */
-.tip { position: fixed; z-index: 20; pointer-events: none; max-width: calc(100vw - 16px); white-space: nowrap; padding: 5px 9px; border-radius: 6px; background: var(--tip-bg); color: var(--tip-text); border: 1px solid var(--tip-border); font-size: 12px; line-height: 16px; font-weight: 500; box-shadow: var(--shadow-2); animation: tip-in 0.09s ease-out; }
+.tip { position: fixed; inset: auto; margin: 0; overflow: visible; z-index: 20; pointer-events: none; max-width: calc(100vw - 16px); white-space: nowrap; padding: 5px 9px; border-radius: 6px; background: var(--tip-bg); color: var(--tip-text); border: 1px solid var(--tip-border); font-size: 12px; line-height: 16px; font-weight: 500; box-shadow: var(--shadow-2); animation: tip-in 0.09s ease-out; }
 .tip div { overflow: hidden; text-overflow: ellipsis; }
 .tip .sub { opacity: 0.72; }
 @keyframes tip-in { from { opacity: 0; transform: translateY(2px); } }

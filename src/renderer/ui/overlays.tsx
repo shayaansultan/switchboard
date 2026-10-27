@@ -279,6 +279,8 @@ function Tooltip({ anchor, lines }: Tip) {
   useLayoutEffect(() => {
     const tip = ref.current;
     if (!tip) return;
+    // In the top layer, so it shows above an open title-bar popover too.
+    if (!tip.matches(':popover-open')) tip.showPopover();
     const r = anchor.getBoundingClientRect();
     const w = tip.offsetWidth;
     const h = tip.offsetHeight;
@@ -290,7 +292,7 @@ function Tooltip({ anchor, lines }: Tip) {
     tip.style.left = `${Math.max(margin, Math.min(left, window.innerWidth - w - margin))}px`;
   });
   return (
-    <div class="tip" role="tooltip" ref={ref}>
+    <div class="tip" role="tooltip" popover="manual" ref={ref}>
       {lines.map((line, i) => (
         <div class={i ? 'sub' : ''} key={i}>
           {line}

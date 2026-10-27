@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { act } from './lib';
-import { Btn, DurationPicker, Icon, durationMinutes, durationWords, type Duration } from './ui/primitives';
+import { Btn, DurationPicker, Icon, InfoTip, durationMinutes, durationWords, type Duration } from './ui/primitives';
 import { useTitlePopover } from './ui/overlays';
 import {
   CAFFEINATE_MINUTES,
@@ -165,22 +165,31 @@ export function Caffeinate() {
             />
             <span>Keep the screen on too</span>
           </label>
-          <label class={`pop-option ${lidAvailable ? '' : 'off'}`}>
-            <input
-              type="checkbox"
-              checked={lid && lidAvailable}
-              disabled={busy || !lidAvailable}
-              onChange={(e) => setLid(e.currentTarget.checked)}
+          <div class={`pop-option ${lidAvailable ? '' : 'off'}`}>
+            <label>
+              <input
+                type="checkbox"
+                checked={lid && lidAvailable}
+                disabled={busy || !lidAvailable}
+                onChange={(e) => setLid(e.currentTarget.checked)}
+              />
+              <span>Also with the lid closed</span>
+            </label>
+            <InfoTip
+              lines={
+                lidAvailable
+                  ? [
+                      'Keeps a closed MacBook awake',
+                      'Ends by itself below 20% battery or in serious heat.',
+                      ...(state.helper === 'installed' ? [] : ['Asks once to allow a helper in Login Items.']),
+                    ]
+                  : [
+                      'Not available here',
+                      LID_SUPPORT_TEXT[state.lidSupport as Exclude<typeof state.lidSupport, 'available'>],
+                    ]
+              }
             />
-            <span>Also with the lid closed</span>
-            <small>
-              {lidAvailable
-                ? state.helper === 'installed'
-                  ? 'Ends by itself if the battery drops below 20% or the Mac gets seriously hot.'
-                  : 'Asks once to allow the system helper in Login Items. Ends by itself below 20% battery or in serious heat.'
-                : LID_SUPPORT_TEXT[state.lidSupport as Exclude<typeof state.lidSupport, 'available'>]}
-            </small>
-          </label>
+          </div>
         </div>
         <Btn
           id="caffeinate-start"
@@ -222,6 +231,9 @@ export function Caffeinate() {
       >
         <div class="title-popover-head">
           <h2 id="caffeinate-heading">Caffeinate</h2>
+          <InfoTip
+            lines={['Ends when the time is up or Switchboard quits', 'With the lid open it needs no password.']}
+          />
           <button
             type="button"
             popovertarget="caffeinate-popover"
@@ -233,7 +245,6 @@ export function Caffeinate() {
           </button>
         </div>
         {body}
-        <p class="hint">Ends when the time is up or Switchboard quits. With the lid open it needs no password.</p>
       </div>
     </>
   );

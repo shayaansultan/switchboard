@@ -151,14 +151,18 @@ try {
   await toggle.click();
   await popover.waitFor({ state: 'visible' });
   assert.match(await text(), /Decaf: the Mac sleeps as usual/);
-  assert.match(await text(), /This build has no system helper/);
+  const lidTip = () => popover.locator('.pop-option .info-tip').getAttribute('aria-label');
+  assert.match(await lidTip(), /This build has no system helper/);
+  assert.doesNotMatch(await text(), /needs no password/);
   assert.equal(await page.getByRole('checkbox', { name: /lid closed/ }).isDisabled(), true);
   assert.equal(await button('Caffeinate for 1 hour').isVisible(), true);
   assert.deepEqual(await calls(), []);
 
   // A laptop with the helper not yet installed.
   await publish(decaf);
-  await waitText('Asks once to allow the system helper');
+  await page.waitForFunction(() =>
+    document.querySelector('.pop-option .info-tip')?.getAttribute('aria-label').includes('Asks once to allow a helper'),
+  );
   await page.screenshot({ path: path.join(output, 'decaf.png') });
 
   // A timed lid-open session: green card, countdown, +1 hour, Decaf now.
@@ -215,7 +219,9 @@ try {
 
   // A desktop Mac: no lid option, lid-open still works.
   await publish({ ...(await current()), lidSupport: 'no-lid' });
-  await waitText('This Mac has no lid.');
+  await page.waitForFunction(() =>
+    document.querySelector('.pop-option .info-tip')?.getAttribute('aria-label').includes('This Mac has no lid.'),
+  );
 
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.screenshot({ path: path.join(output, 'dark.png') });

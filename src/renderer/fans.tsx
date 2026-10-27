@@ -6,11 +6,17 @@
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { act } from './lib';
-import { Btn, DurationPicker, Icon, durationMinutes, durationWords, type Duration } from './ui/primitives';
+import { Btn, DurationPicker, Icon, InfoTip, durationMinutes, durationWords, type Duration } from './ui/primitives';
 import { useTitlePopover } from './ui/overlays';
 import { FAN_MINUTES, NOTICE_TEXT, STOP_TEXT, type FanState } from '../shared/fans';
 
 const POLL_MS = 2_000;
+const FANS_TIP = [
+  'A boost always ends on its own',
+  'When the time is up, on sleep or restart,',
+  'if Switchboard quits, or in serious heat.',
+  'The first boost asks once to allow a helper in Login Items.',
+];
 type Ready = Extract<FanState, { status: 'ready' }>;
 type FanAction = Parameters<typeof window.sb.fanAction>[0];
 
@@ -187,12 +193,6 @@ export function FanControl() {
         ) : null}
         <section class="pop-section" aria-labelledby="fans-boost-heading">
           <h3 id="fans-boost-heading">Boost</h3>
-          {ready.helper !== 'installed' ? (
-            <p class="hint">
-              Boosting needs a small helper that runs as root. macOS asks you to allow it once in Login Items; after
-              that, boosts start without prompts.
-            </p>
-          ) : null}
           <Speed value={draft} disabled={busy || foreign} onInput={setDraft} />
           <DurationPicker
             label="Boost for"
@@ -249,6 +249,7 @@ export function FanControl() {
       >
         <div class="title-popover-head">
           <h2 id="fans-heading">Fans</h2>
+          <InfoTip lines={FANS_TIP} />
           <span class="title-popover-meta">
             {ready?.temperature != null ? `CPU ${Math.round(ready.temperature)} °C` : ''}
           </span>
@@ -263,15 +264,7 @@ export function FanControl() {
           </button>
         </div>
         {body}
-        {ready ? (
-          <>
-            <FanList fans={ready.fans} />
-            <p class="hint">
-              A boost always ends on its own: when time is up, on sleep or restart, if Switchboard quits, or if the Mac
-              gets seriously hot.
-            </p>
-          </>
-        ) : null}
+        {ready ? <FanList fans={ready.fans} /> : null}
       </div>
     </>
   );
