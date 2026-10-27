@@ -186,9 +186,9 @@ export class CaffeinateController {
           this.patch({ helper: 'installed' });
         }
         if (!(await this.hold(minutes))) return;
-      } else if (this.state.active && this.state.lid) {
-        await this.ask({ op: 'awake-release' });
       }
+      const released = !lid && this.state.active && this.state.lid;
+      if (released) await this.ask({ op: 'awake-release' });
       this.blocker.stop();
       this.blocker.start();
       this.patch({
@@ -199,6 +199,8 @@ export class CaffeinateController {
         stop: null,
         sleepDisabledElsewhere: false,
       });
+      // As in end(): a release that left sleep off shows.
+      if (released) await this.readFacts();
       this.schedule();
     } finally {
       this.patch({ busy: false });

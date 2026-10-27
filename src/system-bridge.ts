@@ -26,6 +26,8 @@ export function spawnSystemBridge(executable: string, timeout = 25_000): SystemB
   let buffer = '';
   let nextId = 1;
   let lostAt = 0;
+  // A report waiting for the five seconds since the last one to pass.
+  let lostSoon: ReturnType<typeof setTimeout> | null = null;
   const pending = new Map<number, { resolve: (reply: BridgeReply) => void; reject: (error: Error) => void }>();
   const listeners: ((event: BridgeReply) => void)[] = [];
 
@@ -64,13 +66,17 @@ export function spawnSystemBridge(executable: string, timeout = 25_000): SystemB
       fail(new Error('The system bridge exited'));
       // Not one close() ended. The helper ends whatever this bridge held, so
       // the controllers ask what is left. One that never answered held
-      // nothing, and the reports are spaced out, so a bridge that keeps
-      // dying does not loop.
+      // nothing, and reports are at least five seconds apart (a later one
+      // waits, it is not dropped), so a bridge that keeps dying does not loop.
       if (child !== next) return;
       child = null;
-      if (!answered || Date.now() - lostAt < 5_000) return;
-      lostAt = Date.now();
-      for (const listener of listeners) listener({ event: 'helper-lost' });
+      if (!answered || lostSoon) return;
+      const wait = Math.max(0, lostAt + 5_000 - Date.now());
+      lostSoon = setTimeout(() => {
+        lostSoon = null;
+        lostAt = Date.now();
+        for (const listener of listeners) listener({ event: 'helper-lost' });
+      }, wait);
     });
     next.on('error', (error) => fail(error));
     next.stdin?.on('error', () => {});

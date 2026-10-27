@@ -19,11 +19,20 @@ test.if(darwin)(
   async () => {
     const events: BridgeReply[] = [];
     // Answers one request, then dies, as a crashed bridge would.
-    const dying = spawnSystemBridge(script('read line; echo \'{"id":1,"ok":true}\'; sleep 0.2; exit 1'))!;
+    // Echoes the request's id, so a restarted bridge answers its own request.
+    const answer =
+      'read line; id=$(echo "$line" | sed -E \'s/.*"id":([0-9]+).*/\\1/\'); echo "{\\"id\\":$id,\\"ok\\":true}"';
+    const dying = spawnSystemBridge(script(`${answer}; sleep 0.2; exit 1`))!;
     dying.onEvent((event) => events.push(event));
     expect(await dying.request({ op: 'state' })).toMatchObject({ ok: true });
     await Bun.sleep(600);
     expect(events).toEqual([{ event: 'helper-lost' }]);
+    // A second crash soon after is reported once five seconds have passed.
+    expect(await dying.request({ op: 'state' })).toMatchObject({ ok: true });
+    await Bun.sleep(600);
+    expect(events).toHaveLength(1);
+    await Bun.sleep(4_200);
+    expect(events).toEqual([{ event: 'helper-lost' }, { event: 'helper-lost' }]);
 
     const quick = spawnSystemBridge(script('exit 1'))!;
     quick.onEvent((event) => events.push(event));
@@ -34,7 +43,7 @@ test.if(darwin)(
     await closed.request({ op: 'state' });
     closed.close();
     await Bun.sleep(200);
-    expect(events).toHaveLength(1);
+    expect(events).toHaveLength(2);
   },
-  10_000,
+  15_000,
 );

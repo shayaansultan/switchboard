@@ -161,6 +161,10 @@ describe('Caffeinate', () => {
     await controller.start(60, { lid: true });
     await controller.stop();
     expect(controller.snapshot()).toMatchObject({ active: false, sleepDisabledElsewhere: true });
+    // Also when a lid-open session replaces the lid-closed one.
+    await controller.start(60, { lid: true });
+    await controller.start(60);
+    expect(controller.snapshot()).toMatchObject({ active: true, lid: false, sleepDisabledElsewhere: true });
   });
 
   test('the helper ending a lid-closed hold ends the session and says why', async () => {
