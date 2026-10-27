@@ -158,6 +158,38 @@ function audit(tolerance) {
       if (centre !== null) report(child, `centre vs ${row.className} title`, centre - cap);
     }
   }
+  // Every size comes from the scales in src/design/tokens.css.
+  const root = getComputedStyle(document.documentElement);
+  const scale = (prefix) =>
+    new Set(
+      [...document.styleSheets]
+        .flatMap((sheet) => [...sheet.cssRules])
+        .filter((rule) => rule.selectorText === ':root')
+        .flatMap((rule) => [...rule.style])
+        .filter((name) => name.startsWith(prefix))
+        .map((name) => parseFloat(root.getPropertyValue(name))),
+    );
+  const textSizes = scale('--text-');
+  const controlSizes = scale('--control');
+  const seenText = new Set();
+  for (const el of document.querySelectorAll('body *')) {
+    if (!visible(el) || el.closest('svg')) continue;
+    const ownText = [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+    if (!ownText) continue;
+    const size = parseFloat(getComputedStyle(el).fontSize);
+    if (!textSizes.has(size) && !seenText.has(`${el.tagName}${size}`)) {
+      seenText.add(`${el.tagName}${size}`);
+      problems.push(`${label(el)}: font-size ${size}px is not on the type scale`);
+    }
+  }
+  for (const el of document.querySelectorAll(
+    '.title-popover button, .title-popover input:not([type=checkbox]):not([type=range])',
+  )) {
+    if (!visible(el)) continue;
+    const height = el.getBoundingClientRect().height;
+    if (![...controlSizes].some((c) => Math.abs(c - height) < 0.5))
+      problems.push(`${label(el)}: height ${height}px is not a control size`);
+  }
   // A popover's close icon ends on the same right edge as its content.
   for (const pop of document.querySelectorAll('.title-popover')) {
     if (!visible(pop)) continue;

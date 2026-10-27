@@ -108,6 +108,10 @@ which that test also reads.
 - Every colour is a token in `src/design/tokens.css`, shared by the window
   and the phone app, written `light-dark(light, dark)` so both values sit
   on one line. Never write a literal colour in a rule; add a token.
+- Sizes are tokens too: `--text-*` for type, `--space-*` (Tailwind's steps)
+  for padding, margin and gap, `--control*` for control heights. Pick a step;
+  an off-scale number needs a reason in a comment. The alignment audit fails
+  on text or a popover control that is off the scale.
 - The renderer only ever receives percentages, reset times, email, plan,
   the proxy's reason an account is unavailable, usage-reset offers (id,
   title, count, expiry), and fan speeds and CPU temperature. A reset session stays in the main process; the
