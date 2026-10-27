@@ -670,11 +670,7 @@ function ApiBucketSummary({ bucket }: { bucket: BucketView }) {
   return (
     <>
       <Note tone={status && status !== 'ok' ? 'warn' : undefined}>{api ? message : 'API status not checked yet'}</Note>
-      <Note>
-        {api?.enforcement.status === 'operator-reported-not-enforced'
-          ? `Quotas reported unenforced · operator report ${api.enforcement.reportedAt}`
-          : 'Quota enforcement unknown · no subscription limits reported'}
-      </Note>
+      <Note>Quota enforcement unknown · no subscription limits reported</Note>
       <Note>
         {api?.accounting.status === 'ok' && Object.keys(api.accounting.values ?? {}).length
           ? 'Accounting allowances and usage are available in Proxy buckets.'

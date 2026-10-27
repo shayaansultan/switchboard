@@ -7,21 +7,21 @@ transport. OAuth buckets retain their existing accounts, routing and headroom.
 Create a bucket and an optional dedicated OpenCode profile:
 
 ```sh
-switchboard bucket create-api SoCLaaS \
-  --base-url https://soclaas-api.comp.nus.edu.sg/v1 \
-  --credential-file "$HOME/.config/soclaas/soclaas.env" \
-  --credential-env SOCLAAS_API_KEY \
-  --budget-url https://soclaas-portal.comp.nus.edu.sg/api-key/budget \
-  --adapter responses --model qwen3.6:35b --opencode
-switchboard bucket inspect-api soclaas
-switchboard bucket start soclaas
-oc soclaas
+switchboard bucket create-api Example \
+  --base-url https://api.example.com/v1 \
+  --credential-file "$HOME/.config/example/example.env" \
+  --credential-env EXAMPLE_API_KEY \
+  --budget-url https://api.example.com/api-key/budget \
+  --adapter responses --model some-model:7b --opencode
+switchboard bucket inspect-api example
+switchboard bucket start example
+oc example
 ```
 
-The example model was advertised on 2026-10-12. Creation refreshes discovery and
-requires an advertised chat model. `x-test-1` and service aliases are labeled
-mutable. Mutable defaults need `--allow-mutable-default`; choose `x-test-1` for
-one OpenCode run with `oc soclaas run --model x-test-1 "Reply briefly."`.
+Creation refreshes discovery and requires an advertised chat model. `x-test-1`
+and service aliases are labeled mutable. Mutable defaults need
+`--allow-mutable-default`; choose a mutable model for one OpenCode run with
+`oc example run --model x-test-1 "Reply briefly."`.
 
 The UI's New proxy bucket dialog accepts the same upstream and credential-reference
 settings. Its API panel shows discovery/accounting status, observation time,
@@ -48,31 +48,29 @@ bucket. Existing clients must relaunch after a worker restart because its
 local port changes. A missing credential, failed authentication or unreachable
 model endpoint prevents startup; none redirects to another service.
 
-Configured SoCLaaS allowances are reporting/fair-use settings, not payments or
-subscription headroom. [Operators reported no enforcement on 2026-10-11](https://t.me/c/4345150434/6).
-That dated report does not suppress HTTP 429 handling. The current key-specific
-budget endpoint remains authoritative for configured values.
-[`x-test-1` was announced as GLM 5.3 Flash with an explicit swap warning](https://t.me/c/4345150434/7).
+Configured allowances are reporting or fair-use settings, not payments or
+subscription headroom, and whether a service enforces them is unknown. HTTP 429 is
+handled as usual. The key-specific budget endpoint is authoritative for configured
+values.
 
 ## Codex and compatibility
 
 Create a dedicated profile and assign only it after deployment approval:
 
 ```sh
-switchboard add codex SoCLaaS
-switchboard assign codex-soclaas soclaas
-switchboard routed codex-soclaas exec --skip-git-repo-check "Reply briefly."
-switchboard unassign codex-soclaas
+switchboard add codex Example
+switchboard assign codex-example example
+switchboard routed codex-example exec --skip-git-repo-check "Reply briefly."
+switchboard unassign codex-example
 ```
 
 Assignment affects the next desktop launch and the `routed` command. Native `cli`
 commands, base config and auth.json keep their ownership. The API catalogue contains
 only this service's chat models, rather than subscription GPT entries. The installed
 Codex CLI 0.162.1 uses separate `NAME.config.toml` profile files; launch overrides
-avoid changing the user's provider defaults. Do not change the NUS education
-profile or any default without explicit approval.
+avoid changing the user's provider defaults. Do not change another profile or any
+default without explicit approval.
 
-Both SoCLaaS Chat Completions and Responses accepted tiny live streaming probes.
 This implementation supports the Responses adapter. Embedding and transcription
 models remain discoverable but are not advertised as coding models; those inference
 endpoints are not supported by this path. Per-model tool quality, reasoning, vision
@@ -90,34 +88,31 @@ invented, and accounting price metadata is not advertised as cash cost.
 - `bun run build && bun demo/test-api-bucket.mjs`: real Electron form, IPC, discovery,
   accounting, mutable labels, refresh and unchanged profile routing in isolated state.
 
-On 2026-10-12, dedicated Codex and OpenCode profiles each completed a live
-`printf SOCLAAS_TOOL_OK` tool round trip through this bucket. The installed Codex
-engine emits telemetry warnings about colons in model IDs; inference and tools
+Codex emits telemetry warnings about colons in model IDs; inference and tools
 still succeed. Preserve the exact service ID rather than renaming it to hide
-those warnings. These probes do not establish every model's client compatibility.
-Live acceptance must use tiny synthetic prompts after deployment approval.
+those warnings. Live acceptance must use tiny synthetic prompts after deployment
+approval.
 
 ## Rollback
 
 Run `switchboard unassign PROFILE` for any profile deliberately assigned here, then
-relaunch that profile. With approval, `switchboard bucket stop soclaas --yes` stops
-only this bucket. `switchboard bucket remove soclaas --yes` deletes its state and
+relaunch that profile. With approval, `switchboard bucket stop example --yes` stops
+only this bucket. `switchboard bucket remove example --yes` deletes its state and
 its paired OpenCode profile; use only when deletion is requested. The external key
 file is not deleted. Roll back the app separately using the previous reviewed build
 and signing identity; do not restart unrelated workers.
 
 ## Thinking controls and absent limits
 
-The current API adapter does not advertise reasoning-effort choices. SoCLaaS's
-live catalogue does not declare supported reasoning levels. Probes on 2026-10-13
-accepted `none`, `high` and even an invalid Responses effort value; successful
-requests therefore do not prove that the setting changes thinking. Codex may
+The current API adapter does not advertise reasoning-effort choices. A catalogue
+that declares no reasoning levels may still accept any effort value, even an
+invalid one, so a successful request does not prove the setting changes thinking. Codex may
 show its generic “Medium” label even when this catalogue has no effort choices.
 Do not infer a working thinking control or a disabled-thinking guarantee from it.
 `oc effort` rejects API profiles instead of claiming an unused setting was applied.
 
 API-backed profile cards show API credential/discovery health independently of
-the native account's login. They show dated operator-reported enforcement or an
-explicit unknown status instead of empty subscription bars. An empty or null-only
+the native account's login. They show an explicit unknown enforcement status
+instead of empty subscription bars. An empty or null-only
 accounting object is valid missing information, not an API failure or unlimited
 access; malformed responses and 401/429/outages remain separate error states.

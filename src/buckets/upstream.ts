@@ -66,11 +66,6 @@ export const ApiObservation = z.object({
   discovery: EndpointState,
   models: z.array(ApiModel),
   accounting: EndpointState.extend({ values: z.record(z.string(), z.number()).optional() }),
-  enforcement: z.object({
-    status: z.enum(['unknown', 'operator-reported-not-enforced']),
-    reportedAt: z.string().optional(),
-    source: z.string().optional(),
-  }),
 });
 export type ApiObservation = z.infer<typeof ApiObservation>;
 export function readCredential(ref: Upstream['credential']): string {
@@ -139,10 +134,6 @@ export async function inspectUpstream(config: Upstream): Promise<ApiObservation>
     discovery: { status: 'missing-credential' },
     models: [],
     accounting: { status: 'not-configured' },
-    enforcement:
-      new URL(config.baseUrl).hostname === 'soclaas-api.comp.nus.edu.sg'
-        ? { status: 'operator-reported-not-enforced', reportedAt: '2026-10-11', source: 'https://t.me/c/4345150434/6' }
-        : { status: 'unknown' },
   };
   let key: string;
   try {

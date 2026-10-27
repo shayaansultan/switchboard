@@ -14,15 +14,15 @@ const SURFACES = ['desktop', 'terminal'] as const;
 const PLUGIN = 'switchboard-profile-band';
 const NOW = Date.parse('2026-10-05T07:00:00Z');
 const ENV = {
-  SWITCHBOARD_PROFILE: 'claude-answerthis',
-  SWITCHBOARD_PROFILE_NAME: 'AnswerThis',
+  SWITCHBOARD_PROFILE: 'claude-acme',
+  SWITCHBOARD_PROFILE_NAME: 'Acme',
   SWITCHBOARD_PROFILE_COLOR: '#ec4899',
   SWITCHBOARD_COMMAND: '/bin/switchboard',
 };
 const USAGE = JSON.stringify({
   profiles: [
     {
-      id: 'claude-answerthis',
+      id: 'claude-acme',
       usage: {
         status: 'ok',
         plan: 'Max 20x',
@@ -51,7 +51,7 @@ for (const surface of SURFACES) {
     mock.env(on, ENV);
     const clock = mock.clock(on, { now: NOW });
     on('process.run', (_, e) => {
-      expect(e.argv).toEqual(['/bin/switchboard', 'usage', 'claude-answerthis', '--max-age', '15m', '--no-renew']);
+      expect(e.argv).toEqual(['/bin/switchboard', 'usage', 'claude-acme', '--max-age', '15m', '--no-renew']);
       return { value: RAN };
     });
     on('session.usage', () => ({ value: SESSION }));
@@ -61,7 +61,7 @@ for (const surface of SURFACES) {
     await clock.settle();
     const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'AbovePrompt', props: WIDE });
     expect((await ui.find({ type: 'Box' }))?.props).toMatchObject({ width: '100%', backgroundColor: '#ec4899' });
-    expect((await ui.find({ type: 'Text', text: 'AnswerThis' }))?.props).toMatchObject({
+    expect((await ui.find({ type: 'Text', text: 'Acme' }))?.props).toMatchObject({
       color: '#ffffff',
       bold: true,
     });
@@ -107,19 +107,19 @@ for (const surface of SURFACES) {
       component: 'AbovePrompt',
       props: { ...PROPS, bodyColumns: 30 },
     });
-    expect(await ui.find({ type: 'Text', text: 'AnswerThis' })).toBeDefined();
+    expect(await ui.find({ type: 'Text', text: 'Acme' })).toBeDefined();
     expect(await ui.find({ text: /%/ })).toBeUndefined();
   });
 
   test(`${surface}: without the command the band still names the profile`, async ($, on) => {
-    mock.env(on, { SWITCHBOARD_PROFILE_NAME: 'AnswerThis', SWITCHBOARD_PROFILE_COLOR: '#ec4899' });
+    mock.env(on, { SWITCHBOARD_PROFILE_NAME: 'Acme', SWITCHBOARD_PROFILE_COLOR: '#ec4899' });
     const clock = mock.clock(on, { now: NOW });
     on('session.start', (_, e) => ({ cwd: e.cwd }));
     await $.session.start({ cwd: '/', surface, isInteractive: true });
     // The first lookup runs unawaited after the session starts, as in a session.
     await clock.settle();
     const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'AbovePrompt', props: PROPS });
-    expect(await ui.find({ type: 'Text', text: 'AnswerThis' })).toBeDefined();
+    expect(await ui.find({ type: 'Text', text: 'Acme' })).toBeDefined();
     expect(await ui.find({ text: /5h|7d/ })).toBeUndefined();
   });
 
@@ -141,7 +141,7 @@ for (const surface of SURFACES) {
       props: { ...PROPS, hasSurvey: true },
     });
     expect(await ui.find({ text: 'engine band' })).toBeDefined();
-    expect(await ui.find({ text: 'AnswerThis' })).toBeUndefined();
+    expect(await ui.find({ text: 'Acme' })).toBeUndefined();
   });
 }
 
@@ -196,7 +196,7 @@ test('a bar shows what is left in tenths', () => {
 
 test('a narrow band gives up detail in a fixed order', () => {
   const usage = parseUsage(USAGE.replace('"remaining":12', '"remaining":72').replace('"warning"', 'null'));
-  const facts = bandFacts({ name: 'AnswerThis' }, usage, { context: 38, costUsd: 4.12 }, NOW, 'UTC');
+  const facts = bandFacts({ name: 'Acme' }, usage, { context: 38, costUsd: 4.12 }, NOW, 'UTC');
   const at = (columns: number) => {
     const b = fitBand(facts, columns);
     return [b.detail, ...b.limits.map((l) => l.text)];
@@ -222,7 +222,7 @@ test('a narrow band gives up detail in a fixed order', () => {
 });
 
 test('a session that has spent under a cent shows no cost', () => {
-  const facts = bandFacts({ name: 'AnswerThis' }, null, { context: 2, costUsd: 0.004 }, NOW, 'UTC');
+  const facts = bandFacts({ name: 'Acme' }, null, { context: 2, costUsd: 0.004 }, NOW, 'UTC');
   expect(fitBand(facts, 200).detail).toBe('  context 2%');
 });
 
@@ -235,13 +235,13 @@ test('a narrow band keeps the window with a pace warning longest', () => {
     plan: 'Max 20x',
     windows: [{ label: '5h', remaining: 72, resetsAt: null, severity: null }, window7d(18, WEEK / 4)],
   };
-  const facts = bandFacts({ name: 'AnswerThis' }, usage, null, NOW, 'UTC');
+  const facts = bandFacts({ name: 'Acme' }, usage, null, NOW, 'UTC');
   expect(fitBand(facts, 45).limits.map((l) => l.text)).toEqual(['7d 18% · runs out Tue 10:40']);
 });
 
 test('a pace warning outlasts the reset time it shares a window with', () => {
   const usage = { plan: 'Max 20x', windows: [window7d(18, WEEK / 4)] };
-  const facts = bandFacts({ name: 'AnswerThis' }, usage, null, NOW, 'UTC');
+  const facts = bandFacts({ name: 'Acme' }, usage, null, NOW, 'UTC');
   expect(fitBand(facts, 200).limits[0]).toMatchObject({
     text: '7d ██░░░░░░░░ 18% · resets Wed 01:00 · runs out Tue 10:40',
     isBold: true,
