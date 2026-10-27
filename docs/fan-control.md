@@ -67,7 +67,7 @@ launchd starts it again on the next connection.
 
 ## Verified
 
-On a MacBook Pro (Mac16,8, M4 Pro, two fans, 2,317–7,826 rpm), macOS 26.7.1:
+On a two-fan Apple silicon MacBook Pro running macOS 26:
 registration after one Login Items approval; a differently signed bridge
 refused; 50% settling near 5,070 rpm within 3 seconds; and a return to System
 after the bridge exited, was force-quit, stopped sending heartbeats, and after
