@@ -33,9 +33,10 @@ is any doubt.
 | `recovery`         | The helper started and found its marker file, as after a crash or a restart. |
 
 The helper writes `/Library/Application Support/Switchboard/sleep-disabled`
-when it turns sleep off and removes it when it turns sleep back on. On start
-(`RunAtLoad`, so at every boot) a marker means a hold was cut short, so it
-turns sleep back on. A `SleepDisabled` set some other way, such as by the old
+when it turns sleep off and removes it only once `pmset` has really turned
+sleep back on; until then it retries every second and stays resident. On
+start (`RunAtLoad`, so at every boot), before it touches the SMC, a marker
+means a hold was cut short, so it turns sleep back on. A `SleepDisabled` set some other way, such as by the old
 Keep awake or `pmset`, has no marker and is left alone; the popover reports it
 and offers **Turn sleep on**, through the helper if it is installed or a macOS
 password prompt if not.

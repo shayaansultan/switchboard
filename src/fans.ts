@@ -202,6 +202,24 @@ export class FanController {
     });
   }
 
+  /**
+   * Changes the running boost, read once this operation's turn comes: a
+   * Stop queued ahead of it has ended the boost by then, so nothing restarts.
+   */
+  private change(
+    next: (boost: { level: number; left: number; timed: boolean }) => { level: number; minutes: number } | null,
+  ): Promise<void> {
+    return this.run(async () => {
+      await this.readState();
+      const ready = this.ready();
+      if (!ready || ready.level === null) return;
+      const change = next({ level: ready.level, left: this.remaining(ready), timed: ready.endsAt !== null });
+      if (!change || !isFanLevel(change.level)) return;
+      await this.boost(change.level, change.minutes);
+      if (ready.limit !== null) this.patch({ limit: Math.max(ready.limit, change.minutes) });
+    });
+  }
+
   private async boost(level: number, minutes: number): Promise<void> {
     const ready = this.ready();
     if (!ready) return;
@@ -227,20 +245,13 @@ export class FanController {
 
   /** Changes the speed of the current boost without touching its time. */
   adjust(level: number): Promise<void> {
-    const ready = this.ready();
-    if (!ready || ready.level === null) return Promise.resolve();
-    const left = this.remaining(ready);
-    return this.set(level, left).then(() => {
-      if (ready.limit !== null) this.patch({ limit: Math.max(ready.limit, left) });
-    });
+    if (!isFanLevel(level)) return Promise.reject(new Error('Invalid fan speed'));
+    return this.change(({ left }) => ({ level, minutes: left }));
   }
 
   /** Adds `minutes` to a timed boost. */
   extend(minutes = DEFAULT_FAN_MINUTES): Promise<void> {
-    const ready = this.ready();
-    if (!ready || ready.level === null || ready.endsAt === null) return Promise.resolve();
-    const total = Math.min(1440, this.remaining(ready) + minutes);
-    return this.set(ready.level, total);
+    return this.change(({ level, left, timed }) => (timed ? { level, minutes: Math.min(1440, left + minutes) } : null));
   }
 
   /** Drops a boost that was waiting for the helper to be allowed. */

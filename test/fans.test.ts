@@ -6,20 +6,22 @@ import { describeFans, isFanLevel, type FanState, type FanUnavailable } from '..
 const fan = (actual: number, manual = false) => ({ actual, minimum: 2317, maximum: 7826, target: actual, manual });
 
 // A bridge that answers like the real one and records what it was asked.
-function fakeBridge(start: { helper?: string; fans?: unknown[] } = {}) {
+function fakeBridge(start: { helper?: string; fans?: unknown[]; now?: () => number } = {}) {
   // Typed loosely so each case can pass only what it changes.
   let helper = start.helper ?? 'installed';
   let fans = start.fans ?? [fan(2317), fan(2502)];
   let listener: (event: BridgeReply) => void = () => {};
   const asked: string[] = [];
-  let holding: { level: number; seconds: number } | null = null;
+  const now = start.now ?? (() => 0);
+  // `until` is in the controller's clock, so time left counts down like the helper's.
+  let holding: { level: number; until: number | null } | null = null;
   let stop: string | null = null;
   const status = (extra: BridgeReply = {}) => ({
     fans,
     temperature: 48.2,
     controlling: holding !== null,
     level: holding?.level ?? null,
-    endsIn: holding?.seconds || null,
+    endsIn: holding?.until != null ? Math.round((holding.until - now()) / 1000) : null,
     stop,
     ...extra,
   });
@@ -37,7 +39,10 @@ function fakeBridge(start: { helper?: string; fans?: unknown[] } = {}) {
         case 'set':
           if (fans.some((f) => (f as { manual: boolean }).manual) && !holding)
             return status({ error: 'already-controlled' });
-          holding = { level: Number(request.level), seconds: Number(request.seconds) };
+          holding = {
+            level: Number(request.level),
+            until: Number(request.seconds) ? now() + Number(request.seconds) * 1000 : null,
+          };
           stop = null;
           return status();
         case 'system':
@@ -159,7 +164,7 @@ describe('fan control', () => {
 
   test('changing speed keeps the time left, and +15 adds to it', async () => {
     let now = 0;
-    const fake = fakeBridge();
+    const fake = fakeBridge({ now: () => now });
     const controller = new FanController(
       fake.bridge,
       () => {},
@@ -174,6 +179,16 @@ describe('fan control', () => {
     await controller.set(80, 0);
     await controller.extend();
     expect(ready(controller.snapshot())).toMatchObject({ endsAt: null, limit: null });
+  });
+
+  test('a speed change or +15 queued behind Stop does not start a new boost', async () => {
+    const fake = fakeBridge();
+    const controller = new FanController(fake.bridge, () => {});
+    await controller.set(60, 15);
+    // Both clicked while Stop is still in flight.
+    await Promise.all([controller.system(), controller.adjust(80), controller.extend()]);
+    expect(ready(controller.snapshot())).toMatchObject({ level: null, endsAt: null });
+    expect(fake.asked.filter((op) => op === 'set')).toHaveLength(1);
   });
 
   test('the helper ending a session is reported once, until dismissed', async () => {

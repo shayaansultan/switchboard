@@ -14,7 +14,13 @@
 // (restart, shutdown, update). A lid-closed hold ends on the same, except
 // sleep, plus the battery falling below 20%. On start the helper hands back
 // any fan it finds in manual mode and any sleep setting a hold left behind,
-// so a crash or a restart always ends on macOS's own settings.
+// so a crash or a restart always ends on macOS's own settings, and a
+// hand-back the SMC or pmset refuses is tried again every second.
+//
+// The trust boundary is the signed-in user, as for the `switchboard` CLI:
+// any program they run can ask Switchboard for a boost or a hold. That is
+// why the helper offers only these bounded requests, each of which ends on
+// its own, and nothing else that root could do.
 import Foundation
 import IOKit
 import IOKit.pwr_mgt
@@ -66,6 +72,8 @@ final class Fans {
   private var endsAt: TimeInterval?
   private var targets: [Double] = []
   private var misses = 0
+  /// Seconds left to keep retrying a hand-back the SMC refused.
+  private(set) var retrying = 0
   private(set) var stop: String?
   /// What went wrong in the last failed set, for `switchboard fans status`.
   private(set) var detail: String?
@@ -190,7 +198,7 @@ final class Fans {
   @discardableResult
   func restore(reason: String?) -> Bool {
     let count = (try? smc.fanCount()) ?? 0
-    for index in 0..<count {
+    for index in 0..<max(count, 0) {
       guard let mode = smc.modeKey(index) else { continue }
       for _ in 0..<20 {
         try? smc.writeNumber(mode, 0)
@@ -205,12 +213,17 @@ final class Fans {
         Thread.sleep(forTimeInterval: 0.1)
       }
     }
-    let automatic = ((try? smc.readings()) ?? []).allSatisfy { !$0.manual }
+    // An unreadable SMC is not proof the fans are back on automatic.
+    let automatic = count > 0 && ((try? smc.readings())?.allSatisfy { !$0.manual } ?? false)
     if level != nil || reason == "recovery" { stop = reason }
     level = nil
     owner = nil
     endsAt = nil
     targets = []
+    // The session is over either way, but a refused write is tried again
+    // every second for a while. Not for ever: by then another app may have
+    // taken the fans on purpose.
+    if automatic { retrying = 0 } else if retrying == 0 { retrying = 30 }
     log.info("System (\(reason ?? "asked", privacy: .public)) automatic=\(automatic)")
     return automatic
   }
@@ -221,8 +234,14 @@ final class Fans {
     }
   }
 
-  // Runs every second while a boost is held.
+  // Runs every second.
   func check(_ sessions: Sessions) {
+    if level == nil, retrying > 0 {
+      let left = retrying - 1
+      if restore(reason: nil) { log.info("fans handed back on a retry") }
+      retrying = retrying == 0 ? 0 : left
+      return
+    }
     guard level != nil, let owner else { return }
     misses = intact(targets) ? 0 : misses + 1
     if let endsAt, uptime() >= endsAt {
@@ -284,12 +303,16 @@ final class AwakeHold {
     return nil
   }
 
+  /// True while sleep this helper turned off is still off: the marker goes
+  /// only once pmset has really turned it back on, so a failure is retried
+  /// every second and survives a restart.
+  var pending: Bool { owner == nil && FileManager.default.fileExists(atPath: marker.path) }
+
   /// Turns sleep back on. `reason` is nil when someone asked.
   func release(reason: String?) {
     let held = owner != nil
     if held || FileManager.default.fileExists(atPath: marker.path) {
-      _ = pmset(0)
-      try? FileManager.default.removeItem(at: marker)
+      if pmset(0) { try? FileManager.default.removeItem(at: marker) } else { log.error("sleep not re-enabled; will retry") }
     }
     if held || reason == "recovery" { stop = reason }
     owner = nil
@@ -307,8 +330,12 @@ final class AwakeHold {
     if FileManager.default.fileExists(atPath: marker.path) { release(reason: "recovery") }
   }
 
-  // Runs every second while a hold is held.
+  // Runs every second.
   func check(_ sessions: Sessions) {
+    if pending, pmset(0) {
+      try? FileManager.default.removeItem(at: marker)
+      log.info("sleep re-enabled on a retry")
+    }
     guard let owner else { return }
     if let endsAt, uptime() >= endsAt {
       release(reason: "time-limit")
@@ -407,16 +434,23 @@ guard let team = ownSigningTeam() else {
   log.error("the system helper is not signed with a team; refusing to start")
   exit(1)
 }
+// Sleep first: it needs no SMC, so a Mac whose SMC will not open still gets
+// back a sleep setting a crashed hold left off.
+let awake = AwakeHold()
+awake.recover()
 let smc: SMC
 do { smc = try SMC() } catch {
   log.error("cannot open the SMC")
+  // Stay up while the retry needs us; launchd would not start us again.
+  while awake.pending {
+    awake.release(reason: nil)
+    Thread.sleep(forTimeInterval: 1)
+  }
   exit(1)
 }
 let fans = Fans(smc: smc)
-let awake = AwakeHold()
 let sessions = Sessions()
 fans.handBackIfManual(reason: "recovery")
-awake.recover()
 
 // Sleep and wake. On Apple silicon the SMC can keep a manual target across
 // sleep, so hand the fans back before sleeping and check again on wake. A
@@ -458,7 +492,7 @@ timer.setEventHandler {
   awake.check(sessions)
   // Nothing held and nobody connected: launchd starts the helper again on
   // the next connection, so there is no reason to stay resident.
-  if fans.level == nil, awake.owner == nil, sessions.idle {
+  if fans.level == nil, fans.retrying == 0, awake.owner == nil, !awake.pending, sessions.idle {
     log.info("idle; exiting")
     exit(0)
   }

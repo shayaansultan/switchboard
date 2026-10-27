@@ -39,6 +39,11 @@ to a day, System, and a heartbeat. It never writes any other SMC key. If the
 fans are already in manual mode when no session of its own holds them, it
 refuses: another app has them, and two controllers would fight.
 
+The boundary is the signed-in user, the same as for the `switchboard` CLI:
+any program they run can ask Switchboard, or start the bridge itself, for a
+boost or a lid-closed hold. That is why the helper offers only those bounded
+requests, each of which ends on its own, and nothing else root could do.
+
 ## When a boost ends
 
 The helper hands the fans back and records why, matching Vorssaint's
@@ -61,6 +66,11 @@ written back to back so the thermal controller has no gap to reclaim them. A
 stopped fan on Apple silicon can refuse; the helper then sets the `Ftst`
 unlock key, a protective maximum target, waits for manual mode to stick, and
 applies the requested level. Every restore clears `Ftst` again.
+
+A restore counts only once every fan reads automatic again. If the SMC
+refuses or cannot be read, the session still ends and the helper tries again
+every second for 30 seconds; after that another app may have taken the fans
+on purpose, so it stops. It stays resident while retrying.
 
 The helper exits after a minute with nothing held and nobody connected;
 launchd starts it again on the next connection.
