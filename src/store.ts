@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Dirs, Profile, Store, Vendor, VendorInfo } from './types';
+import type { Dirs, Profile, ProfilePatch, Store, Vendor, VendorInfo } from './types';
 import { desktopRouting } from './storage';
 
 // Node's os.homedir() honours $HOME on POSIX; Bun reads the passwd entry
@@ -342,13 +342,22 @@ export function move(data: Store, id: string, delta: number): boolean {
   return true;
 }
 
-export function update(data: Store, id: string, patch: { name?: string; color?: string }): Profile {
+export function update(data: Store, id: string, patch: ProfilePatch): Profile {
   const p = data.profiles.find((x) => x.id === id);
   if (!p) throw new Error('no such profile');
   if (typeof patch.name === 'string' && patch.name.trim()) p.name = patch.name.trim();
   if (typeof patch.color === 'string') p.color = patch.color;
+  if (patch.planPrice === null) delete p.planPrice;
+  else if (patch.planPrice !== undefined) p.planPrice = planPrice(patch.planPrice);
   save(data);
   return p;
+}
+
+// A monthly plan price as the store keeps it: dollars and cents, from $0 to
+// a price no plan reaches, so a typo cannot scale every comparison by 100.
+export function planPrice(n: number): number {
+  if (!Number.isFinite(n) || n < 0 || n > 10_000) throw new Error('A plan price is dollars a month, from 0 to 10000');
+  return Math.round(n * 100) / 100;
 }
 
 // Route a Codex desktop profile's embedded agent through a proxy bucket, or

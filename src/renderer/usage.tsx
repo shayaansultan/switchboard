@@ -33,6 +33,7 @@ import {
   type WindowPace,
 } from './lib';
 import { Badge, Btn, Icon, Meter, Note, Panel, Ring, Seg, Skeleton, Track } from './ui/primitives';
+import { planCostOver } from '../shared/usage';
 import { useTip } from './ui/overlays';
 
 type View = 'overview' | 'tokens' | 'sessions';
@@ -686,21 +687,8 @@ function Tokens({ state, report }: { state: State; report: UsageReport }) {
           />
         </Panel>
       </div>
-      <Panel title="Value by account" meta={`last ${report.days} days`}>
-        <Ranked
-          solid
-          rows={accounts.map((a) => ({
-            key: a.profile,
-            name: <Who state={state} id={a.profile} />,
-            share: a.value,
-            color: profileColor(state, a.profile),
-            value: (
-              <>
-                {money(a.value)} <span class="muted">· {count(tokenSum(a.tokens))} tokens</span>
-              </>
-            ),
-          }))}
-        />
+      <Panel title="Value against plan price" meta={`last ${report.days} days`}>
+        <PlanValue state={state} report={report} accounts={accounts} />
       </Panel>
       <Panel title="Daily value per account" meta={accounts.length ? `same scale, $0 – ${axisMoney(scale)}` : null}>
         {accounts.length ? (
@@ -725,6 +713,98 @@ function Tokens({ state, report }: { state: State; report: UsageReport }) {
       </Panel>
       <Provenance report={report} />
     </>
+  );
+}
+
+// Each account's value in the range against what its plan cost for the same
+// days: the bar is the value, the tick the plan's price, and the multiple how
+// many times over the plan would have cost at API prices. The price is the
+// owner's to set, here or with `switchboard plan-price`; none is assumed.
+function PlanValue({
+  state,
+  report,
+  accounts,
+}: {
+  state: State;
+  report: UsageReport;
+  accounts: UsageReport['accounts'];
+}) {
+  if (!accounts.length) return <Note>Nothing in this range.</Note>;
+  const rows = accounts.map((a) => {
+    const monthly = profileById(state, a.profile)?.planPrice;
+    return { a, monthly, cost: monthly === undefined ? null : planCostOver(monthly, report.days) };
+  });
+  const top = Math.max(...rows.map((r) => Math.max(r.a.value, r.cost ?? 0)), 0) || 1;
+  return (
+    <>
+      <div class="ranked solid plan-rows">
+        {rows.map(({ a, monthly, cost }) => (
+          <div class="ranked-row" key={a.profile}>
+            <span class="name">
+              <Who state={state} id={a.profile} />
+            </span>
+            <Meter
+              class="solid"
+              frac={a.value / top}
+              tick={cost === null ? null : cost / top}
+              color={profileColor(state, a.profile)}
+            />
+            <span class="num">{money(a.value)}</span>
+            <b class="num">{cost ? times(a.value / cost) : ''}</b>
+            <span class="plan-cell">
+              <PlanPrice id={a.profile} monthly={monthly} />
+            </span>
+          </div>
+        ))}
+      </div>
+      <Note>
+        The tick is the plan&apos;s price over these {report.days} days. Set it per account; Switchboard never assumes
+        one.
+      </Note>
+    </>
+  );
+}
+
+// "2.6×", "12×": how many times over a plan its value came to.
+const times = (x: number) => `${x >= 10 ? Math.round(x) : x.toFixed(1)}×`;
+
+// An account's monthly plan price, edited in place: Enter or leaving the
+// field saves, Escape keeps what was there, and an empty field clears it.
+function PlanPrice({ id, monthly }: { id: string; monthly: number | undefined }) {
+  const [editing, setEditing] = useState(false);
+  if (!editing)
+    return (
+      <Btn variant="ghost" size="sm" class="plan-price" onClick={() => setEditing(true)}>
+        {monthly === undefined ? 'Set plan price' : `$${Number.isInteger(monthly) ? monthly : monthly.toFixed(2)}/mo`}
+      </Btn>
+    );
+  let done = false;
+  const finish = (input: HTMLInputElement | null) => {
+    if (done) return;
+    done = true;
+    setEditing(false);
+    const text = input?.value.trim() ?? '';
+    const next = input === null ? (monthly ?? null) : text === '' ? null : Number(text);
+    if (next !== (monthly ?? null)) void act(() => window.sb.updateProfile(id, { planPrice: next }));
+  };
+  return (
+    <input
+      class="plan-input"
+      type="number"
+      min="0"
+      max="10000"
+      step="any"
+      inputMode="decimal"
+      defaultValue={monthly === undefined ? '' : String(monthly)}
+      placeholder="$ a month"
+      aria-label="Plan price, US dollars a month"
+      ref={(el) => el?.focus()}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') finish(e.currentTarget);
+        if (e.key === 'Escape') finish(null);
+      }}
+      onBlur={(e) => finish(e.currentTarget)}
+    />
   );
 }
 

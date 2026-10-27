@@ -19,6 +19,8 @@ export const profiles = [
     name: 'Personal',
     isDefault: true,
     color: '#d97757',
+    // Invented plan prices; Codex · Client is left unset to show the prompt.
+    planPrice: 200,
     app: 'running',
     identity: { loggedIn: true, email: 'you@example.com', plan: 'Max' },
     usage: {
@@ -38,6 +40,7 @@ export const profiles = [
     name: 'Work',
     isDefault: false,
     color: '#3b82f6',
+    planPrice: 150,
     app: 'off',
     setup: { from: 'claude-default' },
     identity: { loggedIn: true, email: 'you@acme.example', plan: 'Team' },
@@ -56,6 +59,7 @@ export const profiles = [
     name: 'Personal',
     isDefault: true,
     color: '#10a37f',
+    planPrice: 200,
     app: 'running',
     identity: { loggedIn: true, email: 'you@example.com', plan: 'Pro' },
     usage: {

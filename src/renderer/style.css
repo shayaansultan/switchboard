@@ -464,10 +464,18 @@ code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: var(--
 .note.provenance { max-width: 78ch; }
 .plain-select { font: 500 var(--text-sm)/20px 'Figtree', system-ui, sans-serif; color: var(--text); background: var(--btn-bg); border: 1px solid var(--btn-border); border-radius: 8px; height: 32px; padding: 0 var(--space-2-5); }
 .legend { display: flex; gap: var(--space-3); flex-wrap: wrap; font-size: var(--text-xs); font-weight: 500; color: var(--text-2); }
-.meter { display: block; height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; min-width: 40px; }
+.meter { position: relative; display: block; height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; min-width: 40px; }
 .meter > span { display: block; height: 100%; background: var(--fill); border-radius: 3px; }
 .meter.quiet > span { background: var(--text-2); }
 .meter.solid { height: 10px; border-radius: 5px; }
+/* Value, multiple and price in fixed columns, so every row's bar is as long. */
+.ranked.solid.plan-rows .ranked-row { grid-template-columns: minmax(120px, 0.8fr) minmax(0, 2fr) 64px 40px 104px; }
+.plan-rows b.num { font-weight: 600; color: var(--text); }
+.plan-cell { display: flex; justify-content: flex-end; }
+.plan-cell button.plan-price { height: var(--control-xs); padding: 0 var(--space-1-5); font-size: var(--text-xs); color: var(--muted); }
+/* 96px: room for "$ a month" and a four-figure price. */
+.plan-input { width: 96px; height: var(--control-xs); padding: 0 var(--space-1-5); font: 400 var(--text-xs)/20px 'Figtree', system-ui, sans-serif; color: var(--text); background: var(--field); border: 1px solid var(--btn-border); border-radius: 6px; }
+.meter > .tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text); }
 .meter.tiny { width: 64px; display: inline-block; vertical-align: middle; margin: 0 var(--space-1-5); }
 
 /* The Usage tab's cards share the panel's surface. */

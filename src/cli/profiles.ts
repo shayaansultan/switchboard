@@ -188,6 +188,22 @@ export function recolorCommand(rest: string[], ctx: Context): void {
   ctx.out.result({ profile: mutateStore((data) => profiles.update(data, profile.id, { color })) });
 }
 
+// The plan price the Usage tab sets an account's value against: dollars a
+// month, or `none` to clear it.
+export function planPriceCommand(rest: string[], ctx: Context): void {
+  const profile = resolveProfile(ctx.data, required(rest[0], 'Profile'));
+  const text = required(rest[1], 'Price in USD').trim();
+  let price: number | null = null;
+  if (text !== 'none') {
+    try {
+      price = profiles.planPrice(text ? Number(text.replace(/^\$/, '')) : NaN);
+    } catch {
+      throw usageError('Price must be dollars a month from 0 to 10000, such as 200, or none');
+    }
+  }
+  ctx.out.result({ profile: mutateStore((data) => profiles.update(data, profile.id, { planPrice: price })) });
+}
+
 export function moveCommand(rest: string[], ctx: Context): void {
   const profile = resolveProfile(ctx.data, required(rest[0], 'Profile'));
   const direction = rest[1];

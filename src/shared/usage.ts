@@ -32,6 +32,12 @@ export function fullest<W extends WindowLike>(windows: readonly W[] | undefined)
 
 const HOUR = 3600_000;
 
+// A monthly plan price spread over `days` days, so a range's value can be
+// set against what the plan cost for the same days.
+export function planCostOver(monthly: number, days: number): number {
+  return (monthly * days) / (365.25 / 12);
+}
+
 // How long a window is, by its label: "5h", "7d" and "Weekly", or one that
 // names its length beside a model ("7d Opus", "Spark 5h"). Null when the
 // label does not say.

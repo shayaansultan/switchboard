@@ -46,7 +46,14 @@ export function bridge(state, reports) {
       measureSizes: () => Promise.resolve(window.__state),
       onState: (fn) => { window.__push = fn; },
       refresh: noop, addProfile: () => Promise.resolve({ result: { done: [], skipped: [] } }),
-      removeProfile: noop, updateProfile: noop, moveProfile: () => Promise.resolve(true), bringOver: () => Promise.resolve({ done: [], skipped: [] }),
+      removeProfile: noop,
+      // Applied to the stand-in state, so an edit shows as it would in the app.
+      updateProfile: (id, patch) => {
+        const p = window.__state.profiles.find((x) => x.id === id);
+        if (p) for (const [k, v] of Object.entries(patch)) v === null ? delete p[k] : (p[k] = v);
+        window.__push?.({ ...window.__state });
+        return Promise.resolve();
+      }, moveProfile: () => Promise.resolve(true), bringOver: () => Promise.resolve({ done: [], skipped: [] }),
       saveSettings: noop, launch: noop, quit: noop, forceQuit: noop, showWindow: noop, accessibility: () => Promise.resolve(false), quitOthers: () => Promise.resolve(0),
       login: noop, shell: noop, reveal: noop, copyCommand: noop,
       usageReport: (days) => Promise.resolve(window.__usage[days] ?? window.__usage[30]), onUsageChanged: () => {}, resumeSession: noop, openSession: noop, openApp: noop,

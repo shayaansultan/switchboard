@@ -60,6 +60,7 @@ import type {
   Live,
   LiveCache,
   Profile,
+  ProfilePatch,
   ProfileView,
   ResetList,
   ResetResult,
@@ -1369,7 +1370,7 @@ ipcMain.handle('profiles:bringOver', async (_e, id: string, sourceId: string, op
   broadcast();
   return r;
 });
-ipcMain.handle('profiles:update', (_e, id: string, patch: { name?: string; color?: string }) => {
+ipcMain.handle('profiles:update', (_e, id: string, patch: ProfilePatch) => {
   mutate(() => profiles.update(data, id, patch));
   broadcast();
 });

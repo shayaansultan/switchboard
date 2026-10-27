@@ -29,6 +29,7 @@ import {
   bringOverCommand,
   listCommand,
   moveCommand,
+  planPriceCommand,
   recolorCommand,
   removeCommand,
   renameCommand,
@@ -63,6 +64,7 @@ Profiles
   switchboard bring-over PROFILE --from SOURCE [--items a,b] [--mode link|copy]
   switchboard rename PROFILE NAME
   switchboard recolor PROFILE #rrggbb|INDEX
+  switchboard plan-price PROFILE USD|none     What the plan costs a month, for the Usage tab
   switchboard move PROFILE up|down
   switchboard remove PROFILE --yes            Deletes the profile's directory tree
   switchboard assign PROFILE BUCKET           Route a Codex desktop profile through a bucket
@@ -151,6 +153,7 @@ const COMMANDS = z.enum([
   'bring-over',
   'rename',
   'recolor',
+  'plan-price',
   'move',
   'remove',
   'assign',
@@ -286,6 +289,8 @@ async function dispatch(rest: string[], out: Output): Promise<number | void> {
       return renameCommand(args, ctx);
     case 'recolor':
       return recolorCommand(args, ctx);
+    case 'plan-price':
+      return planPriceCommand(args, ctx);
     case 'move':
       return moveCommand(args, ctx);
     case 'remove':

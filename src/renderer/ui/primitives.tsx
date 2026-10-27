@@ -233,22 +233,26 @@ export function Track({
 }
 
 // A share as a thin bar, `frac` of the way along. `tone` colours it like a
-// window (warn, bad) and `color` paints it a profile's colour.
+// window (warn, bad), `color` paints it a profile's colour, and `tick` marks
+// a point along it (a plan's price).
 export function Meter({
   frac,
   tone,
   color,
+  tick = null,
   class: cls,
 }: {
   frac: number;
   tone?: string;
   color?: string;
+  tick?: number | null;
   class?: string;
 }) {
-  const f = Number.isFinite(frac) ? Math.max(0, Math.min(1, frac)) : 0;
+  const clamp = (n: number) => (Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
   return (
     <span class={['meter', cls].filter(Boolean).join(' ')}>
-      <span class={tone || undefined} style={{ width: `${f * 100}%`, background: color }} />
+      <span class={tone || undefined} style={{ width: `${clamp(frac) * 100}%`, background: color }} />
+      {tick !== null ? <i class="tick" style={{ left: `${clamp(tick) * 100}%` }} /> : null}
     </span>
   );
 }

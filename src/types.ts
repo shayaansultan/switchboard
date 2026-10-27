@@ -27,7 +27,17 @@ export interface Profile {
   color: string;
   proxyBucket?: string;
   createdAt?: string;
+  // What the account's plan costs a month, in US dollars, as its owner set
+  // it; the Usage tab sets API-equivalent value against it. Never guessed.
+  planPrice?: number;
   setup?: { from: string; items: string[]; mode: BringMode; at: string };
+}
+
+// What a profile's owner can change about it; a null plan price clears it.
+export interface ProfilePatch {
+  name?: string;
+  color?: string;
+  planPrice?: number | null;
 }
 
 export type UsageMode = 'used' | 'remaining';
@@ -409,7 +419,7 @@ export interface SwitchboardApi {
   closeResets(token: string): Promise<void>;
   addProfile(p: AddOptions): Promise<{ profile: Profile; result: BringResult }>;
   removeProfile(id: string): Promise<boolean>;
-  updateProfile(id: string, patch: { name?: string; color?: string }): Promise<void>;
+  updateProfile(id: string, patch: ProfilePatch): Promise<void>;
   moveProfile(id: string, delta: number): Promise<boolean>;
   bringOver(id: string, sourceId: string, opts: BringOptions): Promise<BringResult>;
   saveSettings(s: Partial<Settings>): Promise<void>;
