@@ -16,7 +16,10 @@ export interface Digest {
   value: number;
   agentMs: number;
   sessions: number;
-  limitHits: { profile: string; label: string; at: string }[];
+  // How many times a window ran out, counted from the window history, and
+  // the hits the report's (capped) list of windows names, newest first.
+  limitHits: number;
+  hits: { profile: string; label: string; at: string }[];
   waitedMs: number;
   // The week before, when it was recorded from its first day.
   previous: { value: number; agentMs: number } | null;
@@ -56,7 +59,7 @@ export function buildDigest(report: UsageReport, plans: Record<string, number | 
   const hits = report.blocks
     .filter((b) => b.hitAt && Date.parse(b.hitAt) >= fromMs)
     .map((b) => ({ profile: b.profile, label: b.label, at: b.hitAt as string }))
-    .sort((a, b) => a.at.localeCompare(b.at));
+    .sort((a, b) => b.at.localeCompare(a.at));
   const twoWeeksBack = dayOf(fromMs - 7 * DAY_MS);
   return {
     from,
@@ -64,7 +67,8 @@ export function buildDigest(report: UsageReport, plans: Record<string, number | 
     value: report.totals.value,
     agentMs: report.totals.agentMs,
     sessions: report.totals.sessions,
-    limitHits: hits,
+    limitHits: report.totals.limitHits,
+    hits,
     waitedMs: report.totals.waitedMs,
     previous: report.previous ? { value: report.previous.value, agentMs: report.previous.agentMs } : null,
     busiest,
@@ -89,10 +93,10 @@ const dollars = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
 // Saturday. Claude · Work came to 2.6× its plan."
 export function digestNote(d: Digest, name: (profile: string) => string): { title: string; body: string } {
   const parts = [`${hours(d.agentMs)} agent hours, ${dollars(d.value)} of value.`];
-  const n = d.limitHits.length;
+  const n = d.limitHits;
   if (n === 0) parts.push('No limits hit.');
-  else if (n === 1) parts.push(`Hit a limit once, on ${WEEKDAY(d.limitHits[0].at)}.`);
-  else parts.push(`Hit a limit ${n} times.`);
+  else if (n === 1 && d.hits.length === 1) parts.push(`Hit a limit once, on ${WEEKDAY(d.hits[0].at)}.`);
+  else parts.push(n === 1 ? 'Hit a limit once.' : `Hit a limit ${n} times.`);
   const best = d.accounts.filter((a) => a.times !== null).sort((a, b) => (b.times ?? 0) - (a.times ?? 0))[0];
   if (best?.times) parts.push(`${name(best.profile)} came to ${best.times.toFixed(1)}× its plan.`);
   return { title: 'Your week in Switchboard', body: parts.join(' ') };

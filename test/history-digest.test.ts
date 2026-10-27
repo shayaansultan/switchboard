@@ -84,7 +84,8 @@ test('the digest sums up the week and sets each account against its plan', () =>
     project: { name: 'app', value: 300 },
     ready: true,
   });
-  expect(d.limitHits).toHaveLength(1);
+  expect(d.limitHits).toBe(1);
+  expect(d.hits).toHaveLength(1);
   const work = d.accounts.find((a) => a.profile === 'work');
   expect(work?.times).toBeCloseTo(300 / ((150 * 7) / (365.25 / 12)));
   expect(d.accounts.find((a) => a.profile === 'personal')).toMatchObject({ planCost: null, times: null });

@@ -5,6 +5,7 @@
 
 import { sumTokens, UsageHistory, USAGE_DIR } from '../history';
 import { buildDigest, lastWeekEnd } from '../history/digest';
+import { dayOf } from '../history/ledger';
 import type { Profile, UsageReport } from '../types';
 import type { Context } from './context';
 import { parse } from './context';
@@ -149,7 +150,8 @@ export function digestCommand(rest: string[], ctx: Context, dir = USAGE_DIR, now
     agentMinutes: Math.round(d.agentMs / 60000),
     sessions: d.sessions,
     previous: d.previous && { value: dollars(d.previous.value), agentMinutes: Math.round(d.previous.agentMs / 60000) },
-    limitHits: d.limitHits.map((h) => ({ ...h, name: name(h.profile) })),
+    limitHits: d.limitHits,
+    hits: d.hits.map((h) => ({ ...h, name: name(h.profile) })),
     waitedMinutes: Math.round(d.waitedMs / 60000),
     busiest: d.busiest && { day: d.busiest.day, value: dollars(d.busiest.value) },
     project: d.project && { name: d.project.name, value: dollars(d.project.value) },
@@ -167,10 +169,9 @@ export function digestCommand(rest: string[], ctx: Context, dir = USAGE_DIR, now
       d.previous && d.previous.value > 0
         ? ` (${signed(Math.round((d.value / d.previous.value - 1) * 100))}% on the week before)`
         : '';
-    const hits = d.limitHits.length
-      ? `Limits: hit ${d.limitHits.length === 1 ? 'once' : `${d.limitHits.length} times`} (${d.limitHits
-          .map((h) => `${name(h.profile)} ${h.label}, ${day(h.at.slice(0, 10))}`)
-          .join('; ')}), waited ${hm(d.waitedMs)}`
+    const where = d.hits.map((h) => `${name(h.profile)} ${h.label}, ${day(dayOf(Date.parse(h.at)))}`).join('; ');
+    const hits = d.limitHits
+      ? `Limits: hit ${d.limitHits === 1 ? 'once' : `${d.limitHits} times`}${where ? ` (${where})` : ''}, waited ${hm(d.waitedMs)}`
       : 'Limits: none hit';
     return [
       `Week of ${day(d.from)} to ${day(d.to)}`,
