@@ -92,11 +92,20 @@ test('a picture pasted into Claude and a screenshot a tool returned are both fou
 });
 
 test('Codex: a viewed image is a step with its picture, and a thread lists the visualizations it made', () => {
-  const day = path.join(codex.home, 'sessions', '2026', '10', '18');
+  // Today's folder: the reader only looks back a week, so a fixed date
+  // stops being found once it is a week old.
+  const now = new Date();
+  const ymd = [
+    String(now.getFullYear()),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  ];
+  const day = path.join(codex.home, 'sessions', ...ymd);
+  const rollout = path.join(day, `rollout-${ymd.join('-')}T01-00-00-t1.jsonl`);
   const shot = path.join(root, 'shot.png');
   fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(shot, PNG);
-  write(path.join(day, 'rollout-2026-10-18T01-00-00-t1.jsonl'), [
+  write(rollout, [
     { type: 'session_meta', payload: { id: 't1', cwd: '/x', originator: 'Codex Desktop' } },
     {
       type: 'event_msg',
@@ -104,8 +113,8 @@ test('Codex: a viewed image is a step with its picture, and a thread lists the v
     },
     { type: 'event_msg', payload: { type: 'item_completed', item: { type: 'ImageView', id: 'v', path: shot } } },
   ]);
-  fs.utimesSync(path.join(day, 'rollout-2026-10-18T01-00-00-t1.jsonl'), new Date(), new Date());
-  const viz = path.join(codex.home, 'visualizations', '2026', '10', '18', 't1');
+  fs.utimesSync(rollout, now, now);
+  const viz = path.join(codex.home, 'visualizations', ...ymd, 't1');
   fs.mkdirSync(viz, { recursive: true });
   fs.writeFileSync(path.join(viz, 'chart.html'), '<h1>chart</h1>');
   const reader = new SessionReader();
