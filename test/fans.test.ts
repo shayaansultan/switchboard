@@ -6,6 +6,7 @@ const fan = (actual: number, manual = false) => ({ actual, minimum: 2317, maximu
 
 // A bridge that answers like the real one and records what it was asked.
 function fakeBridge(start: { helper?: string; fans?: unknown[] } = {}) {
+  // Typed loosely so each case can pass only what it changes.
   let helper = start.helper ?? 'installed';
   let fans = start.fans ?? [fan(2317), fan(2502)];
   let listener: (event: BridgeReply) => void = () => {};
@@ -84,7 +85,7 @@ describe('fan control', () => {
       [{ fans: [] }, 'no-fans'],
       [{ helper: 'unsigned' }, 'unsigned'],
       [{ helper: 'not-packaged' }, 'not-packaged'],
-    ] as const) {
+    ] as [{ helper?: string; fans?: unknown[] }, string][]) {
       const controller = new FanController(fakeBridge(setup).bridge, () => {});
       await controller.refresh();
       expect(controller.snapshot()).toEqual({ status: 'unavailable', reason });
@@ -128,7 +129,7 @@ describe('fan control', () => {
     expect([0, 5, 100].every(isFanLevel)).toBe(true);
   });
 
-  test('the first manual speed installs the helper and asks for approval', async () => {
+  test('the first boost installs the helper, asks for approval, and starts once allowed', async () => {
     const fake = fakeBridge({ helper: 'not-installed' });
     const controller = new FanController(fake.bridge, () => {});
     await controller.set(60, 15);
@@ -137,11 +138,41 @@ describe('fan control', () => {
       notice: 'needs-approval',
       level: null,
     });
+    expect(ready(controller.snapshot()).queued).toBe(true);
     expect(fake.asked).toContain('open-login-items');
     expect(fake.asked).not.toContain('set');
     fake.approve();
+    await controller.refresh();
+    expect(ready(controller.snapshot())).toMatchObject({ helper: 'installed', notice: null, level: 60, queued: false });
+  });
+
+  test('a waiting boost can be cancelled', async () => {
+    const fake = fakeBridge({ helper: 'not-installed' });
+    const controller = new FanController(fake.bridge, () => {});
     await controller.set(60, 15);
-    expect(ready(controller.snapshot())).toMatchObject({ helper: 'installed', notice: null, level: 60 });
+    await controller.cancel();
+    fake.approve();
+    await controller.refresh();
+    expect(ready(controller.snapshot())).toMatchObject({ level: null, queued: false, notice: null });
+  });
+
+  test('changing speed keeps the time left, and +15 adds to it', async () => {
+    let now = 0;
+    const fake = fakeBridge();
+    const controller = new FanController(
+      fake.bridge,
+      () => {},
+      () => now,
+    );
+    await controller.set(60, 15);
+    now = 5 * 60_000;
+    await controller.adjust(80);
+    expect(ready(controller.snapshot())).toMatchObject({ level: 80, endsAt: now + 10 * 60_000, limit: 15 });
+    await controller.extend();
+    expect(ready(controller.snapshot())).toMatchObject({ level: 80, endsAt: now + 25 * 60_000, limit: 25 });
+    await controller.set(80, 0);
+    await controller.extend();
+    expect(ready(controller.snapshot())).toMatchObject({ endsAt: null, limit: null });
   });
 
   test('the helper ending a session is reported once, until dismissed', async () => {
@@ -176,7 +207,9 @@ describe('fan control', () => {
       () => 0,
     );
     await controller.set(60, 15);
-    expect(describeFans(controller.snapshot(), 0)).toBe('Fans: 60% for 15 more min · 2,317 rpm, 2,502 rpm · CPU 48 °C');
+    expect(describeFans(controller.snapshot(), 0)).toBe(
+      'Fans: boosting at 60% for 15 more min · 2,317 rpm, 2,502 rpm · CPU 48 °C',
+    );
     expect(describeFans({ status: 'unavailable', reason: 'no-fans' })).toBe('This Mac has no fans to control.');
   });
 });

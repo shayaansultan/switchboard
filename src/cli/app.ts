@@ -54,7 +54,7 @@ export function exportCommand(rest: string[], ctx: Context): void {
   });
 }
 
-const FAN_ACTIONS = ['status', 'set', 'system', 'dismiss', 'install', 'remove'] as const;
+const FAN_ACTIONS = ['status', 'set', 'extend', 'system', 'dismiss', 'install', 'remove'] as const;
 
 // Fan control runs in the app, which owns the bridge to the root helper.
 export async function fansCommand(rest: string[], ctx: Context): Promise<void> {
@@ -62,8 +62,11 @@ export async function fansCommand(rest: string[], ctx: Context): Promise<void> {
   const [action, level, extra] = positionals;
   const known = (FAN_ACTIONS as readonly string[]).includes(action ?? '');
   if (!known || extra !== undefined || (action === 'set') !== (level !== undefined))
-    throw usageError('Use: switchboard fans status|system|dismiss|install|remove, or fans set LEVEL [--minutes N]');
-  if (values.minutes !== undefined && action !== 'set') throw usageError('--minutes only applies to fans set');
+    throw usageError(
+      'Use: switchboard fans status|system|dismiss|install|remove, fans set LEVEL [--minutes N], or fans extend [--minutes N]',
+    );
+  if (values.minutes !== undefined && action !== 'set' && action !== 'extend')
+    throw usageError('--minutes only applies to fans set and fans extend');
   let command: AppCommand;
   if (action === 'set') {
     const speed = Number(level);
@@ -71,8 +74,13 @@ export async function fansCommand(rest: string[], ctx: Context): Promise<void> {
     if (!isFanLevel(speed)) throw usageError('LEVEL is a percentage from 0 to 100 in steps of 5');
     if (!isFanMinutes(minutes)) throw usageError('--minutes is a whole number from 0 (until System) to 1440');
     command = { command: 'fans', action: 'set', level: speed, minutes };
+  } else if (action === 'extend') {
+    const minutes = values.minutes === undefined ? DEFAULT_FAN_MINUTES : Number(values.minutes);
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440)
+      throw usageError('--minutes is a whole number from 1 to 1440');
+    command = { command: 'fans', action: 'extend', minutes };
   } else {
-    command = { command: 'fans', action: action as Exclude<(typeof FAN_ACTIONS)[number], 'set'> };
+    command = { command: 'fans', action: action as Exclude<(typeof FAN_ACTIONS)[number], 'set' | 'extend'> };
   }
   const state = (await requestApp(command)) as FanState;
   ctx.out.result(state, () => describeFans(state));

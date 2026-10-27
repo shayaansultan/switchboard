@@ -1,10 +1,13 @@
-// The two floating things: a menu anchored to a button (or to the pointer,
-// for a right-click), and a tooltip above whatever is hovered or focused.
-// Both are rendered once at the root and driven through context, so a
-// re-render of the row underneath never removes them.
+// The floating things: a menu anchored to a button (or to the pointer, for a
+// right-click), a tooltip above whatever is hovered or focused, and the
+// title bar's popovers (Keep awake, Fans). Menus and tooltips are rendered
+// once at the root and driven through context, so a re-render of the row
+// underneath never removes them. A title-bar popover is the browser's own
+// popover, which owns light dismissal and Escape; useTitlePopover only
+// places it under its button and says when it is open.
 
 import { createContext, type ComponentChildren } from 'preact';
-import { useContext, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { act } from '../lib';
 import { Icon } from './primitives';
 
@@ -295,4 +298,50 @@ function Tooltip({ anchor, lines }: Tip) {
       ))}
     </div>
   );
+}
+
+/**
+ * A title-bar popover: `popover="auto"` on the panel, `popovertarget` on its
+ * button. Keeps the panel right-aligned under the button and inside the
+ * window, and calls `onOpen` each time it opens.
+ */
+export function useTitlePopover(onOpen?: () => void) {
+  const toggle = useRef<HTMLButtonElement>(null);
+  const popover = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const opened = useRef(onOpen);
+  opened.current = onOpen;
+
+  const position = () => {
+    const pop = popover.current;
+    const btn = toggle.current;
+    if (!pop || !btn || !pop.matches(':popover-open')) return;
+    const anchor = btn.getBoundingClientRect();
+    const width = pop.offsetWidth;
+    pop.style.top = `${anchor.bottom + 8}px`;
+    pop.style.left = `${Math.max(8, Math.min(anchor.right - width, window.innerWidth - width - 8))}px`;
+  };
+
+  useEffect(() => {
+    const pop = popover.current;
+    if (!pop) return;
+    const onToggle = (event: Event) => {
+      const shown = event instanceof ToggleEvent ? event.newState === 'open' : pop.matches(':popover-open');
+      setOpen(shown);
+      if (shown) {
+        position();
+        opened.current?.();
+      }
+    };
+    pop.addEventListener('toggle', onToggle);
+    window.addEventListener('resize', position);
+    return () => {
+      pop.removeEventListener('toggle', onToggle);
+      window.removeEventListener('resize', position);
+    };
+  }, []);
+  // Content changes its height; keep it anchored.
+  useLayoutEffect(position);
+
+  return { toggle, popover, open };
 }

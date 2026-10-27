@@ -35,6 +35,8 @@ const system = {
   temperature: 71.4,
   level: null,
   endsAt: null,
+  limit: null,
+  queued: false,
   stop: null,
   notice: null,
   busy: false,
@@ -74,6 +76,7 @@ try {
       fanListener(fans);
     };
     const rpm = (level) => Math.round(2317 + (7826 - 2317) * (level / 100));
+    const fan = (actual) => ({ actual, minimum: 2317, maximum: 7826, target: actual, manual: false });
     const noop = async () => {};
     window.__fansTest = { publish, calls, current: () => initial.fans };
     window.sb = {
@@ -90,31 +93,31 @@ try {
         calls.push(['set', level, minutes]);
         const fans = initial.fans;
         if (fans.helper !== 'installed') {
-          publish({ ...fans, helper: 'needs-approval', notice: 'needs-approval' });
+          publish({ ...fans, helper: 'needs-approval', notice: 'needs-approval', queued: true });
           return;
         }
         publish({
           ...fans,
           level,
           endsAt: minutes ? Date.now() + minutes * 60_000 : null,
+          limit: minutes || null,
           fans: fans.fans.map((f) => ({ ...f, actual: rpm(level), target: rpm(level), manual: true })),
           stop: null,
           notice: null,
+          queued: false,
         });
+      },
+      adjustFans: async (level) => {
+        calls.push(['adjust', level]);
+        publish({ ...initial.fans, level });
       },
       fanAction: async (action) => {
         calls.push([action]);
         const fans = initial.fans;
         if (action === 'system')
-          publish({
-            ...fans,
-            level: null,
-            endsAt: null,
-            fans: [
-              { ...fans.fans[0], actual: 2317, manual: false },
-              { ...fans.fans[1], actual: 2502, manual: false },
-            ],
-          });
+          publish({ ...fans, level: null, endsAt: null, limit: null, fans: [fan(2317), fan(2502)] });
+        if (action === 'extend') publish({ ...fans, endsAt: fans.endsAt + 15 * 60_000, limit: fans.limit + 15 });
+        if (action === 'cancel') publish({ ...fans, queued: false, notice: null });
         if (action === 'dismiss') publish({ ...fans, stop: null, notice: null });
       },
       refresh: noop,
@@ -141,6 +144,11 @@ try {
   const calls = () => page.evaluate(() => window.__fansTest.calls.slice());
   const text = () => popover.innerText();
 
+  const current = () => page.evaluate(() => window.__fansTest.current());
+  const button = (name) => page.getByRole('button', { name, exact: true });
+  const waitText = (text) =>
+    page.waitForFunction((t) => document.querySelector('#fans-popover').textContent.includes(t), text);
+
   // A Mac with no fans, or a build that can't control them, shows nothing.
   assert.equal(await toggle.isVisible(), false);
   await publish(system);
@@ -149,73 +157,86 @@ try {
   const fansBox = await toggle.boundingBox();
   assert.ok(awakeBox.x < fansBox.x, 'Fans sits after Keep awake');
 
-  // System: speeds and temperature, nothing held.
+  // Idle: who controls the fans, and a boost set-up that changes nothing yet.
   await toggle.click();
   await popover.waitFor({ state: 'visible' });
   assert.match(await text(), /CPU 71 °C/);
-  assert.match(await text(), /macOS is choosing fan speeds/);
+  assert.match(await text(), /macOS is controlling the fans/);
   assert.match(await text(), /Fan 1\s+2,317 rpm/);
   assert.match(await text(), /allow it once in Login Items/);
-  assert.equal(await page.getByRole('radio', { name: 'System' }).getAttribute('aria-checked'), 'true');
-  await page.screenshot({ path: path.join(output, 'popover-system.png') });
+  assert.equal(await button('Set up and boost').isVisible(), true);
+  assert.deepEqual(await calls(), []);
+  await page.screenshot({ path: path.join(output, 'idle-first.png') });
 
-  // The first Manual installs the helper and sends the user to Login Items.
-  await page.getByRole('radio', { name: 'Manual' }).click();
-  await page.waitForFunction(() => document.querySelector('#fans-notice')?.textContent.includes('Login Items'));
-  assert.equal(await page.getByRole('button', { name: 'Open Login Items' }).isVisible(), true);
-  await page.screenshot({ path: path.join(output, 'popover-approval.png') });
-  await page.getByRole('button', { name: 'Open Login Items' }).click();
+  // The first boost waits for approval, and can be cancelled.
+  await button('Set up and boost').click();
+  await waitText('The boost starts once it’s allowed');
+  assert.deepEqual((await calls()).at(-1), ['set', 75, 15]);
+  await page.screenshot({ path: path.join(output, 'approval.png') });
+  await button('Open Login Items').click();
   assert.deepEqual((await calls()).at(-1), ['login-items']);
+  await button('Cancel').click();
+  await waitText('macOS is controlling the fans');
 
-  // Approved: Manual holds the slider's speed for the default 15 minutes.
-  await publish({ ...(await page.evaluate(() => window.__fansTest.current())), helper: 'installed', notice: null });
-  await page.getByRole('radio', { name: 'Manual' }).click();
-  await page.waitForFunction(() => document.querySelector('#fans-toggle').textContent.includes('60%'));
-  assert.match(await text(), /Held at 60%\. Back to System in 15 min\./);
-  assert.match(await text(), /5,622 rpm/);
-  assert.deepEqual((await calls()).at(-1), ['set', 60, 15]);
-  await page.screenshot({ path: path.join(output, 'popover-manual.png') });
+  // Allowed: a timed boost is a warm card with a countdown.
+  await publish({ ...(await current()), helper: 'installed', notice: null });
+  await button('Boost for 15 min').click();
+  await waitText('Boosting at 75%');
+  assert.match(await text(), /15 min left/);
+  assert.match(await toggle.innerText(), /Fans · 75% · 15m/);
+  assert.match(await text(), /6,449 rpm/);
+  await page.screenshot({ path: path.join(output, 'boosting.png') });
 
-  // Moving the slider re-applies on release; a new limit re-applies too.
+  // Speed applies on release without resetting the time; +15 adds time.
   await page.locator('#fans-level').fill('80');
   await page.waitForFunction(() => document.querySelector('#fans-toggle').textContent.includes('80%'));
-  assert.deepEqual((await calls()).at(-1), ['set', 80, 15]);
-  await page.locator('#fans-minutes').selectOption('0');
-  await page.waitForFunction(() =>
-    document.querySelector('#fans-popover').textContent.includes('until you choose System'),
-  );
-  assert.deepEqual((await calls()).at(-1), ['set', 80, 0]);
-
-  // The helper hands the fans back on its own and the popover says why.
-  await publish({
-    ...(await page.evaluate(() => window.__fansTest.current())),
-    level: null,
-    endsAt: null,
-    stop: 'sleep',
-  });
-  await page.waitForFunction(() => document.querySelector('#fans-popover').textContent.includes('went to sleep'));
-  assert.equal(await page.getByRole('radio', { name: 'System' }).getAttribute('aria-checked'), 'true');
-  assert.doesNotMatch(await toggle.innerText(), /%/);
-  await page.screenshot({ path: path.join(output, 'popover-stopped.png') });
-  await page.getByRole('button', { name: 'Dismiss' }).click();
-  await page.waitForFunction(() => !document.querySelector('#fans-popover').textContent.includes('went to sleep'));
-
-  // Choosing System while held hands the fans back.
-  await page.getByRole('radio', { name: 'Manual' }).click();
-  await page.waitForFunction(() => document.querySelector('#fans-toggle').textContent.includes('%'));
-  await page.getByRole('radio', { name: 'System' }).click();
-  await page.waitForFunction(() => !document.querySelector('#fans-toggle').textContent.includes('%'));
+  assert.deepEqual((await calls()).at(-1), ['adjust', 80]);
+  await button('+15 min').click();
+  await waitText('30 min left');
+  await button('Stop boost').click();
+  await waitText('macOS is controlling the fans');
   assert.deepEqual((await calls()).at(-1), ['system']);
 
-  // Another app holding the fans.
-  await publish({ ...(await page.evaluate(() => window.__fansTest.current())), notice: 'already-controlled' });
-  assert.match(await text(), /Another app is controlling the fans/);
+  // Until I stop: no countdown and no +15.
+  await page.getByRole('radio', { name: 'Until I stop' }).click();
+  await button('Boost until I stop').click();
+  await waitText('until you stop');
+  assert.equal(await page.locator('#fans-extend').count(), 0);
+  assert.deepEqual((await calls()).at(-1), ['set', 80, 0], 'The next boost keeps the last speed');
+  await page.screenshot({ path: path.join(output, 'boosting-until.png') });
+  await button('Stop boost').click();
+  await waitText('macOS is controlling the fans');
+
+  // Custom: a minutes field, and the button repeats the time back.
+  await page.getByRole('radio', { name: 'Custom…' }).click();
+  await page.locator('.duration-custom input').fill('45');
+  await button('Boost for 45 min').click();
+  await waitText('45 min left');
+  assert.deepEqual((await calls()).at(-1), ['set', 80, 45]);
+
+  // The helper ends a boost on its own, and the popover says why.
+  await publish({ ...(await current()), level: null, endsAt: null, limit: null, stop: 'sleep' });
+  await waitText('Boost ended because the Mac went to sleep.');
+  await page.screenshot({ path: path.join(output, 'ended.png') });
+  await button('Dismiss').click();
+  await page.waitForFunction(() => !document.querySelector('#fans-popover').textContent.includes('went to sleep'));
+
+  // Another app holding the fans: boosting is off until it lets go.
+  await publish({ ...(await current()), notice: 'already-controlled' });
+  await waitText('Another app is controlling the fans');
+  assert.equal(await page.locator('#fans-boost').isDisabled(), true);
+  assert.equal(await button('Check again').isVisible(), true);
+
+  // A boost the fans refused offers a retry.
+  await publish({ ...(await current()), notice: 'control-failed' });
+  await waitText('macOS kept control');
+  assert.equal(await button('Try again').isVisible(), true);
 
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.screenshot({ path: path.join(output, 'popover-dark.png') });
   await page.keyboard.press('Escape');
   assert.equal(await popover.isVisible(), false);
-  assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+  await page.waitForFunction(() => document.querySelector('#fans-toggle').getAttribute('aria-expanded') === 'false');
 
   assert.deepEqual(errors, []);
   await context.close();

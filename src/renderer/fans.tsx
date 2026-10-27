@@ -1,46 +1,80 @@
-// Fans: the title-bar button and its popover, beside Keep awake and built the
-// same way. Manual is a short boost: choosing it holds the fans at the
-// slider's speed for the chosen time, and every later change re-applies with
-// a fresh time limit. The helper hands the fans back on its own (time up,
-// sleep, restart, Switchboard quitting, serious heat), and the popover says
-// why. Speeds are only read while the popover is open.
+// Fans: the title-bar button and its popover. A boost is an action, not a
+// mode: nothing changes until Boost is pressed, and while one runs the
+// popover turns into a countdown with Stop. The helper ends a boost on its
+// own (time up, sleep, restart, Switchboard quitting, serious heat), and the
+// popover says why. Speeds are only read while the popover is open.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { act } from './lib';
-import { Btn, Icon, Seg } from './ui/primitives';
+import { Btn, DurationPicker, Icon, durationMinutes, durationWords, type Duration } from './ui/primitives';
+import { useTitlePopover } from './ui/overlays';
 import { FAN_MINUTES, NOTICE_TEXT, STOP_TEXT, type FanState } from '../shared/fans';
 
 const POLL_MS = 2_000;
-const minutesLabel = (minutes: number) =>
-  minutes === 0 ? 'Until I choose System' : minutes < 60 ? `${minutes} min` : `${minutes / 60} hour`;
+type Ready = Extract<FanState, { status: 'ready' }>;
+type FanAction = Parameters<typeof window.sb.fanAction>[0];
 
-function remaining(endsAt: number | null, now: number): string {
-  if (endsAt === null) return 'Holds until you choose System.';
-  const minutes = Math.max(1, Math.ceil((endsAt - now) / 60_000));
-  return `Back to System in ${minutes} min.`;
+const minutesLeft = (endsAt: number) => Math.max(1, Math.ceil((endsAt - Date.now()) / 60_000));
+const shortLeft = (minutes: number) => (minutes >= 60 ? `${Math.round(minutes / 60)}h` : `${minutes}m`);
+
+function FanList({ fans }: { fans: Ready['fans'] }) {
+  return (
+    <ul class="fans-list" aria-label="Fan speeds">
+      {fans.map((fan, i) => {
+        const share = (fan.actual - fan.minimum) / Math.max(1, fan.maximum - fan.minimum);
+        return (
+          <li key={i}>
+            <span>{fans.length === 1 ? 'Fan' : `Fan ${i + 1}`}</span>
+            <span class="fans-track" aria-hidden="true">
+              <span style={{ width: `${Math.round(Math.min(1, Math.max(0.03, share)) * 100)}%` }} />
+            </span>
+            <span class="fans-rpm">{fan.actual.toLocaleString('en-US')} rpm</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function Speed({
+  value,
+  disabled,
+  onInput,
+  onCommit,
+}: {
+  value: number;
+  disabled: boolean;
+  onInput: (level: number) => void;
+  onCommit?: (level: number) => void;
+}) {
+  return (
+    <div class="fans-speed">
+      <label for="fans-level">Speed</label>
+      <output for="fans-level">{value}%</output>
+      <input
+        id="fans-level"
+        type="range"
+        min={0}
+        max={100}
+        step={5}
+        value={value}
+        disabled={disabled}
+        onInput={(e) => onInput(Number(e.currentTarget.value))}
+        onChange={(e) => onCommit?.(Number(e.currentTarget.value))}
+      />
+    </div>
+  );
 }
 
 export function FanControl() {
   const [state, setState] = useState<FanState>({ status: 'checking' });
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(60);
-  const [minutes, setMinutes] = useState<number>(FAN_MINUTES[0]);
+  const [draft, setDraft] = useState(75);
+  const [duration, setDuration] = useState<Duration>({ choice: '15', custom: 45 });
   // Re-renders the countdown while the popover is open; the time itself is
-  // read at render, so a fresh hold never shows a stale minute.
+  // read at render, so a fresh boost never shows a stale minute.
   const [, setTick] = useState(0);
   const initialized = useRef(false);
-  const toggle = useRef<HTMLButtonElement>(null);
-  const popover = useRef<HTMLDivElement>(null);
-
-  const position = () => {
-    const pop = popover.current;
-    const btn = toggle.current;
-    if (!pop || !btn) return;
-    const anchor = btn.getBoundingClientRect();
-    const width = pop.offsetWidth;
-    pop.style.top = `${anchor.bottom + 8}px`;
-    pop.style.left = `${Math.max(8, Math.min(anchor.right - width, window.innerWidth - width - 8))}px`;
-  };
+  const { toggle, popover, open } = useTitlePopover(() => void window.sb.refreshFans().catch(() => {}));
 
   useEffect(() => {
     window.sb.onFanState((s) => {
@@ -53,25 +87,8 @@ export function FanControl() {
         if (!initialized.current && s.fans) setState(s.fans);
       })
       .catch(() => {});
-    const pop = popover.current;
-    if (!pop) return;
-    const onToggle = (event: Event) => {
-      const shown = event instanceof ToggleEvent ? event.newState === 'open' : pop.matches(':popover-open');
-      setOpen(shown);
-      if (shown) {
-        position();
-        void window.sb.refreshFans().catch(() => {});
-      }
-    };
-    pop.addEventListener('toggle', onToggle);
-    window.addEventListener('resize', position);
-    return () => {
-      pop.removeEventListener('toggle', onToggle);
-      window.removeEventListener('resize', position);
-    };
   }, []);
 
-  // Live speeds and the countdown, only while someone is looking.
   useEffect(() => {
     if (!open) return;
     const timer = setInterval(() => {
@@ -80,9 +97,6 @@ export function FanControl() {
     }, POLL_MS);
     return () => clearInterval(timer);
   }, [open]);
-  useEffect(() => {
-    if (popover.current?.matches(':popover-open')) position();
-  });
 
   const ready = state.status === 'ready' ? state : null;
   const held = ready?.level ?? null;
@@ -90,18 +104,122 @@ export function FanControl() {
     if (held !== null) setDraft(held);
   }, [held]);
 
-  const apply = (level: number, limit: number) => act(() => window.sb.setFans(level, limit));
-  const pick = (mode: 'system' | 'manual') => {
-    if (!ready || ready.busy) return;
-    if (mode === 'manual' && held === null) void apply(draft, minutes);
-    if (mode === 'system' && held !== null) void act(() => window.sb.fanAction('system'));
-  };
-
-  // The button stays out of the title bar until there is something to control.
-  const hidden = !ready;
-  const label = held === null ? 'Fans' : `Fans · ${held}%`;
-  const mode = held === null ? 'system' : 'manual';
   const busy = ready?.busy ?? false;
+  const minutes = durationMinutes(duration);
+  const left = ready?.endsAt != null ? minutesLeft(ready.endsAt) : null;
+  const label = held === null ? 'Fans' : `Fans · ${held}%${left !== null ? ` · ${shortLeft(left)}` : ''}`;
+  const run = (action: FanAction) => (e: Event) => act(() => window.sb.fanAction(action), e.currentTarget);
+
+  let body = null;
+  if (ready?.queued && ready.notice === 'needs-approval') {
+    body = (
+      <>
+        <div class="fans-note warn" role="status">
+          <span>{NOTICE_TEXT['needs-approval']}</span>
+        </div>
+        <div class="fans-buttons">
+          <Btn variant="secondary" onClick={run('cancel')}>
+            Cancel
+          </Btn>
+          <Btn variant="primary" onClick={run('login-items')}>
+            Open Login Items
+          </Btn>
+        </div>
+      </>
+    );
+  } else if (ready && held !== null) {
+    const share = ready.limit && left !== null ? Math.min(1, left / ready.limit) : 1;
+    body = (
+      <>
+        <div class="fans-boosting" role="status">
+          <div class="fans-boosting-row">
+            <b>Boosting at {held}%</b>
+            <span>{left !== null ? `${left} min left` : 'until you stop'}</span>
+          </div>
+          {left !== null ? (
+            <div class="fans-drain" aria-hidden="true">
+              <span style={{ width: `${Math.round(share * 100)}%` }} />
+            </div>
+          ) : null}
+        </div>
+        <Speed
+          value={draft}
+          disabled={busy}
+          onInput={setDraft}
+          onCommit={(level) => void act(() => window.sb.adjustFans(level))}
+        />
+        <div class="fans-buttons">
+          {left !== null ? (
+            <Btn id="fans-extend" variant="secondary" disabled={busy} onClick={run('extend')}>
+              +15 min
+            </Btn>
+          ) : null}
+          <Btn id="fans-stop" variant="primary" disabled={busy} onClick={run('system')}>
+            Stop boost
+          </Btn>
+        </div>
+      </>
+    );
+  } else if (ready) {
+    const foreign = ready.notice === 'already-controlled';
+    let start = minutes ? `Boost for ${durationWords(minutes)}` : 'Boost until I stop';
+    if (ready.helper !== 'installed') start = 'Set up and boost';
+    if (ready.notice === 'control-failed') start = 'Try again';
+    if (busy) start = 'Starting boost…';
+    body = (
+      <>
+        <p class="fans-line">
+          <span class={`dot ${foreign ? 'warn' : 'on'}`} aria-hidden="true" />
+          {foreign ? 'Another app is controlling the fans' : 'macOS is controlling the fans'}
+        </p>
+        {ready.stop ? (
+          <div class="fans-note" role="status">
+            <span>Boost ended because {STOP_TEXT[ready.stop]}.</span>
+            <button type="button" class="fans-dismiss" aria-label="Dismiss" onClick={run('dismiss')}>
+              ×
+            </button>
+          </div>
+        ) : null}
+        {ready.notice ? (
+          <div class={`fans-note ${ready.notice === 'control-failed' ? 'bad' : 'warn'}`} id="fans-notice" role="alert">
+            <span>{NOTICE_TEXT[ready.notice]}</span>
+          </div>
+        ) : null}
+        <section class="fans-boost" aria-labelledby="fans-boost-heading">
+          <h3 id="fans-boost-heading">Boost</h3>
+          {ready.helper !== 'installed' ? (
+            <p class="hint">
+              Boosting needs a small helper that runs as root. macOS asks you to allow it once in Login Items; after
+              that, boosts start without prompts.
+            </p>
+          ) : null}
+          <Speed value={draft} disabled={busy || foreign} onInput={setDraft} />
+          <DurationPicker
+            label="Boost for"
+            presets={FAN_MINUTES}
+            value={duration}
+            disabled={busy || foreign}
+            onChange={setDuration}
+          />
+          <div class="fans-buttons">
+            {foreign ? (
+              <Btn variant="secondary" onClick={(e) => act(() => window.sb.refreshFans(), e.currentTarget)}>
+                Check again
+              </Btn>
+            ) : null}
+            <Btn
+              id="fans-boost"
+              variant="primary"
+              disabled={busy || foreign}
+              onClick={(e) => act(() => window.sb.setFans(draft, minutes), e.currentTarget)}
+            >
+              {start}
+            </Btn>
+          </div>
+        </section>
+      </>
+    );
+  }
 
   return (
     <>
@@ -113,8 +231,8 @@ export function FanControl() {
         popovertarget="fans-popover"
         aria-haspopup="dialog"
         aria-expanded={open}
-        hidden={hidden}
-        title={held === null ? 'Fan speed' : `Fans held at ${held}%`}
+        hidden={!ready}
+        title={held === null ? 'Boost the fans' : `Fans boosted to ${held}%`}
       >
         <Icon name="fan" />
         <span class="lbl">{label}</span>
@@ -134,109 +252,13 @@ export function FanControl() {
             ×
           </button>
         </div>
+        {body}
         {ready ? (
           <>
-            <Seg
-              label="Fan mode"
-              value={mode}
-              onChange={pick}
-              options={[
-                { id: 'system', label: 'System' },
-                { id: 'manual', label: 'Manual' },
-              ]}
-            />
-            {held === null ? (
-              <p class="fans-mode-note">
-                macOS is choosing fan speeds. Choose Manual to hold them at the speed below for a while.
-              </p>
-            ) : (
-              <p class="fans-mode-note" role="status">
-                Held at {held}%. {remaining(ready.endsAt, Date.now())}
-              </p>
-            )}
-            <div class="fans-speed">
-              <label for="fans-level">Speed</label>
-              <output for="fans-level">{draft}%</output>
-              <input
-                id="fans-level"
-                type="range"
-                min={0}
-                max={100}
-                step={5}
-                value={draft}
-                disabled={busy}
-                onInput={(e) => setDraft(Number(e.currentTarget.value))}
-                onChange={(e) => {
-                  if (held !== null) void apply(Number(e.currentTarget.value), minutes);
-                }}
-              />
-              <span class="fans-scale" aria-hidden="true">
-                <span>Quiet</span>
-                <span>Full</span>
-              </span>
-            </div>
-            <label class="fans-limit">
-              <span>Back to System after</span>
-              <select
-                id="fans-minutes"
-                value={minutes}
-                disabled={busy}
-                onChange={(e) => {
-                  const next = Number(e.currentTarget.value);
-                  setMinutes(next);
-                  if (held !== null) void apply(held, next);
-                }}
-              >
-                {FAN_MINUTES.map((m) => (
-                  <option value={m} key={m}>
-                    {minutesLabel(m)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <ul class="fans-list" aria-label="Fan speeds">
-              {ready.fans.map((fan, i) => {
-                const share = (fan.actual - fan.minimum) / Math.max(1, fan.maximum - fan.minimum);
-                return (
-                  <li key={i}>
-                    <span>{ready.fans.length === 1 ? 'Fan' : `Fan ${i + 1}`}</span>
-                    <span class="fans-track" aria-hidden="true">
-                      <span style={{ width: `${Math.round(Math.min(1, Math.max(0.03, share)) * 100)}%` }} />
-                    </span>
-                    <span class="fans-rpm">{fan.actual.toLocaleString('en-US')} rpm</span>
-                  </li>
-                );
-              })}
-            </ul>
-            {ready.stop ? (
-              <div class="fans-callout" role="status">
-                <span>Back on System because {STOP_TEXT[ready.stop]}.</span>
-                <Btn variant="secondary" onClick={(e) => act(() => window.sb.fanAction('dismiss'), e.currentTarget)}>
-                  Dismiss
-                </Btn>
-              </div>
-            ) : null}
-            {ready.notice ? (
-              <div class="fans-callout" id="fans-notice" role="alert">
-                <span>{NOTICE_TEXT[ready.notice]}</span>
-                {ready.notice === 'needs-approval' ? (
-                  <Btn
-                    variant="secondary"
-                    onClick={(e) => act(() => window.sb.fanAction('login-items'), e.currentTarget)}
-                  >
-                    Open Login Items
-                  </Btn>
-                ) : null}
-              </div>
-            ) : null}
-            {ready.helper !== 'installed' && !ready.notice ? (
-              <p class="hint">
-                Manual needs a small helper that runs as root. macOS asks you to allow it once in Login Items.
-              </p>
-            ) : null}
+            <FanList fans={ready.fans} />
             <p class="hint">
-              Switchboard hands the fans back to macOS when the time is up, on sleep or restart, if it quits, or if the
-              Mac gets seriously hot.
+              A boost always ends on its own: when time is up, on sleep or restart, if Switchboard quits, or if the Mac
+              gets seriously hot.
             </p>
           </>
         ) : null}

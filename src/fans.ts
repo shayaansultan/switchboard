@@ -83,6 +83,8 @@ type Ready = Extract<FanState, { status: 'ready' }>;
 export class FanController {
   private state: FanState = { status: 'checking' };
   private queue: Promise<unknown> = Promise.resolve();
+  /** A boost asked for before the helper was allowed; it starts once it is. */
+  private queued: { level: number; minutes: number } | null = null;
 
   constructor(
     private readonly bridge: FanBridge | null,
@@ -151,6 +153,8 @@ export class FanController {
       temperature: temperature ?? null,
       level: previous?.level ?? null,
       endsAt: previous?.endsAt ?? null,
+      limit: previous?.limit ?? null,
+      queued: this.queued !== null,
       stop: previous?.stop ?? null,
       notice: previous?.notice ?? null,
       busy: previous?.busy ?? false,
@@ -162,6 +166,12 @@ export class FanController {
     if (next.helper === 'installed' && next.notice === 'needs-approval') next.notice = null;
     this.publish(next);
     if (next.level !== null) await this.readStatus();
+    else if (this.queued && next.helper === 'installed') {
+      const { level, minutes } = this.queued;
+      this.queued = null;
+      this.patch({ queued: false });
+      await this.boost(level, minutes);
+    }
   }
 
   private applyStatus(raw: BridgeReply | null): boolean {
@@ -181,6 +191,7 @@ export class FanController {
       temperature: temperature ?? ready.temperature,
       level: controlling ? (level ?? null) : null,
       endsAt: controlling && typeof endsIn === 'number' ? this.now() + endsIn * 1000 : null,
+      limit: controlling ? ready.limit : null,
       stop: controlling ? null : (stopOf(stop) ?? ready.stop),
       notice: error ? noticeOf(error) : null,
     });
@@ -192,20 +203,61 @@ export class FanController {
     this.applyStatus(await this.ask({ op: 'status' }));
   }
 
-  /** Holds every fan at `level` (0–100, steps of 5) for `minutes` (0: until System). */
+  /** Boosts every fan to `level` (0–100, steps of 5) for `minutes` (0: until stopped). */
   set(level: number, minutes: number = DEFAULT_FAN_MINUTES): Promise<void> {
     if (!isFanLevel(level) || !isFanMinutes(minutes)) return Promise.reject(new Error('Invalid fan speed'));
     return this.run(async () => {
       await this.readState();
-      const ready = this.ready();
-      if (!ready) return;
-      this.patch({ busy: true, notice: null });
-      try {
-        if (ready.helper !== 'installed' && !(await this.installHelper())) return;
-        this.applyStatus(await this.ask({ op: 'set', level, seconds: minutes * 60 }));
-      } finally {
-        this.patch({ busy: false });
+      await this.boost(level, minutes);
+    });
+  }
+
+  private async boost(level: number, minutes: number): Promise<void> {
+    const ready = this.ready();
+    if (!ready) return;
+    this.patch({ busy: true, notice: null });
+    try {
+      if (ready.helper !== 'installed' && !(await this.installHelper())) {
+        // Remembered, so allowing the helper in Login Items starts it.
+        this.queued = { level, minutes };
+        this.patch({ queued: true });
+        return;
       }
+      const ok = this.applyStatus(await this.ask({ op: 'set', level, seconds: minutes * 60 }));
+      if (ok) this.patch({ limit: minutes || null });
+    } finally {
+      this.patch({ busy: false });
+    }
+  }
+
+  /** Minutes left in the current boost; 0 for one that runs until stopped. */
+  private remaining(ready: Ready): number {
+    return ready.endsAt === null ? 0 : Math.max(1, Math.ceil((ready.endsAt - this.now()) / 60_000));
+  }
+
+  /** Changes the speed of the current boost without touching its time. */
+  adjust(level: number): Promise<void> {
+    const ready = this.ready();
+    if (!ready || ready.level === null) return Promise.resolve();
+    const left = this.remaining(ready);
+    return this.set(level, left).then(() => {
+      if (ready.limit !== null) this.patch({ limit: Math.max(ready.limit, left) });
+    });
+  }
+
+  /** Adds `minutes` to a timed boost. */
+  extend(minutes = DEFAULT_FAN_MINUTES): Promise<void> {
+    const ready = this.ready();
+    if (!ready || ready.level === null || ready.endsAt === null) return Promise.resolve();
+    const total = Math.min(1440, this.remaining(ready) + minutes);
+    return this.set(ready.level, total);
+  }
+
+  /** Drops a boost that was waiting for the helper to be allowed. */
+  cancel(): Promise<void> {
+    return this.run(async () => {
+      this.queued = null;
+      this.patch({ queued: false, notice: null });
     });
   }
 

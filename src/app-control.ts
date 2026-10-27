@@ -13,14 +13,18 @@ export const AppCommand = z.discriminatedUnion('command', [
   z
     .object({
       command: z.literal('fans'),
-      action: z.enum(['status', 'set', 'system', 'dismiss', 'install', 'remove']),
+      action: z.enum(['status', 'set', 'extend', 'system', 'dismiss', 'install', 'remove']),
       level: z.number().int().min(0).max(100).multipleOf(5).optional(),
       minutes: z.number().int().min(0).max(1440).optional(),
     })
     .strict()
-    .refine((c) => (c.action === 'set') === (c.level !== undefined && c.minutes !== undefined), {
-      message: 'set takes a level and minutes; other fan actions take neither',
-    }),
+    .refine(
+      (c) =>
+        c.action === 'set'
+          ? c.level !== undefined && c.minutes !== undefined
+          : c.level === undefined && (c.action === 'extend' || c.minutes === undefined),
+      { message: 'set takes a level and minutes, extend takes minutes, other fan actions take neither' },
+    ),
   z.object({ command: z.literal('accessibility'), action: z.enum(['status', 'open']) }).strict(),
   z.object({ command: z.literal('focus'), profile: z.string().min(1) }).strict(),
   z.object({ command: z.literal('force-quit'), profile: z.string().min(1) }).strict(),

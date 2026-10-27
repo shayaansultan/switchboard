@@ -15,6 +15,7 @@ const api: SwitchboardApi = {
   },
   refreshFans: () => ipcRenderer.invoke('fans:refresh'),
   setFans: (level, minutes) => ipcRenderer.invoke('fans:set', level, minutes),
+  adjustFans: (level) => ipcRenderer.invoke('fans:adjust', level),
   fanAction: (action) => ipcRenderer.invoke('fans:action', action),
   onFanState: (fn) => {
     ipcRenderer.on('fans:state', (_event, state) => fn(state));

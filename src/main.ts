@@ -755,7 +755,7 @@ function rebuildTray(): void {
   const fanState = fans.snapshot();
   if (fanState.status === 'ready' && fanState.level !== null) {
     items.push({
-      label: `Fans at ${fanState.level}% · hand back to System`,
+      label: `Stop fan boost (${fanState.level}%)`,
       enabled: !fanState.busy,
       click: () => void fans.system(),
     });
@@ -886,11 +886,20 @@ ipcMain.handle('fans:set', (event, level: unknown, minutes: unknown) => {
   if (!isFanLevel(level) || !isFanMinutes(minutes)) throw new Error('Invalid fan speed');
   return fans.set(level, minutes);
 });
+ipcMain.handle('fans:adjust', (event, level: unknown) => {
+  validateSender(event);
+  if (!isFanLevel(level)) throw new Error('Invalid fan speed');
+  return fans.adjust(level);
+});
 ipcMain.handle('fans:action', (event, action: unknown) => {
   validateSender(event);
   switch (action) {
     case 'system':
       return fans.system();
+    case 'extend':
+      return fans.extend();
+    case 'cancel':
+      return fans.cancel();
     case 'dismiss':
       return fans.dismiss();
     case 'install':
@@ -1285,6 +1294,7 @@ app.whenReady().then(async () => {
         }
         case 'fans': {
           if (command.action === 'set') await fans.set(command.level ?? -1, command.minutes ?? -1);
+          else if (command.action === 'extend') await fans.extend(command.minutes);
           else if (command.action === 'status') await fans.refresh();
           else await fans[command.action]();
           return fans.snapshot();

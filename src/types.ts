@@ -261,7 +261,8 @@ export interface SwitchboardApi {
   onAwakeState(fn: (s: AwakeState) => void): void;
   refreshFans(): Promise<void>;
   setFans(level: number, minutes: number): Promise<void>;
-  fanAction(action: 'system' | 'dismiss' | 'install' | 'remove' | 'login-items'): Promise<void>;
+  adjustFans(level: number): Promise<void>;
+  fanAction(action: 'system' | 'extend' | 'cancel' | 'dismiss' | 'install' | 'remove' | 'login-items'): Promise<void>;
   onFanState(fn: (s: FanState) => void): void;
   getState(): Promise<State>;
   setProxyBucket(id: string, bucket: string | null): Promise<void>;

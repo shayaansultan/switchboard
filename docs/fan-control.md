@@ -1,9 +1,10 @@
 # Fan control
 
-**Fans**, beside Keep awake in the title bar, holds every fan at one speed for
-a short while, then hands them back to macOS. It is meant for a boost when the
-Mac runs hot. Nothing in Switchboard keeps a speed beyond its time limit, after
-sleep, or across a restart.
+**Fans**, beside Keep awake in the title bar, boosts every fan to one speed for
+a short while, then hands them back to macOS. A boost is an action, not a
+mode: the popover changes nothing until Boost is pressed, and a running boost
+shows as a countdown with Stop. Nothing in Switchboard keeps a boost beyond
+its time limit, after sleep, or across a restart.
 
 ## Pieces
 
@@ -21,6 +22,10 @@ with fixed identifiers after signing the bundle.
 
 ## Trust
 
+A first boost asked for before the helper is allowed is remembered: the
+window says to allow Switchboard in Login Items, and the boost starts on the
+next refresh after it is allowed, unless it was cancelled.
+
 Neither side hard-codes a signing team. Each reads its own team from its
 signature and requires the other to carry the same team and identifier:
 the helper with `NSXPCListener.setConnectionCodeSigningRequirement`, the
@@ -34,14 +39,14 @@ to a day, System, and a heartbeat. It never writes any other SMC key. If the
 fans are already in manual mode when no session of its own holds them, it
 refuses: another app has them, and two controllers would fight.
 
-## When the fans go back to System
+## When a boost ends
 
 The helper hands the fans back and records why, matching Vorssaint's
 behaviour with its resume option off:
 
 | Reason             | Trigger                                                                                                                                |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `time-limit`       | The chosen 15, 30 or 60 minutes ran out.                                                                                               |
+| `time-limit`       | The chosen 15, 30 or 60 minutes, or a custom length, ran out.                                                                          |
 | `sleep`            | The Mac is about to sleep (`kIOMessageSystemWillSleep`), checked again on wake.                                                        |
 | `helper-stopped`   | launchd sent SIGTERM, as at restart, shutdown or an update.                                                                            |
 | `recovery`         | The helper started and found fans in manual mode, as after a crash. It runs at boot (`RunAtLoad`), so a restart always ends on System. |

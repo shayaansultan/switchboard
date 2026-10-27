@@ -45,16 +45,20 @@ export type FanState =
       temperature: number | null;
       /** The held level, or null while macOS controls the fans. */
       level: number | null;
-      /** When the held level ends, in ms since the epoch; null for no limit. */
+      /** When the boost ends, in ms since the epoch; null for no limit. */
       endsAt: number | null;
+      /** The boost's whole length in minutes, for the countdown bar. */
+      limit: number | null;
+      /** A boost is waiting for the helper to be allowed in Login Items. */
+      queued: boolean;
       /** Why the last manual session ended, until dismissed or replaced. */
       stop: FanStop | null;
       notice: FanNotice | null;
       busy: boolean;
     };
 
-/** Time limits offered for a manual speed, in minutes; 0 holds until System. */
-export const FAN_MINUTES = [15, 30, 60, 0] as const;
+/** Boost lengths offered beside Until I stop and Custom, in minutes. */
+export const FAN_MINUTES = [15, 30, 60];
 export const DEFAULT_FAN_MINUTES = 15;
 
 export function isFanLevel(value: unknown): value is number {
@@ -65,7 +69,7 @@ export function isFanMinutes(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 1440;
 }
 
-/** Why the last manual session ended, as the window and CLI say it. */
+/** Why the last boost ended, as the window and CLI say it ("Boost ended because …"). */
 export const STOP_TEXT: Record<FanStop, string> = {
   'app-closed': 'Switchboard closed',
   'heartbeat-lost': 'Switchboard stopped responding',
@@ -79,13 +83,13 @@ export const STOP_TEXT: Record<FanStop, string> = {
 };
 
 export const NOTICE_TEXT: Record<FanNotice, string> = {
-  'already-controlled': 'Another app is controlling the fans. Quit it or set it back to automatic, then try again.',
-  'control-failed': 'The fans did not take that speed, so they are back on System.',
+  'already-controlled': 'Another app is controlling the fans. Quit it, or set it back to automatic, then check again.',
+  'control-failed': 'The fans didn’t take that speed, so macOS kept control.',
   'install-failed': 'macOS did not install the fan helper.',
   'remove-failed': 'macOS did not remove the fan helper.',
   'helper-unavailable': 'Could not reach the fan helper.',
   'needs-approval':
-    'Allow Switchboard in System Settings › General › Login Items & Extensions, under Allow in the Background, then try again.',
+    'Turn on Switchboard under Allow in the Background in System Settings › General › Login Items & Extensions. The boost starts once it’s allowed.',
 };
 
 export const UNAVAILABLE_TEXT: Record<FanUnavailable, string> = {
@@ -102,15 +106,16 @@ export function describeFans(state: FanState, now = Date.now()): string {
   if (state.status === 'unavailable') return UNAVAILABLE_TEXT[state.reason];
   const speeds = state.fans.map((fan) => `${fan.actual.toLocaleString('en-US')} rpm`).join(', ');
   const heat = state.temperature === null ? '' : ` · CPU ${Math.round(state.temperature)} °C`;
-  let mode = 'System';
+  let mode = 'macOS in control';
   if (state.level !== null) {
     const left =
-      state.endsAt === null ? 'until System' : `for ${Math.max(1, Math.ceil((state.endsAt - now) / 60_000))} more min`;
-    mode = `${state.level}% ${left}`;
+      state.endsAt === null ? 'until stopped' : `for ${Math.max(1, Math.ceil((state.endsAt - now) / 60_000))} more min`;
+    mode = `boosting at ${state.level}% ${left}`;
   }
   const lines = [`Fans: ${mode} · ${speeds}${heat}`];
   if (state.helper !== 'installed') lines.push(`Fan helper: ${state.helper.replace('-', ' ')}`);
-  if (state.stop) lines.push(`Back on System because ${STOP_TEXT[state.stop]}.`);
+  if (state.queued) lines.push('A boost is waiting for the fan helper to be allowed.');
+  if (state.stop) lines.push(`Boost ended because ${STOP_TEXT[state.stop]}.`);
   if (state.notice) lines.push(NOTICE_TEXT[state.notice]);
   return lines.join('\n');
 }

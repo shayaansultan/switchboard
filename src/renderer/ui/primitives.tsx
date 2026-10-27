@@ -1,5 +1,5 @@
 // The design's vocabulary as components: an icon, a button, a badge, a usage
-// bar, the ring, a switch, a segmented control. Their looks live in
+// bar, the ring, a switch, a segmented control, a duration picker. Their looks live in
 // style.css; these only fix the markup so every view draws them the same way.
 
 import type { ComponentChildren, JSX } from 'preact';
@@ -288,6 +288,77 @@ export function Seg<T extends string>({
           {o.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+// How long something runs: preset lengths, Until I stop, or Custom with a
+// minutes field. `minutes` is 0 for Until I stop; the caller turns it into
+// the button's words with durationWords.
+export type Duration = { choice: string; custom: number };
+
+export function durationMinutes(value: Duration): number {
+  if (value.choice === 'until') return 0;
+  if (value.choice === 'custom') return Math.max(1, Math.min(1440, Math.round(value.custom) || 1));
+  return Number(value.choice);
+}
+
+export function durationWords(minutes: number): string {
+  if (minutes === 0) return 'until I stop';
+  if (minutes % 60 === 0) return minutes === 60 ? '1 hour' : `${minutes / 60} hours`;
+  return `${minutes} min`;
+}
+
+export function DurationPicker({
+  presets,
+  value,
+  onChange,
+  label,
+  disabled,
+}: {
+  presets: number[];
+  value: Duration;
+  onChange: (next: Duration) => void;
+  label: string;
+  disabled?: boolean;
+}) {
+  const options = [
+    ...presets.map((m) => ({ id: String(m), label: durationWords(m) })),
+    { id: 'until', label: 'Until I stop' },
+    { id: 'custom', label: 'Custom…' },
+  ];
+  return (
+    <div class="durations">
+      <div class="duration-chips" role="radiogroup" aria-label={label}>
+        {options.map((o) => (
+          <button
+            type="button"
+            role="radio"
+            aria-checked={o.id === value.choice}
+            class={o.id === value.choice ? 'on' : ''}
+            disabled={disabled}
+            onClick={() => onChange({ ...value, choice: o.id })}
+            key={o.id}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      {value.choice === 'custom' ? (
+        <label class="duration-custom">
+          <span>{label}</span>
+          <input
+            type="number"
+            min={1}
+            max={1440}
+            step={1}
+            value={value.custom}
+            disabled={disabled}
+            onInput={(e) => onChange({ ...value, custom: Number(e.currentTarget.value) })}
+          />
+          <span>minutes</span>
+        </label>
+      ) : null}
     </div>
   );
 }

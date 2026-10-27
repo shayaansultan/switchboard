@@ -63,8 +63,9 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 #awake-notice { color: var(--muted); margin: 12px 0 0; }
 #awake-error { color: var(--bad-text); margin: 12px 0 0; }
 .awake-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-/* Fans: Keep awake's popover, with a mode switch, a speed slider and one
-   bar per fan. Warm text on the button while a speed is held. */
+/* Fans: Keep awake's popover holding a boost. Idle shows who controls the
+   fans and the boost set-up; a running boost is a warm card with a
+   countdown. Warm text on the button while a boost runs. */
 #fans-toggle { white-space: nowrap; }
 #fans-toggle[hidden] { display: none; }
 #fans-toggle .ico.chev { width: 14px; height: 14px; }
@@ -78,28 +79,43 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 #fans-popover[popover]:popover-open { display: grid; gap: 14px; }
 #fans-popover .awake-heading-row { gap: 8px; }
 #fans-popover .awake-heading-row h2 { flex: 1; }
-#fans-popover .segmented { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#fans-popover .hint { margin: 0; }
 .fans-temp { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
-.fans-mode-note { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.5; }
+.fans-line { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; color: var(--text-2); }
+.fans-note { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); color: var(--text-2); font-size: 13px; line-height: 1.45; }
+.fans-note span { flex: 1; }
+.fans-note.warn { background: var(--warn-bg); color: var(--warn-text); }
+.fans-note.bad { background: var(--danger-bg); color: var(--bad-text); }
+.fans-dismiss { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; padding: 0; font-size: 16px; }
+.fans-boost { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--line); }
+.fans-boost h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.fans-boosting { display: grid; gap: 10px; padding: 14px; border-radius: 12px; background: var(--warn-bg); color: var(--warn-text); }
+.fans-boosting-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; }
+.fans-boosting-row b { font-size: 15px; font-weight: 600; }
+.fans-drain { height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
+.fans-drain span { display: block; height: 100%; background: var(--warn); }
 .fans-speed { display: grid; grid-template-columns: 1fr auto; gap: 6px; font-size: 13px; }
 .fans-speed label { color: var(--text-2); }
 .fans-speed output { font-weight: 600; font-variant-numeric: tabular-nums; }
 .fans-speed input { grid-column: 1 / -1; width: 100%; margin: 0; accent-color: var(--ink); }
-.fans-scale { grid-column: 1 / -1; display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
-.fans-limit { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--text-2); }
-.fans-limit span { white-space: nowrap; }
-.fans-limit select {
-  font: 400 13px/18px 'Figtree', system-ui, sans-serif; color: var(--text); background: var(--field);
-  border: 1px solid var(--line-2); border-radius: 8px; height: 30px; padding: 0 8px;
-}
+.fans-buttons { display: flex; gap: 8px; }
+.fans-buttons > button { flex: 1; height: 38px; }
 .fans-list { list-style: none; margin: 0; padding: 12px 0 0; border-top: 1px solid var(--line); display: grid; gap: 10px; }
 .fans-list li { display: grid; grid-template-columns: 52px minmax(0, 1fr) 84px; align-items: center; gap: 12px; font-size: 13px; color: var(--text-2); }
 .fans-track { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
 .fans-track span { display: block; height: 100%; background: var(--fill); border-radius: 3px; }
 .fans-rpm { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
-.fans-callout { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--warn-bg); color: var(--warn-text); font-size: 13px; line-height: 1.45; }
-.fans-callout span { flex: 1; }
-#fans-popover .hint { margin: 0; }
+/* A duration picker: preset chips, Until I stop and Custom, three to a row. */
+.durations { display: grid; gap: 10px; }
+.duration-chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.duration-chips button { height: 32px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--btn-bg); color: var(--text-2); font-size: 13px; white-space: nowrap; }
+.duration-chips button.on { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.duration-chips button:disabled { opacity: 0.5; }
+.duration-custom { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+.duration-custom input {
+  width: 72px; height: 32px; box-sizing: border-box; padding: 0 8px; border: 1px solid var(--line-2); border-radius: 8px;
+  background: var(--field); color: var(--text); font: 400 13px/18px 'Figtree', system-ui, sans-serif;
+}
 @media (max-width: 620px) {
   .titlebar { gap: 8px; }
   .titlebar .actions button:not(.icon-btn) { padding-left: 8px; padding-right: 8px; }
