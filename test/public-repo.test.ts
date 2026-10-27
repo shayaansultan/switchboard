@@ -28,9 +28,10 @@ const allowedEmail = (address: string) => {
 
 const RULES: { name: string; find: (text: string) => string[] }[] = [
   {
-    // Private Telegram groups and invites (t.me/c/…, t.me/+…, joinchat).
+    // Private Telegram groups (`c/` and a numeric id) and invite links (`+` or
+    // `joinchat/` and a code).
     name: 'private chat link',
-    find: (text) => text.match(/t\.me\/(c\/|\+|joinchat\/)\S+/g) ?? [],
+    find: (text) => text.match(/t\.me\/(?:c\/\d|\+[\w-]|joinchat\/[\w-])\S*/g) ?? [],
   },
   {
     name: 'real email address',
