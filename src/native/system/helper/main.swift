@@ -335,6 +335,10 @@ final class Session: NSObject, SystemHelperProtocol {
 
   private func answer(_ reply: @escaping (Data) -> Void, _ work: () -> String?) {
     let error = work()
+    // A request is proof of life too. Unlocking a stopped fan can block for
+    // seconds, longer than the heartbeat limit, while heartbeats wait behind
+    // it; without this the first check afterwards would end the new boost.
+    sessions.beat(id)
     reply(encode(fans.status(error: error, awake: awake.status())))
   }
 
@@ -367,10 +371,7 @@ final class Session: NSObject, SystemHelperProtocol {
     DispatchQueue.main.async { self.answer(reply) { self.awake.clear() } }
   }
   func heartbeat(reply: @escaping (Data) -> Void) {
-    DispatchQueue.main.async {
-      self.sessions.beat(self.id)
-      self.answer(reply) { nil }
-    }
+    DispatchQueue.main.async { self.answer(reply) { nil } }
   }
 }
 
