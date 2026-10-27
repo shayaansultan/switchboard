@@ -85,6 +85,18 @@ What an account's tokens would cost at API list prices, in dollars. An
 estimate, and not a bill: a subscription does not charge per token. Always
 labelled as such; never added to a window percentage.
 
+## Plan price
+
+What an account's plan costs a month, in dollars, as its owner set it. Never
+filled in from a list: the Usage tab sets API-equivalent value against it and
+says nothing where it is not set.
+
+## Weekly digest
+
+Last week, Monday to Sunday, summed up from the usage history: in
+`switchboard digest`, and as a Monday notification once two weeks are
+recorded.
+
 ## Pace
 
 How far a window is ahead of or behind an even burn across it, in points: a

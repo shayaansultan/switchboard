@@ -107,6 +107,23 @@ know is counted as unpriced tokens rather than guessed.
 The value is what the same tokens would cost on the API. Subscriptions are not
 billed that way; it is a way to compare accounts and weeks, not a bill.
 
+Each profile can carry its plan's price, in dollars a month, set from the
+Tokens view or `switchboard plan-price PROFILE 200` (`none` clears it). The
+Tokens view spreads it over the range (a 30-day range is 30 / 30.44 of a
+month) and shows the account's value as a multiple of it. No price is filled
+in for you: team and business seats vary, and a stale list price would make
+every multiple wrong.
+
+## Weekly digest
+
+Last week, Monday to Sunday, from the same report as the tab: value, agent
+time, sessions, each limit hit and the time waited, the busiest day, the top
+project and model, and each account against its plan. `switchboard digest`
+prints it; the **Weekly digest** setting sends it as a notification from 9:00
+on Monday (or when the Mac next polls that week), once two weeks are recorded
+so the first is not a partial week. Which week was last handled is kept in
+`~/.switchboard/usage/digest.json`.
+
 ## Sessions and windows
 
 The Sessions view groups each profile's sessions by the window they spent most

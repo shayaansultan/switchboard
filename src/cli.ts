@@ -39,7 +39,7 @@ import {
 import { appCommand, caffeinateCommand, exportCommand, fansCommand } from './cli/app';
 import { settingsCommand } from './cli/settings';
 import { pickCommand, usageCommand } from './cli/usage';
-import { tokensCommand } from './cli/tokens';
+import { digestCommand, tokensCommand } from './cli/tokens';
 import { resetsCommand } from './cli/resets';
 import { remoteCommand } from './cli/remote';
 
@@ -52,6 +52,7 @@ Read
   switchboard usage [PROFILE...] [--vendor V] [--max-age 15m | --refresh] [--no-renew]
   switchboard pick VENDOR [--window 5h|7d|LABEL] [--max-age 15m] [--min-headroom N]
   switchboard tokens [--days 30] [--by account|model|project|day]   Usage history the app keeps
+  switchboard digest                          Last week, Monday to Sunday, against plan prices
   switchboard resets PROFILE [--redeem GRANT_ID --yes]
                                             List native grants (spends with --redeem)
   switchboard running                         Desktop windows and which profile owns each
@@ -145,6 +146,7 @@ const COMMANDS = z.enum([
   'resets',
   'pick',
   'tokens',
+  'digest',
   'running',
   'setup-items',
   'doctor',
@@ -273,6 +275,8 @@ async function dispatch(rest: string[], out: Output): Promise<number | void> {
       return pickCommand(args, ctx);
     case 'tokens':
       return tokensCommand(args, ctx);
+    case 'digest':
+      return digestCommand(args, ctx);
     case 'running':
       return runningCommand(args, ctx);
     case 'setup-items':

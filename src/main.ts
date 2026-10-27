@@ -42,8 +42,9 @@ import { DesktopWatch } from './desktop-watch';
 import { installShim, launcherScript } from './shim';
 import { INSTALLED_APP } from './buckets/runtime';
 import { HOME } from './store';
-import { UsageHistory, type LedgerProfile, type LiveProfile } from './history';
+import { UsageHistory, USAGE_DIR, type LedgerProfile, type LiveProfile } from './history';
 import { alertsFor } from './history/alerts';
+import { buildDigest, digestDue, digestNote, lastDigest, lastWeekEnd, markDigest } from './history/digest';
 import { roomiest } from './history/windows';
 import { resetsIn } from './shared/time';
 import { DEFAULT_PORT, startHub, type Hub, type HubProfile, type HubSource } from './remote/hub';
@@ -294,7 +295,33 @@ function recordUsage(list: Profile[]): void {
   }
   for (const [id, windows] of fresh) alertBaseline.set(id, windows);
   if (wrote) usageChanged();
-  void indexUsage();
+  void indexUsage().then(sendDigest);
+}
+
+// The Monday notification (history/digest.ts), once a week from 9:00 on
+// Monday. A week without two recorded behind it is passed over, not retried
+// at every poll.
+function sendDigest(): void {
+  if (data.settings.weeklyDigest === false || !Notification.isSupported()) return;
+  const now = Date.now();
+  const week = digestDue(now, lastDigest(USAGE_DIR));
+  if (!week) return;
+  try {
+    const d = buildDigest(
+      history.report(liveProfiles(), 7, lastWeekEnd(now)),
+      Object.fromEntries(data.profiles.map((p) => [p.id, p.planPrice])),
+    );
+    if (d.ready) {
+      const note = digestNote(d, (id) => {
+        const p = data.profiles.find((x) => x.id === id);
+        return p ? profileLabel(p) : id;
+      });
+      new Notification({ title: note.title, body: note.body }).show();
+    }
+    markDigest(USAGE_DIR, week);
+  } catch {
+    /* as above: the next poll tries again */
+  }
 }
 
 // ---- store shared with the CLI ----

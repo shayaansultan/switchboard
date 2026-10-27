@@ -41,6 +41,7 @@ const PARSERS: Record<keyof Settings, Parser> = {
   // Only records the choice: the app asks for Accessibility itself.
   noticeClosedWindows: bool('noticeClosedWindows'),
   usageAlerts: bool('usageAlerts'),
+  weeklyDigest: bool('weeklyDigest'),
   phoneAccess: bool('phoneAccess'),
   // The app adds or removes the plugin in ~/.claude/settings.json when it
   // applies phone access (src/remote/reach.ts).

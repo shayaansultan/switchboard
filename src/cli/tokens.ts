@@ -1,8 +1,10 @@
-// `switchboard tokens`: the usage history the app keeps, for a terminal or
-// an agent. It reads what the app last indexed and never reads the logs
-// itself, so it cannot race the app's writes; `indexedAt` says how fresh it is.
+// `switchboard tokens` and `switchboard digest`: the usage history the app
+// keeps, for a terminal or an agent. It reads what the app last indexed and
+// never reads the logs itself, so it cannot race the app's writes;
+// `indexedAt` says how fresh it is.
 
 import { sumTokens, UsageHistory, USAGE_DIR } from '../history';
+import { buildDigest, lastWeekEnd } from '../history/digest';
 import type { Profile, UsageReport } from '../types';
 import type { Context } from './context';
 import { parse } from './context';
@@ -58,6 +60,18 @@ function rows(report: UsageReport, by: By, profiles: Profile[]): Record<string, 
   }
 }
 
+function readHistory(dir: string): UsageHistory {
+  const history = UsageHistory.readOnly(dir);
+  if (!history) {
+    throw notFound(
+      'no-usage-history',
+      'Switchboard has not recorded any usage yet',
+      'Open Switchboard: it reads the Claude Code and Codex logs of every profile and keeps the totals.',
+    );
+  }
+  return history;
+}
+
 export function tokensCommand(rest: string[], ctx: Context, dir = USAGE_DIR): void {
   const { values } = parse(rest, {
     days: { type: 'string', default: '30' },
@@ -67,14 +81,7 @@ export function tokensCommand(rest: string[], ctx: Context, dir = USAGE_DIR): vo
   if (!Number.isInteger(days) || days < 1 || days > 366) throw usageError('--days is a whole number from 1 to 366');
   const by = values.by as By;
   if (!BY.includes(by)) throw usageError(`--by must be one of: ${BY.join(', ')}`);
-  const history = UsageHistory.readOnly(dir);
-  if (!history) {
-    throw notFound(
-      'no-usage-history',
-      'Switchboard has not recorded any usage yet',
-      'Open Switchboard: it reads the Claude Code and Codex logs of every profile and keeps the totals.',
-    );
-  }
+  const history = readHistory(dir);
   // Live windows only feed the forecast and pace, which this does not print.
   const report = history.report(
     ctx.data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, windows: undefined })),
@@ -107,4 +114,86 @@ export function tokensCommand(rest: string[], ctx: Context, dir = USAGE_DIR): vo
       `$${(result.totals.value ?? 0).toFixed(2)} API-equivalent over ${days} days · estimates at API prices of ${report.pricesAsOf}`,
     ].join('\n'),
   );
+}
+
+const day = (d: string) =>
+  new Date(`${d}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+const hm = (ms: number) => {
+  const m = Math.round(ms / 60000);
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}`;
+};
+
+const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
+
+// Last week, Monday to Sunday: what the Monday notification says, in full.
+export function digestCommand(rest: string[], ctx: Context, dir = USAGE_DIR, now = Date.now()): void {
+  parse(rest, {});
+  const end = lastWeekEnd(now);
+  const report = readHistory(dir).report(
+    ctx.data.profiles.map((p) => ({ id: p.id, vendor: p.vendor, windows: undefined })),
+    7,
+    end,
+  );
+  const d = buildDigest(report, Object.fromEntries(ctx.data.profiles.map((p) => [p.id, p.planPrice])));
+  const name = (id: string) => {
+    const p = ctx.data.profiles.find((x) => x.id === id);
+    return p ? ref(p).name : id;
+  };
+  const result = {
+    from: d.from,
+    to: d.to,
+    recordedSince: report.recordedSince,
+    indexedAt: report.indexedAt,
+    pricesAsOf: report.pricesAsOf,
+    value: dollars(d.value),
+    agentMinutes: Math.round(d.agentMs / 60000),
+    sessions: d.sessions,
+    previous: d.previous && { value: dollars(d.previous.value), agentMinutes: Math.round(d.previous.agentMs / 60000) },
+    limitHits: d.limitHits.map((h) => ({ ...h, name: name(h.profile) })),
+    waitedMinutes: Math.round(d.waitedMs / 60000),
+    busiest: d.busiest && { day: d.busiest.day, value: dollars(d.busiest.value) },
+    project: d.project && { name: d.project.name, value: dollars(d.project.value) },
+    model: d.model && { model: d.model.model, value: dollars(d.model.value) },
+    accounts: d.accounts.map((a) => ({
+      id: a.profile,
+      name: name(a.profile),
+      value: dollars(a.value),
+      planCost: dollars(a.planCost),
+      times: a.times === null ? null : Math.round(a.times * 10) / 10,
+    })),
+  };
+  ctx.out.result(result, () => {
+    const change =
+      d.previous && d.previous.value > 0
+        ? ` (${signed(Math.round((d.value / d.previous.value - 1) * 100))}% on the week before)`
+        : '';
+    const hits = d.limitHits.length
+      ? `Limits: hit ${d.limitHits.length === 1 ? 'once' : `${d.limitHits.length} times`} (${d.limitHits
+          .map((h) => `${name(h.profile)} ${h.label}, ${day(h.at.slice(0, 10))}`)
+          .join('; ')}), waited ${hm(d.waitedMs)}`
+      : 'Limits: none hit';
+    return [
+      `Week of ${day(d.from)} to ${day(d.to)}`,
+      `$${(result.value ?? 0).toFixed(2)} of value · ${hm(d.agentMs)} agent time · ${d.sessions} sessions${change}`,
+      hits,
+      ...(d.busiest ? [`Busiest day: ${day(d.busiest.day)}, $${d.busiest.value.toFixed(2)}`] : []),
+      ...(d.project ? [`Top project: ${d.project.name} · top model: ${d.model?.model ?? 'none'}`] : []),
+      '',
+      table(
+        result.accounts.map((a) => ({
+          name: a.name,
+          value: a.value,
+          plan: a.planCost === null ? 'not set' : a.planCost,
+          times: a.times === null ? '' : `${a.times}x`,
+        })),
+        ['name', 'value', 'plan', 'times'],
+      ),
+      '',
+      `estimates at API prices of ${report.pricesAsOf}; plan is the monthly price over these 7 days${
+        report.recordedSince && report.recordedSince > d.from
+          ? ` · recorded only since ${day(report.recordedSince)}`
+          : ''
+      }`,
+    ].join('\n');
+  });
 }

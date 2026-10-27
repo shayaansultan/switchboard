@@ -96,8 +96,11 @@ The **Usage** tab keeps what the bars cannot: a history. It has three views.
   the range; value per day split by account; the top projects or models; and
   six months of days with agent work.
 - **Tokens.** Tokens by kind and what each kind is worth (cache reads are most
-  of the tokens and much less of the value), cache hit per account, value per
-  account and per day.
+  of the tokens and much less of the value), cache hit per account, each
+  account's value against what its plan cost over the same days, and value per
+  day. Set a plan's monthly price by clicking **Set plan price** beside the
+  account, or with `switchboard plan-price PROFILE 200`; Switchboard never
+  assumes one.
 - **Sessions.** Agent sessions grouped by the 5-hour window they counted
   against, marked where a window ran out and for how long. Pick one to see its
   share of the window, how the window filled while it ran, the model, tokens and
@@ -114,7 +117,10 @@ would cost at API list prices; a subscription is not billed that way. See
 
 Switchboard can also tell you: **Usage alerts** in Settings (on unless you turn
 it off) sends a notification when a window reaches 90%, naming the account with
-the most room, and when a full one resets.
+the most room, and when a full one resets. **Weekly digest** (also on) sends one
+on Monday morning with last week's agent hours, value, limits hit and value
+against plan prices, once two weeks are recorded; `switchboard digest` prints
+the same week in full.
 
 ## Can I use a saved usage reset?
 
@@ -408,6 +414,7 @@ switchboard list                      # profiles, running state, signed-in accou
 switchboard usage --max-age 15m       # rate-limit windows, refreshed if older than 15 minutes
 switchboard pick claude               # the Claude profile with the most quota left
 switchboard tokens --by project       # what the last 30 days of agent work cost, by folder
+switchboard digest --human            # last week, Monday to Sunday, against plan prices
 switchboard exec work -- claude -p "…"   # run anything inside a profile's account
 eval "$(switchboard env work)"        # put the current shell into a profile
 switchboard launch work               # open its desktop window

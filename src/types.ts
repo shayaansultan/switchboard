@@ -60,6 +60,9 @@ export interface Settings {
   // Notify when a window reaches 90% and when a full one resets. On unless
   // switched off.
   usageAlerts?: boolean;
+  // A Monday notification summing up last week, once two weeks are
+  // recorded. On unless switched off.
+  weeklyDigest?: boolean;
   // Serve the phone app to paired phones on 127.0.0.1:phonePort, for
   // `tailscale serve` to publish on the tailnet. See src/remote/hub.ts.
   phoneAccess?: boolean;
