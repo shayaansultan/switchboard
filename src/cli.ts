@@ -78,6 +78,7 @@ Desktop
   switchboard caffeinate extend [--minutes N] Add N minutes (default 60) to a timed session
   switchboard caffeinate clear                Turn sleep back on after pmset disablesleep
   switchboard fans status|system|dismiss       Fan speeds, or stop a boost and hand back to macOS
+  switchboard fans cancel                     Drop a boost waiting for the helper to be allowed
   switchboard fans set LEVEL [--minutes N]    Boost the fans to LEVEL% (steps of 5) for N minutes
                                               (default 15; 0 runs until system)
   switchboard fans extend [--minutes N]       Add N minutes (default 15) to a timed boost

@@ -43,16 +43,20 @@ export function Caffeinate() {
       .catch(() => {});
   }, []);
 
-  // Keeps the countdown current while someone is looking, and notices the
-  // helper being allowed in Login Items.
+  // Keeps the countdown current, in the title bar too while the popover is
+  // closed, and notices the helper being allowed in Login Items.
+  const timed = state?.endsAt != null;
   useEffect(() => {
-    if (!open) return;
-    const timer = setInterval(() => {
-      setTick((n) => n + 1);
-      if (state?.queued) void window.sb.refreshCaffeinate().catch(() => {});
-    }, 5_000);
+    if (!open && !timed) return;
+    const timer = setInterval(
+      () => {
+        setTick((n) => n + 1);
+        if (open && state?.queued) void window.sb.refreshCaffeinate().catch(() => {});
+      },
+      open ? 5_000 : 15_000,
+    );
     return () => clearInterval(timer);
-  }, [open, state?.queued]);
+  }, [open, timed, state?.queued]);
 
   const run = (action: Action) => (e: Event) => act(() => window.sb.caffeinateAction(action), e.currentTarget);
   const active = state?.active ?? false;

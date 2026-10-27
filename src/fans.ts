@@ -216,7 +216,8 @@ export class FanController {
       const change = next({ level: ready.level, left: this.remaining(ready), timed: ready.endsAt !== null });
       if (!change || !isFanLevel(change.level)) return;
       await this.boost(change.level, change.minutes);
-      if (ready.limit !== null) this.patch({ limit: Math.max(ready.limit, change.minutes) });
+      if (ready.limit !== null && this.ready()?.level != null)
+        this.patch({ limit: Math.max(ready.limit, change.minutes) });
     });
   }
 

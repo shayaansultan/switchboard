@@ -103,16 +103,23 @@ export function FanControl() {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    if (!open) return;
-    const timer = setInterval(() => {
-      setTick((n) => n + 1);
-      void window.sb.refreshFans().catch(() => {});
-    }, POLL_MS);
-    return () => clearInterval(timer);
-  }, [open]);
-
   const ready = state.status === 'ready' ? state : null;
+  const timed = ready?.endsAt != null;
+
+  // Speeds are read only while the popover is open; a timed boost's
+  // countdown in the title bar keeps moving while it is closed.
+  useEffect(() => {
+    if (!open && !timed) return;
+    const timer = setInterval(
+      () => {
+        setTick((n) => n + 1);
+        if (open) void window.sb.refreshFans().catch(() => {});
+      },
+      open ? POLL_MS : 15_000,
+    );
+    return () => clearInterval(timer);
+  }, [open, timed]);
+
   const held = ready?.level ?? null;
   useEffect(() => {
     if (held !== null) setDraft(held);

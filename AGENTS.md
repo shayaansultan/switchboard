@@ -114,8 +114,10 @@ which that test also reads.
   on text or a popover control that is off the scale.
 - The renderer only ever receives percentages, reset times, email, plan,
   the proxy's reason an account is unavailable, usage-reset offers (id,
-  title, count, expiry), and fan speeds and CPU temperature. A reset session stays in the main process; the
-  window holds only the token that names it.
+  title, count, expiry), fan speeds and CPU temperature, and Caffeinate's
+  state (times, whether the helper is installed, lid support, whether sleep
+  is off). A reset session stays in the main process; the window holds only
+  the token that names it.
   Tokens and credentials are read in the main process, used once, dropped.
 - Renderer buttons call the main process through `act()` in
   `src/renderer/lib.ts`, which handles the pending state and errors. Do not

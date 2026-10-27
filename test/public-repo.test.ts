@@ -14,7 +14,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-const root = path.resolve(import.meta.dir, '..');
+const root = path.resolve(__dirname, '..');
 const BINARY = /\.(png|jpe?g|gif|webp|icns|ico|mp4|mov|woff2?|ttf|otf|pdf|zip|gz)$/i;
 
 const PLACEHOLDER_USERS = new Set(['me', 'someone', 'demo', 'you', "o'brien", 'runner', 'user']);

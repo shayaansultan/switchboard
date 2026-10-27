@@ -101,6 +101,7 @@ test('fans commands reach the app only with a valid speed and time limit', async
     ['fans', 'set', '60'],
     ['fans', 'set', '100', '--minutes', '0'],
     ['fans', 'system'],
+    ['fans', 'cancel'],
     ['fans', 'install'],
   ])
     expect((await run(...args)).json()).toEqual({ status: 'unavailable', reason: 'no-fans' });
@@ -121,6 +122,7 @@ test('fans commands reach the app only with a valid speed and time limit', async
     { command: 'fans', action: 'set', level: 60, minutes: 15 },
     { command: 'fans', action: 'set', level: 100, minutes: 0 },
     { command: 'fans', action: 'system' },
+    { command: 'fans', action: 'cancel' },
     { command: 'fans', action: 'install' },
     { command: 'fans', action: 'status' },
   ]);

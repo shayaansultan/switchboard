@@ -57,9 +57,15 @@ export function spawnSystemBridge(executable: string, timeout = 25_000): SystemB
         }
       }
     });
+    const startedAt = Date.now();
     next.on('exit', () => {
-      if (child === next) child = null;
       fail(new Error('The system bridge exited'));
+      // Not one close() ended. The helper ends whatever this bridge held, so
+      // the controllers ask what is left. One that dies at once is not
+      // reported, so a bridge that cannot start does not loop.
+      if (child !== next) return;
+      child = null;
+      if (Date.now() - startedAt > 2_000) for (const listener of listeners) listener({ event: 'helper-lost' });
     });
     next.on('error', (error) => fail(error));
     next.stdin?.on('error', () => {});

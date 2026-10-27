@@ -68,14 +68,14 @@ in Login Items (`notice: needs-approval`, `queued: true`); leave that to the
 user. `clear` turns system sleep back on when something outside Caffeinate
 left it off (`sleepDisabledElsewhere`); it may ask for a password. Read
 `active`, `endsAt`, `lid`, `stop` and `notice` in the result, not just exit 0.
-`fans status|set LEVEL [--minutes N]|extend [--minutes N]|system|dismiss|install|remove`
+`fans status|set LEVEL [--minutes N]|extend [--minutes N]|system|cancel|dismiss|install|remove`
 shares the running app's fan control. `set` boosts every fan to LEVEL% (0-100,
 steps of 5) for N minutes (default 15; 0 runs until `system`); `extend` adds
 minutes to a timed boost. The helper ends a boost on sleep, restart, quit,
 heat or the time limit, and the result's `stop` says why. A first `set` or
 `install` needs the user to allow the helper in Login Items (`notice:
-needs-approval`, `queued: true`; the boost starts once allowed); leave that to
-the user. Read `status`, `level`, `endsAt`, `stop` and `notice` in the result,
+needs-approval`, `queued: true`; the boost starts once allowed, and `cancel`
+drops it); leave the approval to the user. Read `status`, `level`, `endsAt`, `stop` and `notice` in the result,
 and `unavailable` with its `reason` (`no-fans`, `unsigned`, `not-packaged`).
 `accessibility status` reports permission under the running Electron app's
 identity. `accessibility open` opens the macOS pane when the user asks to

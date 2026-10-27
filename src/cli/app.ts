@@ -56,7 +56,7 @@ export function exportCommand(rest: string[], ctx: Context): void {
   });
 }
 
-const FAN_ACTIONS = ['status', 'set', 'extend', 'system', 'dismiss', 'install', 'remove'] as const;
+const FAN_ACTIONS = ['status', 'set', 'extend', 'system', 'cancel', 'dismiss', 'install', 'remove'] as const;
 
 // Fan control runs in the app, which owns the bridge to the root helper.
 export async function fansCommand(rest: string[], ctx: Context): Promise<void> {
@@ -65,7 +65,7 @@ export async function fansCommand(rest: string[], ctx: Context): Promise<void> {
   const known = (FAN_ACTIONS as readonly string[]).includes(action ?? '');
   if (!known || extra !== undefined || (action === 'set') !== (level !== undefined))
     throw usageError(
-      'Use: switchboard fans status|system|dismiss|install|remove, fans set LEVEL [--minutes N], or fans extend [--minutes N]',
+      'Use: switchboard fans status|system|cancel|dismiss|install|remove, fans set LEVEL [--minutes N], or fans extend [--minutes N]',
     );
   if (values.minutes !== undefined && action !== 'set' && action !== 'extend')
     throw usageError('--minutes only applies to fans set and fans extend');

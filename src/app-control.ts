@@ -26,7 +26,7 @@ export const AppCommand = z.discriminatedUnion('command', [
   z
     .object({
       command: z.literal('fans'),
-      action: z.enum(['status', 'set', 'extend', 'system', 'dismiss', 'install', 'remove']),
+      action: z.enum(['status', 'set', 'extend', 'system', 'cancel', 'dismiss', 'install', 'remove']),
       level: z.number().int().min(0).max(100).multipleOf(5).optional(),
       minutes: z.number().int().min(0).max(1440).optional(),
     })
