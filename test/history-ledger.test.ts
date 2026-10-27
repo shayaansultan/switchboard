@@ -338,8 +338,10 @@ test('ids from the logs that name Object.prototype are plain keys', async () => 
   await indexLogs(ledger, [claude], T + 3000);
   const pl = ledger.profiles['claude-work'];
   expect(Object.hasOwn(pl.sessions, 'constructor')).toBe(true);
-  expect(pl.sessions.constructor.tools).toEqual({ constructor: 1 });
-  expect(pl.sessions.constructor.models.toString.n).toBe(1);
+  // Typed as a plain record entry: `.constructor` on the record itself types as Function.
+  const session = pl.sessions['constructor' as string];
+  expect(session.tools).toEqual({ constructor: 1 });
+  expect(session.models['toString' as string].n).toBe(1);
   expect(Object.getPrototypeOf(pl.sessions)).toBe(Object.prototype);
   expect(({} as Record<string, unknown>).start).toBeUndefined();
   expect(loadLedger((saveLedger(path.join(base, 'l.json'), ledger), path.join(base, 'l.json')))).toEqual(ledger);

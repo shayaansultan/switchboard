@@ -164,9 +164,9 @@ test("a rise across a gap in the readings is not taken as the last hour's", () =
 
 test('the roomiest account needs no profile to leave out, and skips one on the same account', () => {
   const live = [
-    { id: 'a', vendor: 'claude' as const, windows: [w('5h', 95, NOW + H)], account: 'me@x.com' },
-    { id: 'a2', vendor: 'claude' as const, windows: [w('5h', 95, NOW + H)], account: 'me@x.com' },
-    { id: 'b', vendor: 'claude' as const, windows: [w('5h', 40, NOW + H)], account: 'you@x.com' },
+    { id: 'a', vendor: 'claude' as const, windows: [w('5h', 95, NOW + H)], account: 'me@example.com' },
+    { id: 'a2', vendor: 'claude' as const, windows: [w('5h', 95, NOW + H)], account: 'me@example.com' },
+    { id: 'b', vendor: 'claude' as const, windows: [w('5h', 40, NOW + H)], account: 'you@example.com' },
     { id: 'c', vendor: 'codex' as const, windows: [w('5h', 5, NOW + H)] },
   ];
   expect(roomiest(live, 'claude', NOW)?.profile).toBe('b');
@@ -182,9 +182,9 @@ test('the roomiest account needs no profile to leave out, and skips one on the s
 
 test('an account signed in to two profiles is alerted once per window', () => {
   const profiles = [
-    { id: 'a', vendor: 'claude' as const, label: 'Claude · A', account: 'me@x.com' },
-    { id: 'a2', vendor: 'claude' as const, label: 'Claude · A2', account: 'me@x.com' },
-    { id: 'c', vendor: 'codex' as const, label: 'Codex · C', account: 'me@x.com' },
+    { id: 'a', vendor: 'claude' as const, label: 'Claude · A', account: 'me@example.com' },
+    { id: 'a2', vendor: 'claude' as const, label: 'Claude · A2', account: 'me@example.com' },
+    { id: 'c', vendor: 'codex' as const, label: 'Codex · C', account: 'me@example.com' },
     { id: 'n', vendor: 'claude' as const, label: 'Claude · N' },
     { id: 'n2', vendor: 'claude' as const, label: 'Claude · N2' },
   ];
