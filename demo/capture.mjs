@@ -12,115 +12,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const RENDERER = path.join(ROOT, 'out', 'renderer'); // built by `bun run build`
 const DOCS = path.join(ROOT, 'docs');
 const WORK = path.join(ROOT, 'docs', '.work');
 
-// The setup dialog's checklist comes from the app itself, so the demo cannot
-// drift from what the app actually offers.
-process.env.HOME = fs.mkdtempSync('/tmp/switchboard-demo-');
-const { SETUP_ITEMS, PALETTE } = await import(path.join(ROOT, 'src', 'profiles.ts'));
-const fixture = await import(path.join(ROOT, 'demo', 'fixture.js'));
-// The Usage tab's report, computed by the real indexer from invented logs.
-const { usageFixture } = await import(path.join(ROOT, 'demo', 'usage-fixture.ts'));
-const usageReport = await usageFixture(30);
-
 const VIEWPORT = { width: 920, height: 700 };
-
-// macOS draws the traffic lights over the inset title bar. In a browser that
-// space is simply empty, so draw them, and keep this to the demo only.
-const CHROME_CSS = `
-  .titlebar::before {
-    content: ""; position: absolute; left: 20px; top: 50%; transform: translateY(-50%);
-    width: 52px; height: 12px;
-    background: radial-gradient(circle 6px at 6px 6px, #ff5f57 98%, transparent 100%),
-                radial-gradient(circle 6px at 26px 6px, #febc2e 98%, transparent 100%),
-                radial-gradient(circle 6px at 46px 6px, #28c840 98%, transparent 100%);
-  }
-  .titlebar { position: sticky; }
-  html, body { background: #fcfcfb; }
-`;
-
-function bridge(state) {
-  // Stands in for the preload bridge. Every call resolves without touching
-  // anything; the demo only needs the UI to render and open its dialogs.
-  return `
-    window.__state = ${JSON.stringify(state)};
-    window.__usage = ${JSON.stringify(usageReport)};
-    const noop = () => Promise.resolve();
-    window.sb = {
-      getState: () => Promise.resolve(window.__state),
-      refreshCaffeinate: noop, onCaffeinateState: () => {}, onFanState: () => {}, refreshFans: noop,
-      measureSizes: () => Promise.resolve(window.__state),
-      onState: (fn) => { window.__push = fn; },
-      refresh: noop, addProfile: () => Promise.resolve({ result: { done: [], skipped: [] } }),
-      removeProfile: noop, updateProfile: noop, moveProfile: () => Promise.resolve(true), bringOver: () => Promise.resolve({ done: [], skipped: [] }),
-      saveSettings: noop, launch: noop, quit: noop, forceQuit: noop, showWindow: noop, accessibility: () => Promise.resolve(false), quitOthers: () => Promise.resolve(0),
-      login: noop, shell: noop, reveal: noop, copyCommand: noop,
-      usageReport: () => Promise.resolve(window.__usage), onUsageChanged: () => {}, resumeSession: noop, openSession: noop, openApp: noop,
-    };
-    const s = document.createElement('style');
-    s.textContent = ${JSON.stringify(CHROME_CSS)};
-    document.addEventListener('DOMContentLoaded', () => document.head.append(s));
-  `;
-}
-
-const state = {
-  caffeinate: {
-    active: false,
-    endsAt: null,
-    limit: null,
-    lid: false,
-    lidSupport: 'available',
-    helper: 'installed',
-    sleepDisabledElsewhere: false,
-    stop: null,
-    notice: null,
-    queued: false,
-    busy: false,
-  },
-  fans: { status: 'unavailable', reason: 'no-fans' },
-  palette: PALETTE,
-  desktop: { helper: true, accessibility: 'off' },
-  settings: fixture.settings,
-  terminals: fixture.terminals,
-  vendors: fixture.vendors,
-  setupItems: Object.fromEntries(
-    Object.entries(SETUP_ITEMS).map(([v, items]) => [
-      v,
-      items.map(({ id, label, hint, kind, on, warn, copyOnly }) => ({
-        id,
-        label,
-        hint,
-        kind,
-        on,
-        warn,
-        copyOnly,
-        size: id === 'history' ? (v === 'claude' ? '480 MB' : '1.2 GB') : null,
-      })),
-    ]),
-  ),
-  profiles: fixture.profiles.map((p) => ({
-    ...p,
-    dirs: { home: `~/.switchboard/${p.vendor}/${p.id}/home`, isDefault: p.isDefault },
-    cli: p.isDefault
-      ? p.vendor
-      : `${p.vendor === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME'}='~/.switchboard/${p.vendor}/${p.id}/home' ${p.vendor}`,
-  })),
-};
-
-// A tiny static server, because the page's CSP is written for an http origin.
-const server = Bun.serve({
-  port: 0,
-  async fetch(req) {
-    const p = new URL(req.url).pathname;
-    // Renderer files by default; docs/ and build/ resolve from the repo root
-    // so the social card can reference the screenshot and the icon.
-    const base = /^\/(docs|build)\//.test(p) ? ROOT : RENDERER;
-    const file = Bun.file(path.join(base, p === '/' ? 'index.html' : p));
-    return (await file.exists()) ? new Response(file) : new Response('not found', { status: 404 });
-  },
-});
+const { bridge, state, usageReports, serveRenderer } = await import('./window-stub.mjs');
+const reports = await usageReports([30]);
+const server = serveRenderer();
 const url = `http://localhost:${server.port}/`;
 
 fs.rmSync(WORK, { recursive: true, force: true });
@@ -130,7 +28,7 @@ const browser = await chromium.launch({ channel: 'chrome' });
 
 async function newPage(ctxOptions = {}) {
   const ctx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 2, ...ctxOptions });
-  await ctx.addInitScript(bridge(state));
+  await ctx.addInitScript(bridge(state, reports));
   const page = await ctx.newPage();
   await page.goto(url);
   await page.waitForSelector('.card');

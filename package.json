@@ -26,6 +26,7 @@
     "test:model-labels": "bun run build && node demo/test-model-labels.mjs",
     "test:claude-models": "bun run build && node demo/test-claude-models.mjs",
     "demo": "bun run build && bun demo/capture.mjs",
+    "preview": "bun run build && bun demo/preview.mjs",
     "fmt": "oxfmt",
     "format": "oxfmt",
     "lint": "oxlint",
