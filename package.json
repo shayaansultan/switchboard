@@ -12,7 +12,7 @@
     "start": "bun run build && electron .",
     "icons": "electron build/render-icons.js",
     "dist": "bun run build && electron-builder --mac --dir",
-    "install-app": "bun run dist && APP=$(ls -d dist/mac*/Switchboard.app | head -1) && rm -rf /Applications/Switchboard.app && ditto \"$APP\" /Applications/Switchboard.app && codesign --force --deep --sign - /Applications/Switchboard.app && rm -rf dist && open /Applications/Switchboard.app",
+    "install-app": "bun run dist && APP=$(ls -d dist/mac*/Switchboard.app | head -1) && rm -rf /Applications/Switchboard.app && ditto \"$APP\" /Applications/Switchboard.app && codesign --force --deep --sign \"${SWITCHBOARD_SIGN_IDENTITY:--}\" /Applications/Switchboard.app && rm -rf dist && open /Applications/Switchboard.app",
     "test": "oxlint && bun run typecheck && bun test",
     "check": "bun format --check && bun run test && bun run build",
     "test:claude-pty": "bun run build && node --test test/claude-pty.node.cjs",

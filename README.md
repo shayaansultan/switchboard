@@ -159,10 +159,10 @@ Closing an app's window with its red button leaves the app running. Turn on
 **Notice closed windows** in Settings and such a profile reads **No window**,
 with a hollow dot, instead of Running. This needs Accessibility permission:
 turning the switch on asks macOS for it, and the switch stays off until you
-allow Switchboard in System Settings, then turns on by itself. Because the app
-is ad-hoc signed, macOS forgets the permission after each rebuild; the switch
-then reads off again, with a link to the settings pane, where you turn
-Switchboard off and on. A window that is minimised, hidden or on another desktop
+allow Switchboard in System Settings, then turns on by itself. An ad-hoc
+signed build loses the permission each time you rebuild it; the switch then
+reads off again, with a link to the settings pane, where you turn Switchboard
+off and on. To keep it, sign with a certificate (see [Install](#install)). A window that is minimised, hidden or on another desktop
 still counts as open. Whether or not the setting is on, **Show window** (a
 button on a No window row, and in each running profile's menu) brings that
 profile's window back, as clicking its Dock icon would.
@@ -210,9 +210,9 @@ Worth knowing before you run an unsigned app that touches your accounts.
 
 - **Your keychain.** To show Claude usage, Switchboard runs `security
 find-generic-password` for the entry the Claude Code CLI already created.
-  macOS will ask for your password the first time. It asks again after each
-  rebuild, because ad-hoc signing produces a new code hash and the keychain
-  entry's permission no longer recognises the app. Codex tokens are read from a file
+  macOS will ask for your password the first time. An ad-hoc signed build is
+  asked again after each rebuild, because ad-hoc signing produces a new code
+  hash and the keychain entry's permission no longer recognises the app. Codex tokens are read from a file
   instead, so they produce no prompt.
 - **App launches and quits.** A small helper bundled with the app listens for
   macOS's notice that some app started or stopped, so the window can show a
@@ -260,6 +260,19 @@ bun run install-app
 That builds `Switchboard.app`, copies it to `/Applications`, ad-hoc signs it and
 opens it. Launch it like any other app afterwards. Re-run the same command after
 changing the source. For a dev run without installing, use `bun start`.
+
+macOS records Accessibility and keychain permission against an ad-hoc signed
+app's exact code hash, which every rebuild changes. If you have a code-signing
+certificate, such as the free Apple Development one Xcode creates, sign with it
+instead and the permissions carry over between rebuilds:
+
+```bash
+security find-identity -v -p codesigning
+SWITCHBOARD_SIGN_IDENTITY="Apple Development: you@example.com (TEAMID)" bun run install-app
+```
+
+After the first such install, grant Accessibility once more; later rebuilds
+keep it.
 
 The app is not signed with a Developer ID and not notarised, so macOS may warn
 about it. Building it yourself, as above, is the intended path.
