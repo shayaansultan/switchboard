@@ -226,7 +226,10 @@ export interface WindowPace {
   label: string;
   pct: number;
   resetsAt: string;
+  // Points ahead of an even burn (negative: behind), and when the window
+  // runs out if it will before it resets; src/shared/usage.ts decides both.
   pace: number | null;
+  runsOutAt: string | null;
 }
 
 // A window on course to run out before it resets, and the same vendor's
@@ -237,7 +240,6 @@ export interface UsageForecast {
   pct: number;
   resetsAt: string;
   fullAt: string;
-  ratePerHour: number;
   pace: number | null;
   alternative: { profile: string; label: string; pct: number } | null;
 }

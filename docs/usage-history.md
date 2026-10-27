@@ -13,13 +13,14 @@ in the README), the windows it gets back are appended to
 last reading. A window instance is one window between resets: readings that
 share a label and a reset time. From these the tab works out when a window ran
 out and how long the account waited (from the reading that first said 100% to
-the reset, counting once the time two of its windows were full together), and
-how fast the current window is filling: since the last reading an hour or
-more ago (a slow estimate when the window stood still for a while, but never
-one that mistakes a night's use while the Mac slept for an hour's), else
-since its first reading, else since it opened. A
-forecast appears when a window at 50% or more is on course to reach 100% more
-than ten minutes before it resets.
+the reset, counting once the time two of its windows were full together).
+
+Pace is the one Switchboard shows everywhere, from `src/shared/usage.ts`: the
+profile band, the phone and this tab all ask whether a window lasts to its
+reset at the rate it has been used since it opened, and say nothing in its
+first tenth. The tab adds how many points ahead of or behind an even burn
+that is, and its warning appears exactly when that pace says a window runs
+out before it resets, naming when.
 
 A notification comes when a window reaches 90% (naming the day of the reset
 when it is not today, and the profile of the same vendor with the most room,

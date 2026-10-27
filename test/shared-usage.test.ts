@@ -5,12 +5,12 @@
 
 import { test, expect } from 'bun:test';
 import { pace as bandPace } from '../plugins/profile-band/hooks/limits';
-import { pace, severity, fullest } from '../src/shared/usage';
+import { pace, pointsAhead, severity, fullest } from '../src/shared/usage';
 import { ago, resetsIn } from '../src/shared/time';
 
 test("the profile band's pace agrees with the app's for every window it shows", () => {
   const now = Date.parse('2026-10-18T12:00:00Z');
-  for (const label of ['5h', '7d']) {
+  for (const label of ['5h', '7d', '7d Opus', 'Weekly']) {
     const span = label === '5h' ? 5 * 3600_000 : 7 * 24 * 3600_000;
     for (let remaining = 0; remaining <= 100; remaining += 5)
       for (let f = 0; f <= 1.05; f += 0.05) {
@@ -20,6 +20,23 @@ test("the profile band's pace agrees with the app's for every window it shows", 
         );
       }
   }
+});
+
+test('points ahead of an even burn agree with whether the window lasts', () => {
+  const now = Date.parse('2026-10-18T12:00:00Z');
+  const span = 5 * 3600_000;
+  // Halfway through, 60% used: 10 ahead, and it runs out before the reset.
+  const half = new Date(now + span / 2).toISOString();
+  expect(pointsAhead('Spark 5h', 40, half, now)).toBe(10);
+  expect(pace('Spark 5h', 40, half, now)).toEqual({ runsOutAt: now + (40 * span) / 2 / 60 });
+  for (let remaining = 5; remaining <= 100; remaining += 5)
+    for (let f = 0.05; f <= 0.9; f += 0.05) {
+      const resetsAt = new Date(now + span * f).toISOString();
+      const ahead = pointsAhead('5h', remaining, resetsAt, now);
+      const lasts = pace('5h', remaining, resetsAt, now);
+      expect(ahead === null).toBe(lasts === null);
+      if (ahead !== null && ahead > 0) expect(lasts).not.toBe('ok');
+    }
 });
 
 test('a window turns amber at 70% used and coral at 90%, or when the vendor says so first', () => {

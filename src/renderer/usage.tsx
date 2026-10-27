@@ -331,9 +331,7 @@ function Forecast({ state, report }: { state: State; report: UsageReport }) {
           resets at {clock(f.resetsAt)}.
         </b>
         <span>
-          {paceWords(f.pace)}
-          {paceWords(f.pace) ? ', and ' : ''}
-          {rate(f.ratePerHour)}% an hour lately.
+          {paceWords(f.pace) ? `${paceWords(f.pace)}.` : ''}
           {alt && other ? ` ${otherName} has ${100 - alt.pct}% of its ${alt.label} window left.` : ''}
         </span>
       </div>
@@ -360,9 +358,6 @@ function Forecast({ state, report }: { state: State; report: UsageReport }) {
     </div>
   );
 }
-
-// A weekly window can fill at well under a point an hour; say 0.4, not 0.
-const rate = (perHour: number) => (perHour < 1 ? perHour.toFixed(1) : String(Math.round(perHour)));
 
 function paceWords(pace: number | null): string {
   if (pace === null || Math.abs(pace) < 3) return pace === null ? '' : 'On an even pace';
@@ -407,7 +402,7 @@ function AccountCard({ state, id, t }: { state: State; id: string; t: WindowPace
           />
           <div class="ac-foot">
             <span>{relTime(t.resetsAt)}</span>
-            <PaceChip pace={t.pace} />
+            <PaceChip t={t} />
           </div>
         </>
       ) : (
@@ -417,10 +412,12 @@ function AccountCard({ state, id, t }: { state: State; id: string; t: WindowPace
   );
 }
 
-function PaceChip({ pace }: { pace: number | null }) {
-  if (pace === null) return null;
-  if (pace >= 5) return <Badge tone="warn">{pace} ahead</Badge>;
-  if (pace <= -5) return <Badge tone="ok">In reserve</Badge>;
+// Warns exactly when the shared pace says the window runs out before it
+// resets, as the profile band and the phone do.
+function PaceChip({ t }: { t: WindowPace }) {
+  if (t.pace === null) return null;
+  if (t.runsOutAt) return <Badge tone="warn">{Math.max(1, t.pace)} ahead</Badge>;
+  if (t.pace <= -5) return <Badge tone="ok">In reserve</Badge>;
   return <Badge tone="mute">On pace</Badge>;
 }
 

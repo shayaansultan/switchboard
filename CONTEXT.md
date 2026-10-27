@@ -88,8 +88,9 @@ labelled as such; never added to a window percentage.
 ## Pace
 
 How far a window is ahead of or behind an even burn across it, in points: a
-5-hour window 60% used halfway through is 10 ahead. Shown once 3% of the
-window has passed.
+5-hour window 60% used halfway through is 10 ahead, and on course to run out
+before it resets. Every surface takes it from `src/shared/usage.ts` and says
+nothing in a window's first tenth.
 
 ## Profile band
 

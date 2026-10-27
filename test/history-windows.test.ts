@@ -6,7 +6,6 @@ import { alertsFor } from '../src/history/alerts';
 import {
   forecast,
   instances,
-  pace,
   roomiest,
   tightest,
   waited,
@@ -76,33 +75,33 @@ test('instances split at resets and note when the limit was hit', () => {
   expect(list[0].start).toBe(end1 - 5 * H);
 });
 
-test('pace is how far ahead of an even burn a window is', () => {
-  // Half of a 5-hour window gone, 70% used: 20 points ahead.
-  expect(pace(w('5h', 70, NOW + 2.5 * H), NOW)).toBe(20);
-  // Too early to say.
-  expect(pace(w('5h', 5, NOW + 4.95 * H), NOW)).toBeNull();
+test("a window's pace is the shared one: points ahead, and when it runs out", () => {
+  // Half of a 5-hour window gone, 70% used: 20 points ahead, out in 30/70 of 2.5 hours.
+  expect(tightest([w('5h', 70, NOW + 2.5 * H)], NOW)).toMatchObject({
+    pace: 20,
+    runsOutAt: new Date(NOW + (30 * 2.5 * H) / 70).toISOString(),
+  });
+  // Behind an even burn it lasts, and in the first tenth it is too early to say.
+  expect(tightest([w('5h', 30, NOW + 2.5 * H)], NOW)).toMatchObject({ pace: -20, runsOutAt: null });
+  expect(tightest([w('5h', 5, NOW + 4.95 * H)], NOW)).toMatchObject({ pace: null, runsOutAt: null });
   expect(tightest([w('5h', 12, NOW + H), w('7d', 52, NOW + 50 * H)], NOW)?.label).toBe('7d');
 });
 
-test('forecast finds the window that fills before it resets, and where to go instead', () => {
+test('forecast finds the window that runs out soonest before it resets, and where to go instead', () => {
   const end = NOW + 2.5 * H;
-  const records: WindowRecord[] = [
-    { at: NOW - 1.5 * H, profile: 'personal', windows: [w('5h', 40, end)] },
-    { at: NOW - H, profile: 'personal', windows: [w('5h', 48, end)] },
-  ];
   const live = [
     { id: 'personal', vendor: 'claude' as const, windows: [w('5h', 68, end)] },
     { id: 'work', vendor: 'claude' as const, windows: [w('5h', 12, NOW + 4 * H)] },
     { id: 'codex', vendor: 'codex' as const, windows: [w('7d', 5, NOW + 90 * H)] },
   ];
-  const history = (rs: WindowRecord[]) => new Map(live.map((p) => [p.id, instances(rs, p.id)]));
-  const f = forecast(history(records), live, NOW);
-  // 20 points in the last hour: full in 1.6 hours, before the reset.
-  expect(f).toMatchObject({ profile: 'personal', label: '5h', ratePerHour: 20 });
-  expect(Date.parse(f!.fullAt)).toBe(NOW + 1.6 * H);
+  const f = forecast(live, NOW);
+  expect(f).toMatchObject({ profile: 'personal', label: '5h', pace: 18 });
+  expect(Date.parse(f!.fullAt)).toBe(NOW + Math.round((32 * 2.5 * H) / 68));
   expect(f!.alternative).toEqual({ profile: 'work', label: '5h', pct: 12 });
-  // At a slower pace it lasts until the reset, and there is nothing to say.
-  expect(forecast(history([{ at: NOW - H, profile: 'personal', windows: [w('5h', 60, end)] }]), live, NOW)).toBeNull();
+  // Behind an even burn it lasts until the reset, and there is nothing to say.
+  expect(forecast([{ ...live[0], windows: [w('5h', 40, end)] }, live[1]], NOW)).toBeNull();
+  // Nor from a reading that may be out of date.
+  expect(forecast([{ ...live[0], stale: true }, live[1]], NOW)).toBeNull();
 });
 
 test('alerts at 90% and when a full window resets, never on the first reading', () => {
@@ -151,15 +150,6 @@ test('the account with the most room is read fresh, and a window past its reset 
   ];
   expect(roomiest(live, 'claude', NOW, live[0])).toEqual({ profile: 'reset', label: '5h', pct: 0 });
   expect(roomiest(live.slice(0, 3), 'claude', NOW, live[0])).toEqual({ profile: 'work', label: '5h', pct: 40 });
-});
-
-test("a rise across a gap in the readings is not taken as the last hour's", () => {
-  // 50% last night, 55% on waking: 5 points over ten hours, not in one. At
-  // half a point an hour the week's window does not fill before its reset.
-  const end = NOW + 50 * H;
-  const records: WindowRecord[] = [{ at: NOW - 10 * H, profile: 'p', windows: [w('7d', 50, end)] }];
-  const live = [{ id: 'p', vendor: 'claude' as const, windows: [w('7d', 55, end)] }];
-  expect(forecast(new Map([['p', instances(records, 'p')]]), live, NOW)).toBeNull();
 });
 
 test('the roomiest account needs no profile to leave out, and skips one on the same account', () => {

@@ -7,7 +7,14 @@
 import type { BandWindow } from '../types';
 
 const HOUR = 60 * 60 * 1000;
-const WINDOW_MS: Record<string, number> = { '5h': 5 * HOUR, '7d': 7 * 24 * HOUR };
+
+// How long a window is, by its label; the same as windowMs in
+// src/shared/usage.ts.
+function windowMs(label: string): number | null {
+  if (label === 'Weekly') return 7 * 24 * HOUR;
+  const m = /(\d+)\s*([hd])\b/.exec(label);
+  return m ? Number(m[1]) * (m[2] === 'd' ? 24 : 1) * HOUR : null;
+}
 
 // "2h 5m", "40m", "3d": how long until a window resets.
 export function until(resetsAt: string | null, now: number): string | null {
@@ -44,12 +51,12 @@ export function resetsOn(resetsAt: string | null, now: number, timeZone?: string
 // exact complements: a window runs out early precisely when less of it is left
 // than of the time.
 export function pace(w: BandWindow, now: number): 'ok' | { runsOutAt: number } | null {
-  const windowMs = WINDOW_MS[w.label];
+  const span = windowMs(w.label);
   const at = w.resetsAt ? Date.parse(w.resetsAt) : NaN;
-  if (!windowMs || Number.isNaN(at) || at <= now || w.remaining <= 0) return null;
+  if (!span || Number.isNaN(at) || at <= now || w.remaining <= 0) return null;
   const timeLeft = at - now;
-  const elapsed = windowMs - timeLeft;
-  if (elapsed < windowMs / 10) return null;
+  const elapsed = span - timeLeft;
+  if (elapsed < span / 10) return null;
   const used = 100 - w.remaining;
   if (used <= 0 || w.remaining * elapsed >= used * timeLeft) return 'ok';
   return { runsOutAt: now + (w.remaining * elapsed) / used };

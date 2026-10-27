@@ -307,7 +307,7 @@ export function buildReport({ ledger, records, windowsSince, live, days, now }: 
       const a = accounts.get(p.id) ?? emptyAgg();
       return { profile: p.id, tightest: tightest(p.windows, now), value: aggValue(a), tokens: aggCounts(a) };
     }),
-    forecast: forecast(insts, live, now),
+    forecast: forecast(live, now),
     daily,
     heat,
     projects,

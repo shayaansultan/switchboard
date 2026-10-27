@@ -10,6 +10,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { UsageForecast, UsageWindow, Vendor, WindowPace } from '../types';
+import { pace as lasts, pointsAhead, windowMs } from '../shared/usage';
 import { dayOf } from './ledger';
 
 export interface WindowRecord {
@@ -28,16 +29,11 @@ export interface WindowInstance {
   points: [number, number][];
 }
 
-const HOUR = 3_600_000;
 // Reset times drift by seconds between polls (Codex reports seconds left).
 const SAME_RESET_MS = 10 * 60_000;
 
-// "5h", "7d", "7d Opus", "Spark 5h": the window's length, if the label says.
-export function windowLength(label: string): number | null {
-  const m = /(\d+)\s*([hd])\b/.exec(label);
-  if (!m) return null;
-  return Number(m[1]) * (m[2] === 'd' ? 24 : 1) * HOUR;
-}
+// A window's length from its label, the same reading the pace uses.
+export const windowLength = windowMs;
 
 const sameResetMs = (a: number, b: number): boolean => Math.abs(a - b) <= SAME_RESET_MS;
 
@@ -170,23 +166,24 @@ export function instances(records: WindowRecord[], profile: string): WindowInsta
 export const waited = (i: WindowInstance, now: number): number =>
   i.hitAt === null ? 0 : Math.max(0, Math.min(i.end, now) - i.hitAt);
 
-// How far ahead of an even burn a live window is, in points. Too early in
-// a window to say (under 3% of it gone) or past its reset gives null.
-export function pace(w: { label: string; pct: number | null; resetsAt: string | null }, now: number): number | null {
-  const len = windowLength(w.label);
-  const end = w.resetsAt ? Date.parse(w.resetsAt) : NaN;
-  if (!len || Number.isNaN(end) || w.pct === null) return null;
-  const elapsed = 1 - (end - now) / len;
-  if (elapsed < 0.03 || elapsed > 1) return null;
-  return Math.round(w.pct - elapsed * 100);
-}
-
 // A profile's fullest live window, with its pace.
 export function tightest(windows: UsageWindow[] | undefined, now: number): WindowPace | null {
   const known = (windows ?? []).filter((w) => w.pct !== null && w.resetsAt);
   if (!known.length) return null;
   const w = known.reduce((a, b) => ((b.pct ?? 0) > (a.pct ?? 0) ? b : a));
-  return { label: w.label, pct: w.pct ?? 0, resetsAt: w.resetsAt as string, pace: pace(w, now) };
+  return { label: w.label, pct: w.pct ?? 0, resetsAt: w.resetsAt as string, ...paceOf(w, now) };
+}
+
+// A live window's pace, from src/shared/usage.ts like every other surface's:
+// points ahead of an even burn, and when it runs out if it will before it
+// resets.
+function paceOf(w: UsageWindow, now: number): Pick<WindowPace, 'pace' | 'runsOutAt'> {
+  const remaining = 100 - (w.pct ?? 0);
+  const said = lasts(w.label, remaining, w.resetsAt, now);
+  return {
+    pace: pointsAhead(w.label, remaining, w.resetsAt, now),
+    runsOutAt: said && said !== 'ok' ? new Date(said.runsOutAt).toISOString() : null,
+  };
 }
 
 export interface LiveProfile {
@@ -201,51 +198,24 @@ export interface LiveProfile {
   account?: string;
 }
 
-// How fast a window is filling, in points an hour: over the last hour of
-// its history where there is one, else since the window began.
-function rate(list: WindowInstance[], w: UsageWindow, now: number): number | null {
-  const end = Date.parse(w.resetsAt as string);
-  const len = windowLength(w.label) as number;
-  const mine = list.find((i) => i.label === w.label && sameResetMs(i.end, end));
-  const pct = w.pct ?? 0;
-  const before = mine?.points.filter(([at]) => at <= now - HOUR).at(-1);
-  const first = mine?.points[0];
-  // Over the time since the last reading an hour or more ago. The window may
-  // have stood there until much later, but only if Switchboard was watching;
-  // after a night asleep the rise may be the whole night's, and taking it as
-  // the last hour's would warn of a window that is filling slowly.
-  if (before) return ((pct - before[1]) * HOUR) / (now - before[0]);
-  if (first && now - first[0] >= 15 * 60_000) return ((pct - first[1]) * HOUR) / (now - first[0]);
-  const elapsed = now - (end - len);
-  return elapsed >= len * 0.03 ? (pct * HOUR) / elapsed : null;
-}
-
-// The window closest to running out before it resets, and where to go
-// instead: the same vendor's account whose fullest window is emptiest.
-// `history` is each profile's window instances.
-export function forecast(
-  history: Map<string, WindowInstance[]>,
-  live: LiveProfile[],
-  now: number,
-): UsageForecast | null {
+// The window that runs out soonest before it resets, by the same pace the
+// profile band and the phone show, and where to go instead: the same
+// vendor's account whose fullest window is emptiest.
+export function forecast(live: LiveProfile[], now: number): UsageForecast | null {
   let best: UsageForecast | null = null;
   for (const p of live) {
+    if (p.stale) continue;
     for (const w of p.windows ?? []) {
-      if (w.pct === null || w.pct < 50 || w.pct >= 100 || !w.resetsAt || !windowLength(w.label)) continue;
-      const r = rate(history.get(p.id) ?? [], w, now);
-      if (!r || r <= 0) continue;
-      const fullAt = now + ((100 - w.pct) / r) * HOUR;
-      const resetsAt = Date.parse(w.resetsAt);
-      if (fullAt >= resetsAt - 10 * 60_000) continue;
-      if (best && fullAt >= Date.parse(best.fullAt)) continue;
+      if (w.pct === null || w.pct >= 100 || !w.resetsAt) continue;
+      const { pace, runsOutAt } = paceOf(w, now);
+      if (!runsOutAt || (best && runsOutAt >= best.fullAt)) continue;
       best = {
         profile: p.id,
         label: w.label,
         pct: w.pct,
         resetsAt: w.resetsAt,
-        fullAt: new Date(fullAt).toISOString(),
-        ratePerHour: Math.round(r * 10) / 10,
-        pace: pace(w, now),
+        fullAt: runsOutAt,
+        pace,
         alternative: roomiest(live, p.vendor, now, p),
       };
     }
