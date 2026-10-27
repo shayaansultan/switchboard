@@ -27,16 +27,16 @@ afterEach(() => {
 test('private transport returns app results and preserves structured refusals', async () => {
   stop = await serveAppControl(async (command) => {
     if (command.command === 'focus') throw new CliError('desktop-not-running', 'Fixture has no app', 4);
-    return { fixture: true, action: command.command === 'awake' ? command.action : 'status' };
+    return { fixture: true, action: command.command === 'caffeinate' ? command.action : 'status' };
   });
   expect(fs.statSync(path.join(directory, 'app-control.sock')).mode & 0o777).toBe(0o600);
-  expect(await requestApp({ command: 'awake', action: 'recheck' })).toEqual({ fixture: true, action: 'recheck' });
+  expect(await requestApp({ command: 'caffeinate', action: 'stop' })).toEqual({ fixture: true, action: 'stop' });
   await expect(requestApp({ command: 'focus', profile: 'fixture' })).rejects.toMatchObject({
     code: 'desktop-not-running',
     exit: 4,
   });
   await expect(serveAppControl(async () => null)).rejects.toThrow('Another Switchboard');
-  expect(await requestApp({ command: 'awake', action: 'status' })).toMatchObject({ action: 'status' });
+  expect(await requestApp({ command: 'caffeinate', action: 'status' })).toMatchObject({ action: 'status' });
 });
 
 test('invalid input cannot invoke an app operation and only one request is dispatched per connection', async () => {
@@ -57,26 +57,26 @@ test('invalid input cannot invoke an app operation and only one request is dispa
       });
       socket.on('end', () => resolve(output));
     });
-  expect(JSON.parse(await send('{"command":"awake","action":"on; bad"}\n'))).toMatchObject({
+  expect(JSON.parse(await send('{"command":"caffeinate","action":"stop; bad"}\n'))).toMatchObject({
     ok: false,
     error: 'usage',
   });
   expect(calls).toEqual([]);
-  await send('{"command":"awake","action":"status"}\n{"command":"awake","action":"on"}\n');
-  expect(calls).toEqual([{ command: 'awake', action: 'status' }]);
+  await send('{"command":"caffeinate","action":"status"}\n{"command":"caffeinate","action":"stop"}\n');
+  expect(calls).toEqual([{ command: 'caffeinate', action: 'status' }]);
   expect(await send('x'.repeat(17000))).toBe('');
   expect(calls).toHaveLength(1);
 });
 
 test('an absent or disconnected app is a refusal, never a successful operation', async () => {
-  await expect(requestApp({ command: 'awake', action: 'on' })).rejects.toMatchObject({
+  await expect(requestApp({ command: 'caffeinate', action: 'stop' })).rejects.toMatchObject({
     code: 'app-unavailable',
     exit: 4,
   });
   const server = net.createServer((socket) => socket.once('data', () => socket.destroy()));
   await new Promise<void>((resolve) => server.listen(path.join(directory, 'app-control.sock'), resolve));
   try {
-    await expect(requestApp({ command: 'awake', action: 'status' })).rejects.toMatchObject({
+    await expect(requestApp({ command: 'caffeinate', action: 'status' })).rejects.toMatchObject({
       code: 'app-disconnected',
       message: expect.stringContaining('may still have completed'),
     });

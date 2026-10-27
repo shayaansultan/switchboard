@@ -43,6 +43,7 @@ const overview = (sessions: SessionSummary[], pct: number | null = 10): Overview
       id: 'claude-work',
       name: 'Work',
       label: 'Work',
+      reach: null,
       vendor: 'claude',
       color: '#000',
       isDefault: false,
@@ -134,7 +135,7 @@ test('a note goes to the phones that want its kind; a gone subscription and an u
 test('what the push service carries is encrypted for the phone, and the phone reads the note back', async () => {
   const { createECDH, randomBytes } = await import('node:crypto');
   const webpush = (await import('web-push')).default;
-  const ece = (await import('http_ece')).default as { decrypt(body: Buffer, opts: object): Buffer };
+  const ece = (await import('http_ece')).default;
   const phone = createECDH('prime256v1');
   phone.generateKeys();
   const auth = randomBytes(16);

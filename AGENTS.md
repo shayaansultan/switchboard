@@ -26,11 +26,13 @@ place. Push only when `bun run check` exits clean.
 bun install --frozen-lockfile   # once
 bun run check                   # everything CI runs
 bun test                        # unit tests only, fastest loop
-bun run typecheck               # tsc for main and renderer
+bun run typecheck               # bun check for main, renderer and phone
 bun run build                   # out/ for Electron
 bunx electron .                 # run from the checkout (see below)
 bun run test:buckets-ui         # Playwright against the real window, buckets tab
-bun run test:awake-ui           # same, keep-awake control
+bun run test:caffeinate-ui      # same, Caffeinate popover (simulated sleep)
+bun run test:fans-ui            # same, fans popover (simulated helper)
+bun run test:alignment-ui       # measures icon, text and edge alignment in every main state
 bun run demo                    # regenerate docs/screenshot.png and the social card
 bun run cli -- list --human     # the CLI straight from source
 ```
@@ -52,6 +54,16 @@ bun run cli -- list --human     # the CLI straight from source
   reports app launches and quits, counts windows and reopens them;
   `bun run build` compiles it on macOS and skips it elsewhere, and the app
   falls back to polling (and no window counts) without it.
+- `src/native/system/`, `src/system-bridge.ts`: the root system helper
+  (installed with SMAppService, so only in a build signed with a
+  certificate), which writes fan speeds and holds system sleep off, and the
+  system bridge the main process runs as a child to reach it over XPC.
+  `build/sign.sh` gives both their identifiers. The helper, not the app,
+  decides when a hold ends.
+- `src/fans.ts`, `src/shared/fans.ts`: fan boosts; see
+  [Fan control](docs/fan-control.md). `src/caffeinate.ts`,
+  `src/shared/caffeinate.ts`: keeping the Mac awake, lid closed optional; see
+  [Caffeinate](docs/caffeinate.md).
 - `src/cli.ts` and `src/cli/`: the `switchboard` command. JSON on stdout by
   default, `--human` for prose; `src/cli/output.ts` is the contract.
 - `src/buckets/`: proxy buckets, the local proxy and its worker.
@@ -96,10 +108,16 @@ which that test also reads.
 - Every colour is a token in `src/design/tokens.css`, shared by the window
   and the phone app, written `light-dark(light, dark)` so both values sit
   on one line. Never write a literal colour in a rule; add a token.
+- Sizes are tokens too: `--text-*` for type, `--space-*` (Tailwind's steps)
+  for padding, margin and gap, `--control*` for control heights. Pick a step;
+  an off-scale number needs a reason in a comment. The alignment audit fails
+  on text or a popover control that is off the scale.
 - The renderer only ever receives percentages, reset times, email, plan,
-  the proxy's reason an account is unavailable, and usage-reset offers (id,
-  title, count, expiry). A reset session stays in the main process; the
-  window holds only the token that names it.
+  the proxy's reason an account is unavailable, usage-reset offers (id,
+  title, count, expiry), fan speeds and CPU temperature, and Caffeinate's
+  state (times, whether the helper is installed, lid support, whether sleep
+  is off). A reset session stays in the main process; the window holds only
+  the token that names it.
   Tokens and credentials are read in the main process, used once, dropped.
 - Renderer buttons call the main process through `act()` in
   `src/renderer/lib.ts`, which handles the pending state and errors. Do not
@@ -107,7 +125,14 @@ which that test also reads.
   dialog step that shows its own pending state and puts the error on screen,
   as the usage-reset dialog does when a reset is spent.
 - Menus, tooltips and dialogs go through `src/renderer/ui/overlays.tsx`; do
-  not add another positioning scheme.
+  not add another positioning scheme. A title-bar popover is built from
+  `src/renderer/ui/title-popover.tsx` (header, status line, note, countdown
+  card, button row), not from new markup and CSS.
+- Layout must hold at any page zoom. Anything sized against macOS's own
+  chrome (the traffic lights) divides by `--zoom`, which the renderer keeps
+  current. Icons draw centred in their 24-unit box, and a close or dismiss
+  control is the `x` icon, not a text glyph. After UI changes, run
+  `bun run test:alignment-ui`.
 - Files open with a comment saying what the module is for and why it is
   shaped as it is. Keep that comment true when you change the module.
 - A change a user can see gets a README or `docs/` update in the same

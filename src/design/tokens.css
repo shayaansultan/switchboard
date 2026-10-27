@@ -25,6 +25,34 @@
   font-weight: 400 800;
   font-display: block;
 }
+/* Sizes. One scale each for type, space and control heights, so a view picks
+   a step rather than a fresh number, and two views never disagree by a pixel.
+   Space follows Tailwind's steps (--space-2 is 8px, as p-2 is in the phone
+   app). Type is named by role: 13px body is what rows, popovers and menus
+   read in; 14px is buttons and names; 15px titles. */
+:root {
+  --text-2xs: 11px; /* badges, code */
+  --text-xs: 12px; /* meta, hints, labels */
+  --text-sm: 13px; /* body: rows, popovers, menus, chips */
+  --text-base: 14px; /* buttons, names */
+  --text-lg: 15px; /* titles: brand, tabs, panel and dialog headings */
+  --text-xl: 22px; /* the pairing code */
+  --text-2xl: 28px; /* dialog titles, in the serif */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --control-xs: 24px; /* icon-only extras: dismiss, (i) */
+  --control-sm: 28px; /* chips, segmented options, menu rows */
+  --control: 32px; /* buttons */
+  --control-lg: 36px; /* a dialog's own buttons */
+}
 :root {
   --bg: light-dark(#fcfcfb, #181917);
   --panel: light-dark(#ffffff, #20211e);

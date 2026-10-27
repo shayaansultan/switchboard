@@ -54,10 +54,11 @@ test('CLI resolves profiles and requires force confirmation before contacting th
   for (const args of [
     ['quit', 'claude/Fixture', '--force', '--yes'],
     ['focus', 'claude/Fixture'],
-    ['awake', 'status'],
-    ['awake', 'on'],
-    ['awake', 'off'],
-    ['awake', 'recheck'],
+    ['caffeinate', 'status'],
+    ['caffeinate', 'start'],
+    ['caffeinate', 'start', '--minutes', '0', '--lid'],
+    ['caffeinate', 'extend', '--minutes', '30'],
+    ['caffeinate', 'stop'],
     ['accessibility', 'status'],
     ['accessibility', 'open'],
   ])
@@ -65,17 +66,64 @@ test('CLI resolves profiles and requires force confirmation before contacting th
   expect(calls).toEqual([
     { command: 'force-quit', profile: 'claude-fixture' },
     { command: 'focus', profile: 'claude-fixture' },
-    ...['status', 'on', 'off', 'recheck'].map((action) => ({ command: 'awake', action })),
+    { command: 'caffeinate', action: 'status' },
+    { command: 'caffeinate', action: 'start', minutes: 60, lid: false },
+    { command: 'caffeinate', action: 'start', minutes: 0, lid: true },
+    { command: 'caffeinate', action: 'extend', minutes: 30 },
+    { command: 'caffeinate', action: 'stop' },
     { command: 'accessibility', action: 'status' },
     { command: 'accessibility', action: 'open' },
   ]);
   for (const args of [
-    ['awake', 'bad'],
-    ['awake', 'status', 'extra'],
+    ['caffeinate', 'bad'],
+    ['caffeinate', 'status', 'extra'],
+    ['caffeinate', 'stop', '--minutes', '5'],
+    ['caffeinate', 'extend', '--lid'],
+    ['caffeinate', 'start', '--screen'],
+    ['caffeinate', 'extend', '--minutes', '0'],
+    ['awake', 'status'],
     ['accessibility', 'request'],
     ['focus', 'missing'],
   ]) {
     expect((await run(...args)).code).not.toBe(0);
   }
-  expect(calls).toHaveLength(8);
+  expect(calls).toHaveLength(9);
+});
+
+test('fans commands reach the app only with a valid speed and time limit', async () => {
+  const calls: AppCommand[] = [];
+  stop = await serveAppControl(async (command) => {
+    calls.push(command);
+    return { status: 'unavailable', reason: 'no-fans' };
+  });
+  for (const args of [
+    ['fans', 'status'],
+    ['fans', 'set', '60'],
+    ['fans', 'set', '100', '--minutes', '0'],
+    ['fans', 'system'],
+    ['fans', 'cancel'],
+    ['fans', 'install'],
+  ])
+    expect((await run(...args)).json()).toEqual({ status: 'unavailable', reason: 'no-fans' });
+  expect((await run('fans', 'status', '--human')).out.trim()).toBe('This Mac has no fans to control.');
+  for (const args of [
+    ['fans'],
+    ['fans', 'set'],
+    ['fans', 'set', '33'],
+    ['fans', 'set', '60', '--minutes', '-1'],
+    ['fans', 'set', '60', '--minutes', 'soon'],
+    ['fans', 'system', '--minutes', '5'],
+    ['fans', 'status', 'extra'],
+    ['fans', 'boost'],
+  ])
+    expect((await run(...args)).code).toBe(2);
+  expect(calls).toEqual([
+    { command: 'fans', action: 'status' },
+    { command: 'fans', action: 'set', level: 60, minutes: 15 },
+    { command: 'fans', action: 'set', level: 100, minutes: 0 },
+    { command: 'fans', action: 'system' },
+    { command: 'fans', action: 'cancel' },
+    { command: 'fans', action: 'install' },
+    { command: 'fans', action: 'status' },
+  ]);
 });

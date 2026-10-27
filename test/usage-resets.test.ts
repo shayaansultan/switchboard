@@ -1,5 +1,6 @@
 // Provider-boundary tests: grant eligibility, account pinning and retry safety.
 import { run as cli, withoutTty } from './cli-helpers';
+import { fakeFetch } from './fake-fetch';
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -73,12 +74,14 @@ beforeEach(() => {
     return { credits: [credit] };
   };
   mocks.push(
-    spyOn(globalThis, 'fetch').mockImplementation(async (input, options) => {
-      const url = String(input);
-      const body = options?.body ? JSON.parse(String(options.body)) : undefined;
-      requests.push({ url, body });
-      return Response.json(handle(url, body));
-    }),
+    spyOn(globalThis, 'fetch').mockImplementation(
+      fakeFetch(async (input, options) => {
+        const url = String(input);
+        const body = options?.body ? JSON.parse(String(options.body)) : undefined;
+        requests.push({ url, body });
+        return Response.json(handle(url, body));
+      }),
+    ),
   );
 });
 afterEach(() => {

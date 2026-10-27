@@ -40,7 +40,7 @@ try {
       profiles: [],
     }),
   );
-  const absent = await cli('awake', 'status');
+  const absent = await cli('caffeinate', 'status');
   assert.equal(absent.code, 4);
   assert.equal(absent.failure.error, 'app-unavailable');
   // A blocked optional CLI socket must not prevent the desktop from starting.
@@ -54,7 +54,7 @@ try {
   const degradedPage = await app.firstWindow({ timeout: 10000 });
   await degradedPage.waitForFunction(() => typeof window.sb?.getState === 'function', { timeout: 10000 });
   assert.deepEqual((await degradedPage.evaluate(() => window.sb.getState())).profiles, []);
-  assert.equal((await cli('awake', 'status')).failure.error, 'app-unavailable');
+  assert.equal((await cli('caffeinate', 'status')).failure.error, 'app-unavailable');
   assert.equal(await fs.readFile(obstruction, 'utf8'), 'preserve this file');
   await app.close();
   app = undefined;
@@ -69,11 +69,12 @@ try {
   await page.waitForFunction(() => typeof window.sb?.getState === 'function', { timeout: 15000 });
   const snapshot = await page.evaluate(() => window.sb.getState());
   assert.deepEqual(snapshot.profiles, [], 'No account refreshes or Keychain reads');
-  const awake = await cli('awake', 'status');
-  assert.equal(awake.code, 0);
-  assert.equal(awake.result.status, 'ready');
-  const recheck = await cli('awake', 'recheck');
-  assert.equal(recheck.result.value, awake.result.value);
+  const caffeinate = await cli('caffeinate', 'status');
+  assert.equal(caffeinate.code, 0);
+  assert.equal(caffeinate.result.active, false);
+  const fans = await cli('fans', 'status');
+  assert.equal(fans.code, 0);
+  assert.equal(typeof fans.result.status, 'string');
   const accessibility = await cli('accessibility', 'status');
   const actual = await app.evaluate(({ systemPreferences, app }) => ({
     trusted: systemPreferences.isTrustedAccessibilityClient(false),
@@ -126,8 +127,8 @@ try {
     JSON.stringify(
       {
         fixture: 'isolated background Electron; no signed-in profiles',
-        awake,
-        recheck,
+        caffeinate,
+        fans,
         accessibility,
         focused,
         quit,

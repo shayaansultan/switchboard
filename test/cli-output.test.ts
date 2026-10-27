@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
-import { CliError, Output, classify, table, type Io } from '../src/cli/output';
+import { CliError, Output, classify, table, type Exit, type Io } from '../src/cli/output';
 
-const cases: [string, string, number][] = [
+const cases: [string, string, Exit][] = [
   ['no such profile', 'no-such-profile', 3],
   ['the default profile cannot be removed', 'default-profile', 4],
   ['the default profile is never written to', 'default-profile', 4],

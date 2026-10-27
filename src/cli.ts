@@ -35,7 +35,7 @@ import {
   setupItemsCommand,
   showCommand,
 } from './cli/profiles';
-import { appCommand, exportCommand } from './cli/app';
+import { appCommand, caffeinateCommand, exportCommand, fansCommand } from './cli/app';
 import { settingsCommand } from './cli/settings';
 import { pickCommand, usageCommand } from './cli/usage';
 import { resetsCommand } from './cli/resets';
@@ -71,7 +71,18 @@ Desktop
   switchboard quit PROFILE [--no-wait] [--force --yes]
   switchboard quit-others PROFILE --yes       Before a first sign-in
   switchboard focus PROFILE                   Show its existing app; never launch another profile
-  switchboard awake status|on|off|recheck      Keep awake (on/off use macOS authorization)
+  switchboard caffeinate status|stop|dismiss   Keep the Mac awake, or Decaf (let it sleep as usual)
+  switchboard caffeinate start [--minutes N] [--lid]
+                                              Stay awake, screen on, N minutes (default 60; 0 until
+                                              stopped), or with the lid closed too
+  switchboard caffeinate extend [--minutes N] Add N minutes (default 60) to a timed session
+  switchboard caffeinate clear                Turn sleep back on after pmset disablesleep
+  switchboard fans status|system|dismiss       Fan speeds, or stop a boost and hand back to macOS
+  switchboard fans cancel                     Drop a boost waiting for the helper to be allowed
+  switchboard fans set LEVEL [--minutes N]    Boost the fans to LEVEL% (steps of 5) for N minutes
+                                              (default 15; 0 runs until system)
+  switchboard fans extend [--minutes N]       Add N minutes (default 15) to a timed boost
+  switchboard fans install|remove             The root system helper (install asks for approval)
   switchboard accessibility status|open       Permission of the running Switchboard app
   switchboard export PROFILE --format t3      Print provider config without credentials
   switchboard reveal PROFILE                  Open its directory in Finder
@@ -141,7 +152,8 @@ const COMMANDS = z.enum([
   'remove',
   'assign',
   'unassign',
-  'awake',
+  'caffeinate',
+  'fans',
   'accessibility',
   'focus',
   'export',
@@ -234,10 +246,13 @@ async function dispatch(rest: string[], out: Output): Promise<number | void> {
   if (data.loadError) out.narrate(data.loadError);
   const ctx: Context = { data, out, flags: out.flags };
   switch (command) {
-    case 'awake':
     case 'accessibility':
     case 'focus':
       return appCommand(command, args, ctx);
+    case 'fans':
+      return fansCommand(args, ctx);
+    case 'caffeinate':
+      return caffeinateCommand(args, ctx);
     case 'export':
       return exportCommand(args, ctx);
     case 'list':

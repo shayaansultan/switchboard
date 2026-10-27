@@ -12,11 +12,13 @@
     "start": "bun run build && electron .",
     "icons": "electron build/render-icons.js",
     "dist": "bun run build && electron-builder --mac --dir",
-    "install-app": "bun run dist && APP=$(ls -d dist/mac*/Switchboard.app | head -1) && rm -rf /Applications/Switchboard.app && ditto \"$APP\" /Applications/Switchboard.app && codesign --force --deep --sign - /Applications/Switchboard.app && rm -rf dist && open /Applications/Switchboard.app",
+    "install-app": "bun run dist && APP=$(ls -d dist/mac*/Switchboard.app | head -1) && rm -rf /Applications/Switchboard.app && ditto \"$APP\" /Applications/Switchboard.app && sh build/sign.sh /Applications/Switchboard.app && rm -rf dist && open /Applications/Switchboard.app",
     "test": "oxlint && bun run typecheck && bun test",
     "check": "bun format --check && bun run test && bun run build",
     "test:claude-pty": "bun run build && node --test test/claude-pty.node.cjs",
-    "test:awake-ui": "bun run build && bun demo/test-awake.mjs",
+    "test:caffeinate-ui": "bun run build && bun demo/test-caffeinate.mjs",
+    "test:fans-ui": "bun run build && bun demo/test-fans.mjs",
+    "test:alignment-ui": "bun run build && bun demo/test-alignment.mjs",
     "test:phone-ui": "bun run build && bun demo/test-phone.mjs",
     "test:buckets-ui": "bun run build && bun demo/test-buckets.mjs",
     "test:usage-resets": "bun run build && bun demo/test-usage-resets.mjs && bun demo/test-reset-worker.mjs",
@@ -26,7 +28,7 @@
     "fmt": "oxfmt",
     "format": "oxfmt",
     "lint": "oxlint",
-    "typecheck": "tsc --noEmit && tsc -p src/renderer && tsc -p src/phone",
+    "typecheck": "bun check --no-script && bun check --no-script -p src/renderer && bun check --no-script -p src/phone && bun check --no-script -p test",
     "build": "rm -rf out && tsc && bun build src/renderer/main.tsx --outdir out/renderer --target browser && cp src/renderer/index.html out/renderer/ && cat src/design/tokens.css src/renderer/style.css > out/renderer/style.css && cp -R src/design/fonts out/renderer/fonts && sh src/phone/build.sh && sh src/native/build.sh"
   },
   "dependencies": {
@@ -42,6 +44,7 @@
     "@tanstack/react-virtual": "^3.14.21",
     "@trpc/client": "^11.19.0",
     "@trpc/tanstack-react-query": "^11.19.0",
+    "@types/bun": "^1.4.4",
     "@types/node": "^22.20.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -100,6 +103,7 @@
     ],
     "files": [
       "out/**/*",
+      "!out/native/**",
       "build/trayTemplate.png",
       "build/trayTemplate@2x.png",
       "build/icon-1024.png",
@@ -108,7 +112,21 @@
     ],
     "directories": {
       "output": "dist"
-    }
+    },
+    "extraFiles": [
+      {
+        "from": "out/native/system-helper",
+        "to": "MacOS/system-helper"
+      },
+      {
+        "from": "out/native/system-bridge",
+        "to": "MacOS/system-bridge"
+      },
+      {
+        "from": "src/native/system/dev.shayaan.switchboard.system-helper.plist",
+        "to": "Library/LaunchDaemons/dev.shayaan.switchboard.system-helper.plist"
+      }
+    ]
   },
   "trustedDependencies": [
     "electron",

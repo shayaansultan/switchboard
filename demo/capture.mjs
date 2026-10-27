@@ -46,7 +46,7 @@ function bridge(state) {
     const noop = () => Promise.resolve();
     window.sb = {
       getState: () => Promise.resolve(window.__state),
-      refreshAwake: noop, setAwake: noop, onAwakeState: () => {},
+      refreshCaffeinate: noop, onCaffeinateState: () => {}, onFanState: () => {}, refreshFans: noop,
       measureSizes: () => Promise.resolve(window.__state),
       onState: (fn) => { window.__push = fn; },
       refresh: noop, addProfile: () => Promise.resolve({ result: { done: [], skipped: [] } }),
@@ -61,7 +61,20 @@ function bridge(state) {
 }
 
 const state = {
-  awake: { status: 'ready', value: 'off', notice: null },
+  caffeinate: {
+    active: false,
+    endsAt: null,
+    limit: null,
+    lid: false,
+    lidSupport: 'available',
+    helper: 'installed',
+    sleepDisabledElsewhere: false,
+    stop: null,
+    notice: null,
+    queued: false,
+    busy: false,
+  },
+  fans: { status: 'unavailable', reason: 'no-fans' },
   palette: PALETTE,
   desktop: { helper: true, accessibility: 'off' },
   settings: fixture.settings,

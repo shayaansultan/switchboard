@@ -239,6 +239,13 @@ export function appEventsHelper(): string | null {
   return fs.existsSync(file) ? file : null;
 }
 
+// Electron's Resources folder. Only Electron sets it, and Electron's types
+// declare it, so read it through a type that says it may be missing: under
+// the CLI (Bun) and in tests it is.
+function resourcesPath(): string | undefined {
+  return (process as { resourcesPath?: string }).resourcesPath;
+}
+
 // ---- the profile band (plugins/profile-band) ----
 
 // A Claude Code mod that fills the band above the prompt with the profile's
@@ -249,8 +256,9 @@ export function appEventsHelper(): string | null {
 // .d.ts, and the plugin's type contract is one); a checkout uses its own copy.
 // Null when this build has neither.
 export function profileBandPlugin(): string | null {
+  const resources = resourcesPath();
   const candidates = [
-    process.resourcesPath && path.join(process.resourcesPath, 'plugins', 'profile-band'),
+    resources && path.join(resources, 'plugins', 'profile-band'),
     path.join(__dirname, '..', 'plugins', 'profile-band'),
   ];
   return candidates.find((dir) => dir && fs.existsSync(path.join(dir, '.claude-plugin', 'plugin.json'))) || null;
@@ -295,8 +303,9 @@ export function profileBandEnvironment(
 // The Claude Code plugin that types replies in and answers approvals for the
 // phone, found as the profile band is.
 export function remotePlugin(): string | null {
+  const resources = resourcesPath();
   const candidates = [
-    process.resourcesPath && path.join(process.resourcesPath, 'plugins', 'switchboard-remote'),
+    resources && path.join(resources, 'plugins', 'switchboard-remote'),
     path.join(__dirname, '..', 'plugins', 'switchboard-remote'),
   ];
   return candidates.find((dir) => dir && fs.existsSync(path.join(dir, '.claude-plugin', 'plugin.json'))) || null;

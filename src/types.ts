@@ -2,7 +2,8 @@
 // renderer. The renderer reaches them through `import()` types only, so it
 // stays a plain script with no module wrapper.
 
-import type { AwakeRefresh, AwakeState, AwakeValue } from './awake';
+import type { CaffeinateState } from './shared/caffeinate';
+import type { FanState } from './shared/fans';
 
 export type Vendor = 'claude' | 'codex';
 
@@ -198,7 +199,8 @@ export interface CliStatus {
 
 // Everything the window renders from. Never a token.
 export interface State {
-  awake: AwakeState;
+  caffeinate: CaffeinateState;
+  fans: FanState;
   settings: Settings;
   palette: string[];
   terminals: { id: string; label: string }[];
@@ -254,10 +256,18 @@ export interface ResetList {
 
 // The preload bridge, as `window.sb` in the renderer.
 export interface SwitchboardApi {
-  setAwake(value: AwakeValue): Promise<void>;
-  refreshAwake(reason?: AwakeRefresh): Promise<void>;
-  onAwakeState(fn: (s: AwakeState) => void): void;
+  refreshCaffeinate(): Promise<void>;
+  startCaffeinate(minutes: number, lid: boolean): Promise<void>;
+  caffeinateAction(action: 'stop' | 'extend' | 'dismiss' | 'cancel' | 'clear' | 'login-items'): Promise<void>;
+  onCaffeinateState(fn: (s: CaffeinateState) => void): void;
+  refreshFans(): Promise<void>;
+  setFans(level: number, minutes: number): Promise<void>;
+  adjustFans(level: number): Promise<void>;
+  fanAction(action: 'system' | 'extend' | 'cancel' | 'dismiss' | 'install' | 'remove' | 'login-items'): Promise<void>;
+  onFanState(fn: (s: FanState) => void): void;
   getState(): Promise<State>;
+  /** The page zoom, so the main process can keep the traffic lights centred. */
+  reportZoom(zoom: number): void;
   setProxyBucket(id: string, bucket: string | null): Promise<void>;
   createBucket(name: string, upstream?: import('./buckets/upstream').Upstream): Promise<void>;
   bucketAction(

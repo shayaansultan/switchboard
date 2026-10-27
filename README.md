@@ -159,10 +159,10 @@ Closing an app's window with its red button leaves the app running. Turn on
 **Notice closed windows** in Settings and such a profile reads **No window**,
 with a hollow dot, instead of Running. This needs Accessibility permission:
 turning the switch on asks macOS for it, and the switch stays off until you
-allow Switchboard in System Settings, then turns on by itself. Because the app
-is ad-hoc signed, macOS forgets the permission after each rebuild; the switch
-then reads off again, with a link to the settings pane, where you turn
-Switchboard off and on. A window that is minimised, hidden or on another desktop
+allow Switchboard in System Settings, then turns on by itself. An ad-hoc
+signed build loses the permission each time you rebuild it; the switch then
+reads off again, with a link to the settings pane, where you turn Switchboard
+off and on. To keep it, sign with a certificate (see [Install](#install)). A window that is minimised, hidden or on another desktop
 still counts as open. Whether or not the setting is on, **Show window** (a
 button on a No window row, and in each running profile's menu) brings that
 profile's window back, as clicking its Dock icon would.
@@ -183,13 +183,43 @@ from the Dock** in the Phone tab. Read
 
 ## Keep the Mac awake
 
-Use **Keep awake** beside Refresh to turn macOS's system sleep setting on or
-off. macOS handles administrator authorization. The control reads the actual
-setting, including after you reopen Switchboard; closing or crashing the app
-leaves the setting as you chose it.
+**Decaf** in the title bar means the Mac sleeps as usual. Open it to
+**Caffeinate**: choose 1, 2 or 4 hours, **Until I stop**, or **Custom**
+minutes, and the button reads **Caffeinated · 1h** until the time is up, you
+press **Decaf now**, or Switchboard quits. The screen stays on too.
 
-For implementation details and closed-lid hardware verification, read
-[Keep awake](docs/keep-awake.md).
+**Also with the lid closed**, off by default, keeps a closed MacBook awake, as
+for a long agent run in a bag. It turns off macOS's system sleep through the
+same root helper Fans uses, so it asks once to allow Switchboard in Login
+Items, and it ends by itself if the battery drops below 20% or the Mac gets
+seriously hot. The button reads **· lid** while it is on.
+
+With the lid open Caffeinate needs no password: it holds a macOS power
+assertion that goes away with Switchboard. If sleep was left off system-wide
+by an older Keep awake or `pmset`, the popover offers to turn it back on. Read
+[Caffeinate](docs/caffeinate.md) for how it works.
+
+## Boost the fans
+
+When the Mac runs hot, **Fans** beside Caffeinate boosts every fan to a speed
+you pick for a short while, then hands them back to macOS. Nothing changes
+until you press **Boost**: set the speed, then choose 15 minutes, 30 minutes,
+an hour, **Until I stop**, or **Custom** minutes. While a boost runs the
+button reads **Fans · 75% · 12m**, the popover counts down with **+15 min**
+and **Stop boost**, and the menu bar menu offers to stop it.
+
+A boost always ends on its own when there is any doubt: when the time is up,
+when the Mac sleeps or restarts, when Switchboard quits or stops responding,
+when macOS reclaims the fans itself, or when the Mac reports serious thermal
+pressure. The popover says which. Switchboard never resumes a boost after
+sleep or a restart.
+
+Boosting needs a small helper that runs as root. The first boost asks you to
+allow Switchboard in System Settings › General › Login Items & Extensions,
+and starts once you do; after that boosts need no prompts. The helper only
+works in an install signed with a certificate (see [Install](#install)); an
+ad-hoc build hides Fans. It is hidden on a Mac with no fans. Read
+[Fan control](docs/fan-control.md) for how it works.
 
 ## Requirements
 
@@ -210,9 +240,9 @@ Worth knowing before you run an unsigned app that touches your accounts.
 
 - **Your keychain.** To show Claude usage, Switchboard runs `security
 find-generic-password` for the entry the Claude Code CLI already created.
-  macOS will ask for your password the first time. It asks again after each
-  rebuild, because ad-hoc signing produces a new code hash and the keychain
-  entry's permission no longer recognises the app. Codex tokens are read from a file
+  macOS will ask for your password the first time. An ad-hoc signed build is
+  asked again after each rebuild, because ad-hoc signing produces a new code
+  hash and the keychain entry's permission no longer recognises the app. Codex tokens are read from a file
   instead, so they produce no prompt.
 - **App launches and quits.** A small helper bundled with the app listens for
   macOS's notice that some app started or stopped, so the window can show a
@@ -222,6 +252,12 @@ find-generic-password` for the entry the Claude Code CLI already created.
   helper then counts the Claude and ChatGPT windows each profile has open,
   through the Accessibility API and an undocumented macOS call that says which
   desktop a window is on. It reads counts, not window contents.
+- **Fans and lid-closed Caffeinate, only if you use them.** The system bridge
+  reads fan speeds, CPU temperature, the battery and the sleep setting, which
+  needs no permission. A boost or a lid-closed session installs a root system
+  helper, after you allow it in Login Items, that accepts only a fan speed with
+  a time limit, a hold on system sleep with a time limit, or a stop, from
+  Switchboard's own bridge. Remove it with `switchboard fans remove`.
 - **Usage requests per signed-in profile, on a timer.** Normally one call to the same endpoints
   the two CLIs use for their own usage screens, authorised with that profile's
   existing CLI token. The interval in Settings is the rate while you are using
@@ -260,6 +296,19 @@ bun run install-app
 That builds `Switchboard.app`, copies it to `/Applications`, ad-hoc signs it and
 opens it. Launch it like any other app afterwards. Re-run the same command after
 changing the source. For a dev run without installing, use `bun start`.
+
+macOS records Accessibility and keychain permission against an ad-hoc signed
+app's exact code hash, which every rebuild changes. If you have a code-signing
+certificate, such as the free Apple Development one Xcode creates, sign with it
+instead and the permissions carry over between rebuilds:
+
+```bash
+security find-identity -v -p codesigning
+SWITCHBOARD_SIGN_IDENTITY="Apple Development: you@example.com (TEAMID)" bun run install-app
+```
+
+After the first such install, grant Accessibility once more; later rebuilds
+keep it.
 
 The app is not signed with a Developer ID and not notarised, so macOS may warn
 about it. Building it yourself, as above, is the intended path.
@@ -323,19 +372,20 @@ eval "$(switchboard env work)"        # put the current shell into a profile
 switchboard launch work               # open its desktop window
 switchboard focus work                # show its existing window; never launch another profile
 switchboard quit work --force --yes   # force quit; reports whether it actually stopped
-switchboard awake status              # read the system keep-awake setting
+switchboard caffeinate start --minutes 120 --lid   # stay awake 2 h, lid closed too
+switchboard fans set 75               # boost the fans to 75% for 15 minutes
 switchboard accessibility status      # permission of the running Switchboard app
 switchboard export work --format t3   # print a T3 provider configuration
 switchboard add codex Client --from codex   # a new profile, set up like the Default
 switchboard routed work app-server    # Codex through work's proxy bucket, as its window runs
 ```
 
-`awake status|on|off|recheck`, `accessibility status|open`, `focus` and forced
-`quit` use the running Switchboard app through a local socket accessible only to
-your user account. Start the matching app first; these commands never start it
-implicitly. Keep-awake shares the window's controller and macOS authorization.
-Its result reports the observed state and any cancellation or failure notice;
-exit 0 alone does not mean the requested setting was applied. Accessibility
+`caffeinate`, `fans`, `accessibility status|open`, `focus` and forced `quit` use
+the running Switchboard app through a local socket accessible only to your user
+account. Start the matching app first; these commands never start it
+implicitly. Caffeinate and Fans share the window's controllers; their results
+report the observed state and any notice, so exit 0 alone does not mean a
+session started. Accessibility
 reports the app's executable identity, not the terminal's permission. `open`
 opens the macOS Accessibility pane. Force quit asks for confirmation unless
 `--yes` is supplied and waits for the result; `stopped: false` means the app

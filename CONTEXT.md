@@ -114,3 +114,23 @@ phone can **reach** was launched with that hook; one opened from the Dock is
 **relaunched for phone control**, which quits it and opens it again from
 Switchboard. Say "phone access", not "remote" or
 "mobile", in the window and the docs; `switchboard remote` is the command.
+
+## Fan control
+
+Boosting the Mac's fans for a short while. A **boost** holds every fan at a
+**speed** (a percentage of each fan's range) for a **time limit**, or until
+stopped; otherwise **macOS controls the fans**. The **system helper** is the
+root process that writes the speed, installed once after the person allows it
+in Login Items; the **system bridge** is the child process the app talks to it
+through. When the helper ends a boost on its own, the window says why the
+**boost ended**. Say "boost", "fans" and "speed" in the window, not
+"manual", "RPM control" or "cooling".
+
+## Caffeinate
+
+Keeping the Mac awake for a while. **Caffeinated** is a running session;
+**Decaf** is the resting state, when the Mac sleeps as usual, and **Decaf
+now** ends a session. A session keeps the screen on, and may keep the Mac
+awake **also with the lid closed**, which is the system helper's **lid-closed hold** on
+macOS's sleep setting. Say "Caffeinate" and "Decaf" in the window, not "Keep
+awake" or "Amphetamine".

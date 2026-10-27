@@ -253,7 +253,7 @@ test('a bucket stored with an OpenCode profile is removed with it', () => {
     expect(store.withOpenCode(plain.id)).toBe(false);
     store.remove('legacy');
     expect(fs.existsSync(base)).toBe(false);
-    expect(store.list().map((b) => b.id)).toEqual(['plain']);
+    expect(store.list().map((b) => b.id)).toEqual<string[]>(['plain']);
   } finally {
     if (previous === undefined) delete process.env.SWITCHBOARD_ROOT;
     else process.env.SWITCHBOARD_ROOT = previous;
