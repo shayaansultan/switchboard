@@ -9,7 +9,7 @@ const api: SwitchboardApi = {
   removeBucket: (id) => ipcRenderer.invoke('buckets:remove', id),
   removeBucketAccount: (id, name) => ipcRenderer.invoke('buckets:removeAccount', id, name),
   refreshCaffeinate: () => ipcRenderer.invoke('caffeinate:refresh'),
-  startCaffeinate: (minutes, screen, lid) => ipcRenderer.invoke('caffeinate:start', minutes, screen, lid),
+  startCaffeinate: (minutes, lid) => ipcRenderer.invoke('caffeinate:start', minutes, lid),
   caffeinateAction: (action) => ipcRenderer.invoke('caffeinate:action', action),
   onCaffeinateState: (fn) => {
     ipcRenderer.on('caffeinate:state', (_event, state) => fn(state));
@@ -22,6 +22,7 @@ const api: SwitchboardApi = {
     ipcRenderer.on('fans:state', (_event, state) => fn(state));
   },
   getState: () => ipcRenderer.invoke('state:get'),
+  reportZoom: (zoom) => ipcRenderer.send('window:zoom', zoom),
   measureSizes: () => ipcRenderer.invoke('state:measure'),
   refresh: (id?: string) => ipcRenderer.invoke('state:refresh', id),
   listResets: (target) => ipcRenderer.invoke('resets:list', target),

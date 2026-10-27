@@ -33,8 +33,6 @@ export interface CaffeinateState {
   endsAt: number | null;
   /** The session's whole length in minutes, for the countdown bar. */
   limit: number | null;
-  /** The screen stays on too. */
-  screen: boolean;
   /** The Mac stays awake with the lid closed too (the system helper's hold). */
   lid: boolean;
   lidSupport: LidSupport;
@@ -96,8 +94,7 @@ export function describeCaffeinate(state: CaffeinateState, now = Date.now()): st
   else {
     const left =
       state.endsAt === null ? 'until stopped' : `for ${Math.max(1, Math.ceil((state.endsAt - now) / 60_000))} more min`;
-    const scope = [state.screen ? 'screen on' : null, state.lid ? 'lid closed too' : null].filter(Boolean).join(', ');
-    lines.push(`Caffeinated ${left}${scope ? ` (${scope})` : ''}.`);
+    lines.push(`Caffeinated ${left}${state.lid ? ' (lid closed too)' : ''}.`);
   }
   if (state.sleepDisabledElsewhere)
     lines.push('Sleep is turned off system-wide outside Caffeinate (pmset disablesleep).');

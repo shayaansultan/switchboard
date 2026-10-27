@@ -9,11 +9,10 @@ left it that way when Switchboard closed.
 
 ## Two ways to stay awake
 
-| Option                   | Mechanism                                                                                                         | Needs                                                                                                | Ends when                                                                                    |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Default (lid open)       | A power assertion through Electron's `powerSaveBlocker` (`prevent-app-suspension`), which stops idle system sleep | Nothing                                                                                              | The time is up, Decaf now, or Switchboard quits (macOS drops the assertion with the process) |
-| Keep the screen on too   | The same assertion as `prevent-display-sleep`                                                                     | Nothing                                                                                              | As above                                                                                     |
-| Also with the lid closed | macOS's `SleepDisabled` (`pmset disablesleep 1`), held by the root system helper                                  | The system helper, allowed once in Login Items, in a certificate-signed install, on a Mac with a lid | Any of the above, or the helper's own checks below                                           |
+| Option                   | Mechanism                                                                                                                                | Needs                                                                                                | Ends when                                                                                    |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Default (lid open)       | A power assertion through Electron's `powerSaveBlocker` (`prevent-display-sleep`), which keeps the system and the screen from idle sleep | Nothing                                                                                              | The time is up, Decaf now, or Switchboard quits (macOS drops the assertion with the process) |
+| Also with the lid closed | macOS's `SleepDisabled` (`pmset disablesleep 1`), held by the root system helper                                                         | The system helper, allowed once in Login Items, in a certificate-signed install, on a Mac with a lid | Any of the above, or the helper's own checks below                                           |
 
 Only `SleepDisabled` keeps a closed MacBook awake; a power assertion does not.
 It is also the setting that can leave a closed laptop running in a bag, so the
@@ -52,7 +51,7 @@ password prompt if not.
 - `src/native/system/helper/main.swift` (`AwakeHold`) and
   `src/native/system/bridge/main.swift` (`awake-hold`, `awake-release`,
   `sleep-clear`, and the lid, battery and sleep facts in `state`).
-- `switchboard caffeinate status|start [--minutes N] [--screen] [--lid]|extend
+- `switchboard caffeinate status|start [--minutes N] [--lid]|extend
 [--minutes N]|stop|dismiss|cancel|clear` drives the same controller through
   the running app.
 

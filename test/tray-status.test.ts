@@ -6,7 +6,6 @@ const decaf: CaffeinateState = {
   active: false,
   endsAt: null,
   limit: null,
-  screen: false,
   lid: false,
   lidSupport: 'available',
   helper: 'installed',

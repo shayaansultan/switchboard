@@ -65,7 +65,6 @@ const state = {
     active: false,
     endsAt: null,
     limit: null,
-    screen: false,
     lid: false,
     lidSupport: 'available',
     helper: 'installed',

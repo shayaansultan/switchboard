@@ -42,7 +42,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 /* --- title bar --- */
 .titlebar {
   -webkit-app-region: drag; display: flex; align-items: center; gap: 16px;
-  flex: none; height: 56px; padding: 0 20px 0 96px; border-bottom: 1px solid var(--line); background: var(--bg);
+  flex: none; height: 56px; border-bottom: 1px solid var(--line); background: var(--bg);
+  /* 76 screen points for the traffic lights and a gap, whatever the zoom
+     (src/renderer/main.tsx sets --zoom), then the page's own 20 px. */
+  padding: 0 20px 0 calc(76px / var(--zoom, 1) + 20px);
 }
 .titlebar .actions { -webkit-app-region: no-drag; display: flex; gap: 8px; margin-left: auto; }
 .brand { font-weight: 600; font-size: 15px; }
@@ -52,7 +55,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 .title-toggle { white-space: nowrap; }
 .title-toggle[hidden] { display: none; }
 .title-toggle .ico.chev { width: 14px; height: 14px; }
-.title-toggle.is-on { color: var(--run-text); }
+.title-toggle.is-run { color: var(--run-text); }
 .title-toggle.is-warm { color: var(--warn-text); }
 .title-popover {
   position: fixed; inset: auto; margin: 0; width: 340px; max-width: calc(100vw - 16px);
@@ -63,19 +66,20 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 .title-popover[popover]:popover-open { display: grid; gap: 14px; }
 .title-popover-head { display: flex; align-items: center; gap: 8px; }
 .title-popover-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
-/* The (i) sits beside the title; whatever follows goes to the right. */
-.title-popover-head h2 + .info-tip { margin-right: auto; }
+/* The (i) sits beside the title; the gap pushes the rest to the right. */
+.title-popover-gap { flex: 1; }
 .title-popover-meta { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .info-tip { border: 0; background: transparent; color: var(--muted); width: 22px; height: 22px; padding: 0; display: inline-grid; place-items: center; border-radius: 50%; }
 .info-tip:hover, .info-tip:focus-visible { color: var(--text); background: var(--hover); }
-.title-popover-close { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; padding: 0; font-size: 18px; }
+.title-popover-close { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; padding: 0; margin-right: -10px; }
+.title-popover-close:hover { color: var(--text); }
 .pop-line { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; color: var(--text-2); }
 .pop-line .dot.idle { display: inline-block; background: var(--switch-off); }
 .pop-note { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); color: var(--text-2); font-size: 13px; line-height: 1.45; }
 .pop-note span { flex: 1; }
 .pop-note.warn { background: var(--warn-bg); color: var(--warn-text); }
 .pop-note.bad { background: var(--danger-bg); color: var(--bad-text); }
-.pop-dismiss { border: 0; background: transparent; color: inherit; opacity: 0.7; width: 28px; height: 28px; padding: 0; font-size: 16px; }
+.pop-dismiss { border: 0; background: transparent; color: inherit; opacity: 0.7; width: 24px; height: 24px; padding: 0; margin: -4px -6px -4px 0; }
 .pop-section { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--line); }
 .pop-section h3 { margin: 0; font-size: 13px; font-weight: 600; }
 .pop-card { display: grid; gap: 8px; padding: 14px; border-radius: 12px; }
@@ -84,7 +88,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 .pop-card-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; }
 .pop-card-row b { font-size: 15px; font-weight: 600; }
 .pop-card p { margin: 0; font-size: 13px; }
-.pop-tag { justify-self: start; padding: 3px 8px; border-radius: 6px; background: var(--panel); font-size: 12px; }
 .pop-drain { height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
 .pop-drain span { display: block; height: 100%; background: currentColor; opacity: 0.7; }
 .pop-buttons { display: flex; gap: 8px; }

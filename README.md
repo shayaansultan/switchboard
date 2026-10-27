@@ -186,14 +186,13 @@ from the Dock** in the Phone tab. Read
 **Decaf** in the title bar means the Mac sleeps as usual. Open it to
 **Caffeinate**: choose 1, 2 or 4 hours, **Until I stop**, or **Custom**
 minutes, and the button reads **Caffeinated · 1h** until the time is up, you
-press **Decaf now**, or Switchboard quits. Two options, both off by default:
+press **Decaf now**, or Switchboard quits. The screen stays on too.
 
-- **Keep the screen on too** stops the display sleeping as well.
-- **Also with the lid closed** keeps a closed MacBook awake, as for a long
-  agent run in a bag. It turns off macOS's system sleep through the same root
-  helper Fans uses, so it asks once to allow Switchboard in Login Items, and it
-  ends by itself if the battery drops below 20% or the Mac gets seriously hot.
-  The button reads **· lid** while it is on.
+**Also with the lid closed**, off by default, keeps a closed MacBook awake, as
+for a long agent run in a bag. It turns off macOS's system sleep through the
+same root helper Fans uses, so it asks once to allow Switchboard in Login
+Items, and it ends by itself if the battery drops below 20% or the Mac gets
+seriously hot. The button reads **· lid** while it is on.
 
 With the lid open Caffeinate needs no password: it holds a macOS power
 assertion that goes away with Switchboard. If sleep was left off system-wide

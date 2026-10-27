@@ -1,14 +1,15 @@
-// Caffeinate: the title-bar button and its popover, before Fans and built the
-// same way. Decaf (the Mac sleeps as usual) is the resting state; nothing
-// changes until Caffeinate is pressed, and a running session is a green
-// countdown with +1 hour and Decaf now. "Keep the screen on too" and "Also
-// with the lid closed" are off by default; only the lid option needs the
-// system helper, so lid-open sessions never ask for anything.
+// Caffeinate: the title-bar button and its popover, before Fans and built
+// from the same title-popover pieces. Decaf (the Mac sleeps as usual) is the
+// resting state; nothing changes until Caffeinate is pressed, and a running
+// session is a green countdown with +1 hour and Decaf now. The screen stays
+// on throughout. "Also with the lid closed" is off by default; only it needs
+// the system helper, so lid-open sessions never ask for anything.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { act } from './lib';
-import { Btn, DurationPicker, Icon, InfoTip, durationMinutes, durationWords, type Duration } from './ui/primitives';
+import { Btn, DurationPicker, InfoTip, durationMinutes, durationWords, type Duration } from './ui/primitives';
 import { useTitlePopover } from './ui/overlays';
+import { ButtonRow, Note, StatusCard, StatusLine, TitlePopover, minutesLeft, shortLeft } from './ui/title-popover';
 import {
   CAFFEINATE_MINUTES,
   CAFFEINATE_NOTICE_TEXT,
@@ -18,23 +19,16 @@ import {
 } from '../shared/caffeinate';
 
 type Action = Parameters<typeof window.sb.caffeinateAction>[0];
-
-const minutesLeft = (endsAt: number) => Math.max(1, Math.ceil((endsAt - Date.now()) / 60_000));
-const longLeft = (minutes: number) => {
-  const hours = Math.floor(minutes / 60);
-  if (!hours) return `${minutes} min left`;
-  return minutes % 60 ? `${hours} h ${minutes % 60} min left` : `${hours} h left`;
-};
-const shortLeft = (minutes: number) => (minutes >= 60 ? `${Math.round(minutes / 60)}h` : `${minutes}m`);
+const INFO = ['Ends when the time is up or Switchboard quits', 'With the lid open it needs no password.'];
 
 export function Caffeinate() {
   const [state, setState] = useState<CaffeinateState | null>(null);
   const [duration, setDuration] = useState<Duration>({ choice: '60', custom: 90 });
-  const [screen, setScreen] = useState(false);
   const [lid, setLid] = useState(false);
   const [, setTick] = useState(0);
   const initialized = useRef(false);
-  const { toggle, popover, open } = useTitlePopover(() => void window.sb.refreshCaffeinate().catch(() => {}));
+  const pop = useTitlePopover(() => void window.sb.refreshCaffeinate().catch(() => {}));
+  const { open } = pop;
 
   useEffect(() => {
     window.sb.onCaffeinateState((s) => {
@@ -74,39 +68,26 @@ export function Caffeinate() {
   if (state?.queued) {
     body = (
       <>
-        <div class="pop-note warn" role="status">
-          <span>{CAFFEINATE_NOTICE_TEXT['needs-approval']}</span>
-        </div>
-        <div class="pop-buttons">
+        <Note tone="warn">{CAFFEINATE_NOTICE_TEXT['needs-approval']}</Note>
+        <ButtonRow>
           <Btn variant="secondary" onClick={run('cancel')}>
             Cancel
           </Btn>
           <Btn variant="primary" onClick={run('login-items')}>
             Open Login Items
           </Btn>
-        </div>
+        </ButtonRow>
       </>
     );
   } else if (state && active) {
-    const scope = ['The Mac stays awake', state.screen ? 'with the screen on' : null];
-    if (state.lid) scope.push('even with the lid closed');
-    const share = state.limit && left !== null ? Math.min(1, left / state.limit) : 1;
     body = (
       <>
-        <div class="pop-card run" role="status">
-          <div class="pop-card-row">
-            <b>Caffeinated</b>
-            <span>{left !== null ? longLeft(left) : 'until you stop'}</span>
-          </div>
-          <p>{scope.filter(Boolean).join(', ')}.</p>
-          {state.lid ? <span class="pop-tag">Lid closed · ends below 20% battery</span> : null}
-          {left !== null ? (
-            <div class="pop-drain" aria-hidden="true">
-              <span style={{ width: `${Math.round(share * 100)}%` }} />
-            </div>
-          ) : null}
-        </div>
-        <div class="pop-buttons">
+        <StatusCard tone="run" title="Caffeinated" left={left} limit={state.limit}>
+          {state.lid
+            ? 'The Mac and its screen stay awake, even with the lid closed.'
+            : 'The Mac and its screen stay awake.'}
+        </StatusCard>
+        <ButtonRow>
           {left !== null ? (
             <Btn id="caffeinate-extend" variant="secondary" disabled={busy} onClick={run('extend')}>
               +1 hour
@@ -115,7 +96,7 @@ export function Caffeinate() {
           <Btn id="caffeinate-stop" variant="primary" disabled={busy} onClick={run('stop')}>
             Decaf now
           </Btn>
-        </div>
+        </ButtonRow>
       </>
     );
   } else if (state) {
@@ -123,30 +104,24 @@ export function Caffeinate() {
     if (busy) start = 'Starting…';
     body = (
       <>
-        <p class="pop-line">
-          <span class="dot idle" aria-hidden="true" />
-          Decaf: the Mac sleeps as usual
-        </p>
+        <StatusLine tone="idle">Decaf: the Mac sleeps as usual</StatusLine>
         {state.sleepDisabledElsewhere ? (
-          <div class="pop-note warn" role="status">
-            <span>Sleep is turned off system-wide outside Caffeinate, as an older Keep awake or pmset left it.</span>
-            <Btn variant="secondary" disabled={busy} onClick={run('clear')}>
-              Turn sleep on
-            </Btn>
-          </div>
+          <Note
+            tone="warn"
+            action={
+              <Btn variant="secondary" disabled={busy} onClick={run('clear')}>
+                Turn sleep on
+              </Btn>
+            }
+          >
+            Sleep is turned off system-wide outside Caffeinate.
+          </Note>
         ) : null}
-        {state.stop ? (
-          <div class="pop-note" role="status">
-            <span>Ended because {CAFFEINATE_STOP_TEXT[state.stop]}.</span>
-            <button type="button" class="pop-dismiss" aria-label="Dismiss" onClick={run('dismiss')}>
-              ×
-            </button>
-          </div>
-        ) : null}
+        {state.stop ? <Note onDismiss={run('dismiss')}>Ended because {CAFFEINATE_STOP_TEXT[state.stop]}.</Note> : null}
         {state.notice ? (
-          <div class="pop-note warn" id="caffeinate-notice" role="alert">
-            <span>{CAFFEINATE_NOTICE_TEXT[state.notice]}</span>
-          </div>
+          <Note tone="warn" id="caffeinate-notice" alert>
+            {CAFFEINATE_NOTICE_TEXT[state.notice]}
+          </Note>
         ) : null}
         <DurationPicker
           label="Stay awake for"
@@ -156,15 +131,6 @@ export function Caffeinate() {
           onChange={setDuration}
         />
         <div class="pop-options">
-          <label class="pop-option">
-            <input
-              type="checkbox"
-              checked={screen}
-              disabled={busy}
-              onChange={(e) => setScreen(e.currentTarget.checked)}
-            />
-            <span>Keep the screen on too</span>
-          </label>
           <div class={`pop-option ${lidAvailable ? '' : 'off'}`}>
             <label>
               <input
@@ -195,7 +161,7 @@ export function Caffeinate() {
           id="caffeinate-start"
           variant="primary"
           disabled={busy}
-          onClick={(e) => act(() => window.sb.startCaffeinate(minutes, screen, lid && lidAvailable), e.currentTarget)}
+          onClick={(e) => act(() => window.sb.startCaffeinate(minutes, lid && lidAvailable), e.currentTarget)}
         >
           {start}
         </Btn>
@@ -204,48 +170,19 @@ export function Caffeinate() {
   }
 
   return (
-    <>
-      <button
-        type="button"
-        id="caffeinate-toggle"
-        ref={toggle}
-        class={`ghost title-toggle ${active ? 'is-on' : ''}`}
-        popovertarget="caffeinate-popover"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        hidden={!state}
-        title={active ? 'The Mac is being kept awake' : 'Keep the Mac awake for a while'}
-      >
-        <Icon name={active ? 'coffee' : 'cup'} />
-        <span class="lbl">{label}</span>
-        <Icon name="chevron" size={14} class="chev" />
-      </button>
-      <div
-        id="caffeinate-popover"
-        class="title-popover"
-        popover="auto"
-        role="dialog"
-        aria-labelledby="caffeinate-heading"
-        aria-busy={busy}
-        ref={popover}
-      >
-        <div class="title-popover-head">
-          <h2 id="caffeinate-heading">Caffeinate</h2>
-          <InfoTip
-            lines={['Ends when the time is up or Switchboard quits', 'With the lid open it needs no password.']}
-          />
-          <button
-            type="button"
-            popovertarget="caffeinate-popover"
-            popovertargetaction="hide"
-            aria-label="Close Caffeinate"
-            class="title-popover-close"
-          >
-            ×
-          </button>
-        </div>
-        {body}
-      </div>
-    </>
+    <TitlePopover
+      id="caffeinate"
+      pop={pop}
+      icon={active ? 'coffee' : 'cup'}
+      label={label}
+      tone={active ? 'run' : null}
+      tip={active ? 'The Mac is being kept awake' : 'Keep the Mac awake for a while'}
+      title="Caffeinate"
+      info={INFO}
+      hidden={!state}
+      busy={busy}
+    >
+      {body}
+    </TitlePopover>
   );
 }

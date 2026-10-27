@@ -112,8 +112,8 @@ const systemBridge = spawnSystemBridge(
 // One power assertion at a time; macOS drops it when Switchboard quits.
 let blockerId: number | null = null;
 const sleepBlocker: SleepBlocker = {
-  start(screen) {
-    blockerId = powerSaveBlocker.start(screen ? 'prevent-display-sleep' : 'prevent-app-suspension');
+  start() {
+    blockerId = powerSaveBlocker.start('prevent-display-sleep');
   },
   stop() {
     if (blockerId !== null && powerSaveBlocker.isStarted(blockerId)) powerSaveBlocker.stop(blockerId);
@@ -629,6 +629,18 @@ nativeTheme.on('updated', () => {
 const BACKGROUND = process.env.SWITCHBOARD_BACKGROUND === '1';
 if (BACKGROUND && process.platform === 'darwin') app.setActivationPolicy('accessory');
 
+/** Where the traffic lights go for a page zoom: macOS draws them at a fixed
+ * size, while the title bar's 56 px grows and shrinks with the zoom. */
+function trafficLights(zoom: number): Electron.Point {
+  return { x: 20, y: Math.round(19 + 28 * (zoom - 1)) };
+}
+
+ipcMain.on('window:zoom', (event, zoom: unknown) => {
+  if (!win || event.sender !== win.webContents) return;
+  if (typeof zoom !== 'number' || !Number.isFinite(zoom) || zoom < 0.25 || zoom > 5) return;
+  win.setWindowButtonPosition(trafficLights(zoom));
+});
+
 function createWindow(): BrowserWindow {
   const w = new BrowserWindow({
     show: !BACKGROUND,
@@ -638,9 +650,10 @@ function createWindow(): BrowserWindow {
     minHeight: 420,
     title: 'Switchboard',
     // The traffic lights sit on the title bar's centre line: the bar is 56 px
-    // and the lights draw 14 tall, so 19 from the top puts their centre on the text.
+    // and the lights draw 14 tall, so 19 from the top puts their centre on the
+    // text. At other page zooms the window reports its zoom and they follow.
     titleBarStyle: 'hidden',
-    trafficLightPosition: { x: 20, y: 19 },
+    trafficLightPosition: trafficLights(1),
     backgroundColor: windowBackground(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -885,11 +898,10 @@ ipcMain.handle('caffeinate:refresh', (event) => {
   validateSender(event);
   return caffeinate.refresh();
 });
-ipcMain.handle('caffeinate:start', (event, minutes: unknown, screen: unknown, lid: unknown) => {
+ipcMain.handle('caffeinate:start', (event, minutes: unknown, lid: unknown) => {
   validateSender(event);
-  if (!isCaffeinateMinutes(minutes) || typeof screen !== 'boolean' || typeof lid !== 'boolean')
-    throw new Error('Invalid Caffeinate request');
-  return caffeinate.start(minutes, { screen, lid });
+  if (!isCaffeinateMinutes(minutes) || typeof lid !== 'boolean') throw new Error('Invalid Caffeinate request');
+  return caffeinate.start(minutes, { lid });
 });
 ipcMain.handle('caffeinate:action', (event, action: unknown) => {
   validateSender(event);
@@ -1321,8 +1333,8 @@ app.whenReady().then(async () => {
       if (next) applyReload(next);
       switch (command.command) {
         case 'caffeinate': {
-          const { action, minutes, screen, lid } = command;
-          if (action === 'start') await caffeinate.start(minutes, { screen, lid });
+          const { action, minutes, lid } = command;
+          if (action === 'start') await caffeinate.start(minutes, { lid });
           else if (action === 'extend') await caffeinate.extend(minutes);
           else if (action === 'status') await caffeinate.refresh();
           else await caffeinate[action]();

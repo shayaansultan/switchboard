@@ -257,7 +257,7 @@ export interface ResetList {
 // The preload bridge, as `window.sb` in the renderer.
 export interface SwitchboardApi {
   refreshCaffeinate(): Promise<void>;
-  startCaffeinate(minutes: number, screen: boolean, lid: boolean): Promise<void>;
+  startCaffeinate(minutes: number, lid: boolean): Promise<void>;
   caffeinateAction(action: 'stop' | 'extend' | 'dismiss' | 'cancel' | 'clear' | 'login-items'): Promise<void>;
   onCaffeinateState(fn: (s: CaffeinateState) => void): void;
   refreshFans(): Promise<void>;
@@ -266,6 +266,8 @@ export interface SwitchboardApi {
   fanAction(action: 'system' | 'extend' | 'cancel' | 'dismiss' | 'install' | 'remove' | 'login-items'): Promise<void>;
   onFanState(fn: (s: FanState) => void): void;
   getState(): Promise<State>;
+  /** The page zoom, so the main process can keep the traffic lights centred. */
+  reportZoom(zoom: number): void;
   setProxyBucket(id: string, bucket: string | null): Promise<void>;
   createBucket(name: string, upstream?: import('./buckets/upstream').Upstream): Promise<void>;
   bucketAction(

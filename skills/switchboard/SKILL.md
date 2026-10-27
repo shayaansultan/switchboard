@@ -59,9 +59,9 @@ uses the same force quit as the window, waits, and reports `quit` and `stopped`.
 It loses unsaved work, so use it only after authorization. A false `stopped`
 is not a successful shutdown. Ordinary quit remains available without the app.
 
-`caffeinate status|start [--minutes N] [--screen] [--lid]|extend [--minutes N]|stop|dismiss|cancel|clear`
+`caffeinate status|start [--minutes N] [--lid]|extend [--minutes N]|stop|dismiss|cancel|clear`
 shares the running app's Caffeinate. `start` keeps the Mac awake N minutes
-(default 60; 0 until `stop`), `--screen` keeps the display on, and `--lid`
+(default 60; 0 until `stop`) with the screen on, and `--lid`
 keeps a closed laptop awake through the system helper, ending by itself below
 20% battery or in serious heat. `--lid` may need the user to allow the helper
 in Login Items (`notice: needs-approval`, `queued: true`); leave that to the

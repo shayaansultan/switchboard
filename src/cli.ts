@@ -72,9 +72,9 @@ Desktop
   switchboard quit-others PROFILE --yes       Before a first sign-in
   switchboard focus PROFILE                   Show its existing app; never launch another profile
   switchboard caffeinate status|stop|dismiss   Keep the Mac awake, or Decaf (let it sleep as usual)
-  switchboard caffeinate start [--minutes N] [--screen] [--lid]
-                                              Stay awake N minutes (default 60; 0 until stopped),
-                                              with the screen on, or with the lid closed too
+  switchboard caffeinate start [--minutes N] [--lid]
+                                              Stay awake, screen on, N minutes (default 60; 0 until
+                                              stopped), or with the lid closed too
   switchboard caffeinate extend [--minutes N] Add N minutes (default 60) to a timed session
   switchboard caffeinate clear                Turn sleep back on after pmset disablesleep
   switchboard fans status|system|dismiss       Fan speeds, or stop a boost and hand back to macOS

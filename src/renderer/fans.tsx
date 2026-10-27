@@ -1,13 +1,23 @@
-// Fans: the title-bar button and its popover. A boost is an action, not a
-// mode: nothing changes until Boost is pressed, and while one runs the
-// popover turns into a countdown with Stop. The helper ends a boost on its
+// Fans: the title-bar button and its popover, built from the title-popover
+// pieces. A boost is an action, not a mode: nothing changes until Boost is
+// pressed, and while one runs the popover turns into a countdown with Stop. The helper ends a boost on its
 // own (time up, sleep, restart, Switchboard quitting, serious heat), and the
 // popover says why. Speeds are only read while the popover is open.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { act } from './lib';
-import { Btn, DurationPicker, Icon, InfoTip, durationMinutes, durationWords, type Duration } from './ui/primitives';
+import { Btn, DurationPicker, durationMinutes, durationWords, type Duration } from './ui/primitives';
 import { useTitlePopover } from './ui/overlays';
+import {
+  ButtonRow,
+  Note,
+  PopSection,
+  StatusCard,
+  StatusLine,
+  TitlePopover,
+  minutesLeft,
+  shortLeft,
+} from './ui/title-popover';
 import { FAN_MINUTES, NOTICE_TEXT, STOP_TEXT, type FanState } from '../shared/fans';
 
 const POLL_MS = 2_000;
@@ -19,9 +29,6 @@ const FANS_TIP = [
 ];
 type Ready = Extract<FanState, { status: 'ready' }>;
 type FanAction = Parameters<typeof window.sb.fanAction>[0];
-
-const minutesLeft = (endsAt: number) => Math.max(1, Math.ceil((endsAt - Date.now()) / 60_000));
-const shortLeft = (minutes: number) => (minutes >= 60 ? `${Math.round(minutes / 60)}h` : `${minutes}m`);
 
 function FanList({ fans }: { fans: Ready['fans'] }) {
   return (
@@ -80,7 +87,8 @@ export function FanControl() {
   // read at render, so a fresh boost never shows a stale minute.
   const [, setTick] = useState(0);
   const initialized = useRef(false);
-  const { toggle, popover, open } = useTitlePopover(() => void window.sb.refreshFans().catch(() => {}));
+  const pop = useTitlePopover(() => void window.sb.refreshFans().catch(() => {}));
+  const { open } = pop;
 
   useEffect(() => {
     window.sb.onFanState((s) => {
@@ -120,41 +128,28 @@ export function FanControl() {
   if (ready?.queued && ready.notice === 'needs-approval') {
     body = (
       <>
-        <div class="pop-note warn" role="status">
-          <span>{NOTICE_TEXT['needs-approval']}</span>
-        </div>
-        <div class="pop-buttons">
+        <Note tone="warn">{NOTICE_TEXT['needs-approval']}</Note>
+        <ButtonRow>
           <Btn variant="secondary" onClick={run('cancel')}>
             Cancel
           </Btn>
           <Btn variant="primary" onClick={run('login-items')}>
             Open Login Items
           </Btn>
-        </div>
+        </ButtonRow>
       </>
     );
   } else if (ready && held !== null) {
-    const share = ready.limit && left !== null ? Math.min(1, left / ready.limit) : 1;
     body = (
       <>
-        <div class="pop-card warm" role="status">
-          <div class="pop-card-row">
-            <b>Boosting at {held}%</b>
-            <span>{left !== null ? `${left} min left` : 'until you stop'}</span>
-          </div>
-          {left !== null ? (
-            <div class="pop-drain" aria-hidden="true">
-              <span style={{ width: `${Math.round(share * 100)}%` }} />
-            </div>
-          ) : null}
-        </div>
+        <StatusCard tone="warm" title={`Boosting at ${held}%`} left={left} limit={ready.limit} />
         <Speed
           value={draft}
           disabled={busy}
           onInput={setDraft}
           onCommit={(level) => void act(() => window.sb.adjustFans(level))}
         />
-        <div class="pop-buttons">
+        <ButtonRow>
           {left !== null ? (
             <Btn id="fans-extend" variant="secondary" disabled={busy} onClick={run('extend')}>
               +15 min
@@ -163,7 +158,7 @@ export function FanControl() {
           <Btn id="fans-stop" variant="primary" disabled={busy} onClick={run('system')}>
             Stop boost
           </Btn>
-        </div>
+        </ButtonRow>
       </>
     );
   } else if (ready) {
@@ -174,25 +169,16 @@ export function FanControl() {
     if (busy) start = 'Starting boost…';
     body = (
       <>
-        <p class="pop-line">
-          <span class={`dot ${foreign ? 'warn' : 'on'}`} aria-hidden="true" />
+        <StatusLine tone={foreign ? 'warn' : 'on'}>
           {foreign ? 'Another app is controlling the fans' : 'macOS is controlling the fans'}
-        </p>
-        {ready.stop ? (
-          <div class="pop-note" role="status">
-            <span>Boost ended because {STOP_TEXT[ready.stop]}.</span>
-            <button type="button" class="pop-dismiss" aria-label="Dismiss" onClick={run('dismiss')}>
-              ×
-            </button>
-          </div>
-        ) : null}
+        </StatusLine>
+        {ready.stop ? <Note onDismiss={run('dismiss')}>Boost ended because {STOP_TEXT[ready.stop]}.</Note> : null}
         {ready.notice ? (
-          <div class={`pop-note ${ready.notice === 'control-failed' ? 'bad' : 'warn'}`} id="fans-notice" role="alert">
-            <span>{NOTICE_TEXT[ready.notice]}</span>
-          </div>
+          <Note tone={ready.notice === 'control-failed' ? 'bad' : 'warn'} id="fans-notice" alert>
+            {NOTICE_TEXT[ready.notice]}
+          </Note>
         ) : null}
-        <section class="pop-section" aria-labelledby="fans-boost-heading">
-          <h3 id="fans-boost-heading">Boost</h3>
+        <PopSection id="fans-boost-heading" title="Boost">
           <Speed value={draft} disabled={busy || foreign} onInput={setDraft} />
           <DurationPicker
             label="Boost for"
@@ -201,7 +187,7 @@ export function FanControl() {
             disabled={busy || foreign}
             onChange={setDuration}
           />
-          <div class="pop-buttons">
+          <ButtonRow>
             {foreign ? (
               <Btn variant="secondary" onClick={(e) => act(() => window.sb.refreshFans(), e.currentTarget)}>
                 Check again
@@ -215,57 +201,28 @@ export function FanControl() {
             >
               {start}
             </Btn>
-          </div>
-        </section>
+          </ButtonRow>
+        </PopSection>
       </>
     );
   }
 
   return (
-    <>
-      <button
-        type="button"
-        id="fans-toggle"
-        ref={toggle}
-        class={`ghost title-toggle ${held !== null ? 'is-warm' : ''}`}
-        popovertarget="fans-popover"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        hidden={!ready}
-        title={held === null ? 'Boost the fans' : `Fans boosted to ${held}%`}
-      >
-        <Icon name="fan" />
-        <span class="lbl">{label}</span>
-        <Icon name="chevron" size={14} class="chev" />
-      </button>
-      <div
-        id="fans-popover"
-        class="title-popover"
-        popover="auto"
-        role="dialog"
-        aria-labelledby="fans-heading"
-        aria-busy={busy}
-        ref={popover}
-      >
-        <div class="title-popover-head">
-          <h2 id="fans-heading">Fans</h2>
-          <InfoTip lines={FANS_TIP} />
-          <span class="title-popover-meta">
-            {ready?.temperature != null ? `CPU ${Math.round(ready.temperature)} °C` : ''}
-          </span>
-          <button
-            type="button"
-            popovertarget="fans-popover"
-            popovertargetaction="hide"
-            aria-label="Close fans"
-            class="title-popover-close"
-          >
-            ×
-          </button>
-        </div>
-        {body}
-        {ready ? <FanList fans={ready.fans} /> : null}
-      </div>
-    </>
+    <TitlePopover
+      id="fans"
+      pop={pop}
+      icon="fan"
+      label={label}
+      tone={held !== null ? 'warm' : null}
+      tip={held === null ? 'Boost the fans' : `Fans boosted to ${held}%`}
+      title="Fans"
+      info={FANS_TIP}
+      meta={ready?.temperature != null ? `CPU ${Math.round(ready.temperature)} °C` : null}
+      hidden={!ready}
+      busy={busy}
+    >
+      {body}
+      {ready ? <FanList fans={ready.fans} /> : null}
+    </TitlePopover>
   );
 }

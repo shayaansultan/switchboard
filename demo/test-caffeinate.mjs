@@ -19,7 +19,6 @@ const decaf = {
   active: false,
   endsAt: null,
   limit: null,
-  screen: false,
   lid: false,
   lidSupport: 'available',
   helper: 'not-installed',
@@ -89,8 +88,8 @@ try {
         listener = next;
       },
       refreshCaffeinate: noop,
-      startCaffeinate: async (minutes, screen, lid) => {
-        calls.push(['start', minutes, screen, lid]);
+      startCaffeinate: async (minutes, lid) => {
+        calls.push(['start', minutes, lid]);
         const now = initial.caffeinate;
         if (lid && now.helper !== 'installed') {
           publish({ ...now, helper: 'needs-approval', queued: true, notice: 'needs-approval' });
@@ -101,7 +100,6 @@ try {
           active: true,
           endsAt: minutes ? Date.now() + minutes * 60_000 : null,
           limit: minutes || null,
-          screen,
           lid,
           stop: null,
           notice: null,
@@ -110,7 +108,7 @@ try {
       caffeinateAction: async (action) => {
         calls.push([action]);
         const now = initial.caffeinate;
-        if (action === 'stop') publish({ ...now, active: false, endsAt: null, limit: null, screen: false, lid: false });
+        if (action === 'stop') publish({ ...now, active: false, endsAt: null, limit: null, lid: false });
         if (action === 'extend') publish({ ...now, endsAt: now.endsAt + 60 * 60_000, limit: now.limit + 60 });
         if (action === 'cancel') publish({ ...now, queued: false, notice: null });
         if (action === 'dismiss') publish({ ...now, stop: null, notice: null });
@@ -166,11 +164,11 @@ try {
   await page.screenshot({ path: path.join(output, 'decaf.png') });
 
   // A timed lid-open session: green card, countdown, +1 hour, Decaf now.
-  await page.getByRole('checkbox', { name: 'Keep the screen on too' }).check();
+  assert.equal(await page.getByRole('checkbox', { name: /screen/ }).count(), 0, 'The screen always stays on');
   await button('Caffeinate for 1 hour').click();
   await waitText('Caffeinated');
-  assert.deepEqual((await calls()).at(-1), ['start', 60, true, false]);
-  assert.match(await text(), /with the screen on/);
+  assert.deepEqual((await calls()).at(-1), ['start', 60, false]);
+  assert.match(await text(), /The Mac and its screen stay awake/);
   assert.match(await toggle.innerText(), /Caffeinated · 1h/);
   await page.screenshot({ path: path.join(output, 'caffeinated.png') });
   await button('+1 hour').click();
@@ -202,7 +200,6 @@ try {
   await publish({ ...(await current()), helper: 'installed' });
   await button('Caffeinate for 2 hours').click();
   await waitText('even with the lid closed');
-  assert.match(await text(), /Lid closed · ends below 20% battery/);
   assert.match(await toggle.innerText(), /· lid/);
   await page.screenshot({ path: path.join(output, 'lid.png') });
 

@@ -18,6 +18,7 @@
     "test:claude-pty": "bun run build && node --test test/claude-pty.node.cjs",
     "test:caffeinate-ui": "bun run build && bun demo/test-caffeinate.mjs",
     "test:fans-ui": "bun run build && bun demo/test-fans.mjs",
+    "test:alignment-ui": "bun run build && bun demo/test-alignment.mjs",
     "test:phone-ui": "bun run build && bun demo/test-phone.mjs",
     "test:buckets-ui": "bun run build && bun demo/test-buckets.mjs",
     "test:usage-resets": "bun run build && bun demo/test-usage-resets.mjs && bun demo/test-reset-worker.mjs",

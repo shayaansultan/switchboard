@@ -95,23 +95,21 @@ const CAFFEINATE_ACTIONS = ['status', 'start', 'extend', 'stop', 'dismiss', 'can
 export async function caffeinateCommand(rest: string[], ctx: Context): Promise<void> {
   const { values, positionals } = parse(rest, {
     minutes: { type: 'string' },
-    screen: { type: 'boolean' },
     lid: { type: 'boolean' },
   });
   const [action, extra] = positionals;
   if (!(CAFFEINATE_ACTIONS as readonly string[]).includes(action ?? '') || extra !== undefined)
     throw usageError(
-      'Use: switchboard caffeinate status|stop|dismiss|cancel|clear, caffeinate start [--minutes N] [--screen] [--lid], or caffeinate extend [--minutes N]',
+      'Use: switchboard caffeinate status|stop|dismiss|cancel|clear, caffeinate start [--minutes N] [--lid], or caffeinate extend [--minutes N]',
     );
   const timed = action === 'start' || action === 'extend';
   if (values.minutes !== undefined && !timed) throw usageError('--minutes only applies to start and extend');
-  if ((values.screen || values.lid) && action !== 'start') throw usageError('--screen and --lid only apply to start');
+  if (values.lid && action !== 'start') throw usageError('--lid only applies to start');
   const minutes = values.minutes === undefined ? DEFAULT_CAFFEINATE_MINUTES : Number(values.minutes);
   if (timed && (!isCaffeinateMinutes(minutes) || (action === 'extend' && minutes === 0)))
     throw usageError('--minutes is a whole number from 0 (until stopped) to 1440; extend needs at least 1');
   let command: AppCommand;
-  if (action === 'start')
-    command = { command: 'caffeinate', action, minutes, screen: !!values.screen, lid: !!values.lid };
+  if (action === 'start') command = { command: 'caffeinate', action, minutes, lid: !!values.lid };
   else if (action === 'extend') command = { command: 'caffeinate', action, minutes };
   else
     command = {

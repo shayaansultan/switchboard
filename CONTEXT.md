@@ -130,7 +130,7 @@ through. When the helper ends a boost on its own, the window says why the
 
 Keeping the Mac awake for a while. **Caffeinated** is a running session;
 **Decaf** is the resting state, when the Mac sleeps as usual, and **Decaf
-now** ends a session. A session may keep **the screen on too**, and **also
-with the lid closed**, which is the system helper's **lid-closed hold** on
+now** ends a session. A session keeps the screen on, and may keep the Mac
+awake **also with the lid closed**, which is the system helper's **lid-closed hold** on
 macOS's sleep setting. Say "Caffeinate" and "Decaf" in the window, not "Keep
 awake" or "Amphetamine".

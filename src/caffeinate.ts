@@ -2,9 +2,8 @@
 // usual (Decaf). Two mechanisms, chosen per session:
 //
 // - Lid open (always): a macOS power assertion through Electron's
-//   powerSaveBlocker, keeping the system, and with "screen on" the display,
-//   from idle sleep. It needs no password and macOS drops it when
-//   Switchboard quits.
+//   powerSaveBlocker that keeps the system and the display from idle sleep.
+//   It needs no password and macOS drops it when Switchboard quits.
 // - Lid closed (opt-in): only turning off macOS's SleepDisabled setting keeps
 //   a closed laptop awake, and that needs root, so the system helper holds it
 //   (src/native/system/). The helper turns sleep back on by itself when the
@@ -30,7 +29,7 @@ import {
 
 /** The power assertion; Electron's powerSaveBlocker in the app. */
 export interface SleepBlocker {
-  start(screen: boolean): void;
+  start(): void;
   stop(): void;
 }
 
@@ -64,14 +63,13 @@ const stopOf = (value: string | null | undefined): CaffeinateStop =>
 const CLEAR_SCRIPT = 'do shell script "/usr/bin/pmset disablesleep 0" with administrator privileges';
 const execute = promisify(execFile);
 
-export type CaffeinateOptions = { screen?: boolean; lid?: boolean };
+export type CaffeinateOptions = { lid?: boolean };
 
 export class CaffeinateController {
   private state: CaffeinateState = {
     active: false,
     endsAt: null,
     limit: null,
-    screen: false,
     lid: false,
     lidSupport: 'no-bridge',
     helper: null,
@@ -83,7 +81,7 @@ export class CaffeinateController {
   };
   private queue: Promise<unknown> = Promise.resolve();
   private cancelTimer: (() => void) | null = null;
-  private waiting: { minutes: number; screen: boolean } | null = null;
+  private waiting: { minutes: number } | null = null;
 
   constructor(
     private readonly bridge: SystemBridge | null,
@@ -152,10 +150,10 @@ export class CaffeinateController {
       notice: helper === 'installed' && this.state.notice === 'needs-approval' ? null : this.state.notice,
     });
     if (this.waiting && helper === 'installed') {
-      const { minutes, screen } = this.waiting;
+      const { minutes } = this.waiting;
       this.waiting = null;
       this.patch({ queued: false });
-      await this.begin(minutes, { screen, lid: true });
+      await this.begin(minutes, { lid: true });
     }
   }
 
@@ -168,7 +166,7 @@ export class CaffeinateController {
     });
   }
 
-  private async begin(minutes: number, { screen = false, lid = false }: CaffeinateOptions): Promise<void> {
+  private async begin(minutes: number, { lid = false }: CaffeinateOptions): Promise<void> {
     if (lid && this.state.lidSupport !== 'available')
       throw new Error(LID_SUPPORT_TEXT[this.state.lidSupport as Exclude<LidSupport, 'available'>]);
     this.patch({ busy: true, notice: null });
@@ -177,7 +175,7 @@ export class CaffeinateController {
         if (this.state.helper !== 'installed') {
           const outcome = this.bridge ? await ensureHelper(this.bridge) : 'failed';
           if (outcome !== 'installed') {
-            if (outcome === 'needs-approval') this.waiting = { minutes, screen };
+            if (outcome === 'needs-approval') this.waiting = { minutes };
             this.patch({
               helper: outcome === 'needs-approval' ? 'needs-approval' : this.state.helper,
               queued: outcome === 'needs-approval',
@@ -192,12 +190,11 @@ export class CaffeinateController {
         await this.ask({ op: 'awake-release' });
       }
       this.blocker.stop();
-      this.blocker.start(screen);
+      this.blocker.start();
       this.patch({
         active: true,
         endsAt: minutes ? this.now() + minutes * 60_000 : null,
         limit: minutes || null,
-        screen,
         lid,
         stop: null,
         sleepDisabledElsewhere: false,
@@ -233,7 +230,7 @@ export class CaffeinateController {
     this.cancelTimer = null;
     this.blocker.stop();
     if (this.state.lid) await this.ask({ op: 'awake-release' });
-    this.patch({ active: false, endsAt: null, limit: null, screen: false, lid: false, stop: reason });
+    this.patch({ active: false, endsAt: null, limit: null, lid: false, stop: reason });
   }
 
   private async checkHold(): Promise<void> {

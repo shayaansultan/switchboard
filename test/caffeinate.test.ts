@@ -73,7 +73,7 @@ function fakeBridge(start: { helper?: string; lid?: boolean; sleepDisabled?: boo
 function fakeBlocker() {
   const calls: string[] = [];
   const blocker: SleepBlocker = {
-    start: (screen) => calls.push(screen ? 'screen' : 'system'),
+    start: () => calls.push('start'),
     stop: () => calls.push('stop'),
   };
   return { blocker, calls };
@@ -106,9 +106,9 @@ describe('Caffeinate', () => {
       () => 0,
       clock.timers,
     );
-    await controller.start(60, { screen: true });
-    expect(controller.snapshot()).toMatchObject({ active: true, endsAt: 3_600_000, screen: true, lid: false });
-    expect(calls).toEqual(['stop', 'screen']);
+    await controller.start(60);
+    expect(controller.snapshot()).toMatchObject({ active: true, endsAt: 3_600_000, lid: false });
+    expect(calls).toEqual(['stop', 'start']);
     expect(fake.asked()).not.toContain('awake-hold');
     expect(clock.pending()?.at).toBe(3_600_000);
     clock.fire();
@@ -239,9 +239,7 @@ describe('Caffeinate', () => {
       fakeTimers().timers,
     );
     expect(describeCaffeinate(controller.snapshot())).toBe('Decaf: the Mac sleeps as usual.');
-    await controller.start(90, { screen: true, lid: true });
-    expect(describeCaffeinate(controller.snapshot(), 0)).toBe(
-      'Caffeinated for 90 more min (screen on, lid closed too).',
-    );
+    await controller.start(90, { lid: true });
+    expect(describeCaffeinate(controller.snapshot(), 0)).toBe('Caffeinated for 90 more min (lid closed too).');
   });
 });

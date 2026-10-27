@@ -32,6 +32,7 @@ bunx electron .                 # run from the checkout (see below)
 bun run test:buckets-ui         # Playwright against the real window, buckets tab
 bun run test:caffeinate-ui      # same, Caffeinate popover (simulated sleep)
 bun run test:fans-ui            # same, fans popover (simulated helper)
+bun run test:alignment-ui       # measures icon, text and edge alignment in every main state
 bun run demo                    # regenerate docs/screenshot.png and the social card
 bun run cli -- list --human     # the CLI straight from source
 ```
@@ -118,7 +119,14 @@ which that test also reads.
   dialog step that shows its own pending state and puts the error on screen,
   as the usage-reset dialog does when a reset is spent.
 - Menus, tooltips and dialogs go through `src/renderer/ui/overlays.tsx`; do
-  not add another positioning scheme.
+  not add another positioning scheme. A title-bar popover is built from
+  `src/renderer/ui/title-popover.tsx` (header, status line, note, countdown
+  card, button row), not from new markup and CSS.
+- Layout must hold at any page zoom. Anything sized against macOS's own
+  chrome (the traffic lights) divides by `--zoom`, which the renderer keeps
+  current. Icons draw centred in their 24-unit box, and a close or dismiss
+  control is the `x` icon, not a text glyph. After UI changes, run
+  `bun run test:alignment-ui`.
 - Files open with a comment saying what the module is for and why it is
   shaped as it is. Keep that comment true when you change the module.
 - A change a user can see gets a README or `docs/` update in the same
