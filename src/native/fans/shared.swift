@@ -61,6 +61,7 @@ struct FanStatus: Codable {
   var endsIn: Int?
   var stop: String?
   var error: String?
+  var detail: String?
 }
 
 func encode<T: Encodable>(_ value: T) -> Data {

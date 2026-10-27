@@ -29,6 +29,8 @@ final class Controller {
   private var lastHeartbeat: TimeInterval = 0
   private var misses = 0
   private(set) var stop: String?
+  /// What went wrong in the last failed set, for `switchboard fans status`.
+  private(set) var detail: String?
   var connections = 0
   private var idleSince = uptime()
 
@@ -44,7 +46,8 @@ final class Controller {
     let fans = (try? smc.readings()) ?? []
     return FanStatus(
       fans: fans, temperature: temperature.hottest(), controlling: level != nil, level: level,
-      endsIn: endsAt.map { max(0, Int(($0 - uptime()).rounded(.up))) }, stop: stop, error: error)
+      endsIn: endsAt.map { max(0, Int(($0 - uptime()).rounded(.up))) }, stop: stop, error: error,
+      detail: detail)
   }
 
   func heartbeat(from session: ObjectIdentifier) {
@@ -68,9 +71,11 @@ final class Controller {
       lastHeartbeat = uptime()
       misses = 0
       stop = nil
+      detail = nil
       log.info("manual \(newLevel)% for \(seconds) s")
       return nil
     } catch {
+      detail = String(describing: error)
       log.error("set failed: \(String(describing: error), privacy: .public)")
       restore(reason: "control-failed")
       return "control-failed"
@@ -88,10 +93,7 @@ final class Controller {
       try? smc.writeNumber("F\(index)Tg", target)
     }
     Thread.sleep(forTimeInterval: 0.25)
-    if try smc.readings().allSatisfy({ $0.manual }) {
-      try verify(targets)
-      return targets
-    }
+    if try smc.readings().allSatisfy({ $0.manual }), settle(targets) { return targets }
 
     guard smc.exists("Ftst") else { throw SMCError.call("manual mode refused, no Ftst") }
     log.info("manual mode refused; using the Ftst unlock")
@@ -109,20 +111,40 @@ final class Controller {
         Thread.sleep(forTimeInterval: 0.2)
       }
     }
-    for (index, target) in targets.enumerated() {
-      try retry(10) { try self.smc.writeNumber("F\(index)Tg", target) }
+    for (index, target) in targets.enumerated() where !hold(index, at: target) {
+      throw SMCError.call("fan \(index) did not take \(Int(target)) rpm after the unlock")
     }
-    try verify(targets)
+    guard settle(targets) else { throw SMCError.call("fans left the requested speed after the unlock") }
     return targets
+  }
+
+  /// Writes mode and target together until both read back, up to ten times:
+  /// a fan that has just been unlocked can drop either for a moment.
+  private func hold(_ index: Int, at target: Double) -> Bool {
+    guard let mode = smc.modeKey(index) else { return false }
+    for attempt in 0..<10 {
+      try? smc.writeNumber(mode, 1)
+      try? smc.writeNumber("F\(index)Tg", target)
+      if (try? smc.readNumber(mode)) == 1, let read = try? smc.readNumber("F\(index)Tg"), abs(read - target) <= 2 {
+        return true
+      }
+      if attempt < 9 { Thread.sleep(forTimeInterval: 0.05) }
+    }
+    return false
+  }
+
+  /// True once every fan reads manual at its target, checked up to ten times.
+  private func settle(_ targets: [Double]) -> Bool {
+    for attempt in 0..<10 {
+      if intact(targets) { return true }
+      if attempt < 9 { Thread.sleep(forTimeInterval: 0.05) }
+    }
+    return false
   }
 
   private func intact(_ targets: [Double]) -> Bool {
     guard let fans = try? smc.readings(), fans.count == targets.count else { return false }
     return zip(fans, targets).allSatisfy { fan, target in fan.manual && abs(fan.target - target) <= 2 }
-  }
-
-  private func verify(_ targets: [Double]) throws {
-    guard intact(targets) else { throw SMCError.call("fans did not take the requested speed") }
   }
 
   private func retry(_ attempts: Int, _ body: () throws -> Void) throws {

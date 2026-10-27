@@ -39,6 +39,7 @@ const HelperStatus = Readings.extend({
   endsIn: z.number().nullish(),
   stop: z.string().nullish(),
   error: z.string().nullish(),
+  detail: z.string().nullish(),
 });
 const Failure = z.object({ error: z.string() });
 
