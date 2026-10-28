@@ -257,7 +257,10 @@ const INDEX_GAP_MS = 60_000;
 
 async function indexUsage(): Promise<void> {
   try {
-    if (await history.index(ledgerProfiles(), INDEX_GAP_MS)) usageChanged();
+    // Today's prices first, so a model new since yesterday is valued (a
+    // no-op until the kept list is a day old).
+    const repriced = await history.refreshPrices();
+    if ((await history.index(ledgerProfiles(), INDEX_GAP_MS)) || repriced) usageChanged();
   } catch {
     /* history is a nicety; the next refresh tries again */
   }

@@ -181,3 +181,46 @@ test('a day group runs from local midnight to the next, across a change of the c
     else process.env.TZ = tz;
   }
 });
+
+test('the overview splits every account by vendor and by who started the work', async () => {
+  // A headless run beside the scenario's two sessions you started.
+  write(path.join(work.home, 'projects', 'd', 'auto.jsonl'), [
+    claudeUser({ session: 'auto', at: NOW - H, text: 'Judge these answers', cwd: '/tmp/run-1', entry: 'sdk-cli' }),
+    claudeAssistant({ session: 'auto', at: NOW - H + 60_000, id: 'a1', output: 2_000_000, cwd: '/tmp/run-1' }),
+  ]);
+  const r = await scenario();
+  const o = r.overview;
+  expect(o.totals.claude.you).toMatchObject({ sessions: 2 });
+  expect(o.totals.claude.you.value).toBeCloseTo(40.00038, 5);
+  expect(o.totals.claude.auto).toMatchObject({ sessions: 1, value: 20 });
+  expect(o.totals.codex.you.sessions + o.totals.codex.auto.sessions).toBe(0);
+  expect(o.days.at(-1)?.split.claude.auto.tokens).toBe(2_000_000);
+  expect(o.accounts.find((a) => a.profile === 'work')?.measures).toMatchObject({ sessions: 1, value: 20 });
+  // Without a repository resolver, folders are named as elsewhere in the report.
+  expect(o.repos.map((x) => x.name).sort()).toEqual(['run-1', 'switchboard/app', 'client/app'].sort());
+  expect(o.mix.find((k) => k.kind === 'output')?.tokens).toBe(6_000_000);
+});
+
+test('repositories whose names differ only in case are one', async () => {
+  const ledger = emptyLedger(NOW - D);
+  write(path.join(personal.home, 'projects', 'e', 'e.jsonl'), [
+    claudeUser({ session: 'e1', at: NOW - 2 * H, text: 'One', cwd: '/code/myApp' }),
+    claudeAssistant({ session: 'e1', at: NOW - 2 * H + 60_000, id: 'e1', output: 2_000_000, cwd: '/code/myApp' }),
+    claudeUser({ session: 'e2', at: NOW - H, text: 'Two', cwd: '/bench/myapp' }),
+    claudeAssistant({ session: 'e2', at: NOW - H + 60_000, id: 'e2', output: 1_000_000, cwd: '/bench/myapp' }),
+  ]);
+  await indexLogs(ledger, [personal], NOW);
+  const live = [{ id: 'personal', vendor: 'claude' as const, windows: [] }];
+  const r = buildReport({
+    ledger,
+    records: [],
+    windowsSince: null,
+    live,
+    days: 7,
+    now: NOW,
+    repoOf: (cwd) => path.basename(cwd ?? ''),
+  });
+  expect(r.overview.repos).toHaveLength(1);
+  expect(r.overview.repos[0].name).toBe('myApp');
+  expect(r.overview.repos[0].split.claude.you.sessions).toBe(2);
+});

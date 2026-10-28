@@ -301,7 +301,33 @@ export interface UsageBlock {
 
 // Everything the Usage tab draws, for one range of days. Never a token, a
 // credential or a full path.
+// The four measures the Usage overview switches between, for one slice.
+export interface Measures {
+  value: number;
+  tokens: number;
+  agentMs: number;
+  sessions: number;
+}
+
+// Who started a session: you, in a desktop app or a terminal, or an
+// automation (a headless SDK or `codex exec` run).
+export type Starter = 'you' | 'auto';
+export type UsageSplit = Record<Vendor, Record<Starter, Measures>>;
+
+// Every account together for the range, from the sessions that started in
+// it: by day, account and repository, each split by vendor and starter.
+export interface UsageOverview {
+  totals: UsageSplit;
+  days: { day: string; split: UsageSplit }[];
+  accounts: { profile: string; measures: Measures }[];
+  repos: { name: string; split: UsageSplit }[];
+  mix: { kind: keyof TokenCounts; tokens: number; value: number }[];
+  // Tokens of models with no price yet, left out of every value.
+  unpricedTokens: number;
+}
+
 export interface UsageReport {
+  overview: UsageOverview;
   days: number;
   generatedAt: string;
   // When Switchboard began keeping usage history, if it has.

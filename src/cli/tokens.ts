@@ -12,7 +12,7 @@ import type { Context } from './context';
 import { parse } from './context';
 import { notFound, ref, table, usageError } from './output';
 
-const BY = ['account', 'model', 'project', 'day'] as const;
+const BY = ['account', 'repo', 'model', 'project', 'day'] as const;
 type By = (typeof BY)[number];
 
 // "Claude · Default": a profile's name alone repeats across vendors.
@@ -26,6 +26,7 @@ const dollars = (v: number | null) => (v === null ? null : Math.round(v * 100) /
 // The columns `--human` prints; JSON carries every field.
 const COLUMNS: Record<By, string[]> = {
   account: ['account', 'value', 'tokens', 'fresh', 'cacheHit'],
+  repo: ['repo', 'value', 'tokens', 'sessions', 'automations', 'agentMinutes'],
   model: ['model', 'value', 'tokens', 'sessions'],
   project: ['project', 'profiles', 'value', 'sessions', 'agentMinutes'],
   day: ['day', 'value', 'tokens'],
@@ -43,6 +44,20 @@ function rows(report: UsageReport, by: By, profiles: Profile[]): Record<string, 
           tokens: sumTokens(a.tokens),
           fresh: a.tokens.input + a.tokens.output + a.tokens.cacheWrite,
           cacheHit: report.cacheHit.find((c) => c.profile === a.profile)?.pct ?? null,
+        };
+      });
+    case 'repo':
+      // From the sessions that started in the range, as the Usage tab counts them.
+      return report.overview.repos.map((r) => {
+        const all = [r.split.claude.you, r.split.claude.auto, r.split.codex.you, r.split.codex.auto];
+        const sum = (k: 'value' | 'tokens' | 'agentMs' | 'sessions') => all.reduce((s, m) => s + m[k], 0);
+        return {
+          repo: r.name,
+          value: dollars(sum('value')),
+          tokens: sum('tokens'),
+          sessions: sum('sessions'),
+          automations: r.split.claude.auto.sessions + r.split.codex.auto.sessions,
+          agentMinutes: Math.round(sum('agentMs') / 60000),
         };
       });
     case 'model':

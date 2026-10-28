@@ -97,22 +97,42 @@ For the same reason nothing in the ledger is thrown away lightly:
 
 ## Value
 
-`src/history/prices.ts` holds list prices per million tokens for the current
-Claude and OpenAI coding models, from models.dev as of 26 September 2026.
+Prices are list prices per million tokens from models.dev. Once a day the app
+fetches its catalogue (`https://models.dev/api.json`, a public file; nothing is
+sent) and keeps Anthropic's and OpenAI's part in
+`~/.switchboard/usage/prices.json`, which the CLI reads too. Until that has
+worked once, `src/history/prices.ts` has a bundled table from 26 September 2026. Tokens recorded while their model had no price are valued as soon as it
+has one. `SWITCHBOARD_PRICES=bundled` keeps to the bundled table.
+
 Claude's one-hour cache writes are charged at twice the input price; OpenAI
 charges nothing for cache writes. Long-context surcharges and fast-mode prices
-are not applied, so very long requests read low. A model the table does not
-know is counted as unpriced tokens rather than guessed.
+are not applied, so very long requests read low. A model neither list knows
+(an internal model such as `codex-auto-review`) is counted as unpriced tokens
+rather than guessed.
 
 The value is what the same tokens would cost on the API. Subscriptions are not
 billed that way; it is a way to compare accounts and weeks, not a bill.
 
 Each profile can carry its plan's price, in dollars a month, set from the
-Tokens view or `switchboard plan-price PROFILE 200` (`none` clears it). The
-Tokens view spreads it over the range (a 30-day range is 30 / 30.44 of a
+Overview's account list or `switchboard plan-price PROFILE 200` (`none` clears it). The
+Overview spreads it over the range (a 30-day range is 30 / 30.44 of a
 month) and shows the account's value as a multiple of it. No price is filled
 in for you: team and business seats vary, and a stale list price would make
 every multiple wrong.
+
+## The overview
+
+The Overview counts the sessions that started in the range, so its four
+measures (value, tokens, agent hours, sessions) describe the same work; the
+`switchboard tokens` totals count tokens on the day they were used, so the two
+can differ a little at the edges of a range. A session is yours when it began
+in a desktop app, a terminal or an editor, and an automation's when the logs
+say a headless run started it (Claude Code's `sdk-*` entry points, Codex's
+`exec`). Its repository is the folder holding the nearest `.git` above its
+folder; a worktree's `.git` file names the checkout it belongs to. Folders in
+`/tmp`, `/private/tmp` and `/var/folders` group as Scratch, and a folder
+outside any repository is named by where it sits under your home folder.
+Only the names reach the window.
 
 ## Weekly digest
 

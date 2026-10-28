@@ -35,7 +35,10 @@ const totals = (value: number, agentMs: number): UsageTotals => ({
 
 function report(recordedSince: string | null): UsageReport {
   const days = ['19', '20', '21', '22', '23', '24', '25'].map((d) => `2026-10-${d}`);
+  const none = { value: 0, tokens: 0, agentMs: 0, sessions: 0 };
+  const split = { claude: { you: none, auto: none }, codex: { you: none, auto: none } };
   return {
+    overview: { totals: split, days: [], accounts: [], repos: [], mix: [], unpricedTokens: 0 },
     days: 7,
     generatedAt: new Date(local('2026-10-26T00:00:00') - 1).toISOString(),
     recordedSince,

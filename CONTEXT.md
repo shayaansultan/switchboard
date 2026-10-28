@@ -85,6 +85,18 @@ What an account's tokens would cost at API list prices, in dollars. An
 estimate, and not a bill: a subscription does not charge per token. Always
 labelled as such; never added to a window percentage.
 
+## Automation
+
+A session no one typed into: a headless `claude -p`, Agent SDK or `codex exec`
+run, as the logs record how it started. Everything else is "you". The Usage
+tab draws automations lighter and counts them apart.
+
+## Repository
+
+Where the Usage tab files a session: the git repository its folder belongs to,
+a worktree's being the repository it was made from. Temporary folders are
+"Scratch". Not the same as a profile's folder or a project.
+
 ## Plan price
 
 What an account's plan costs a month, in dollars, as its owner set it. Never

@@ -40,7 +40,7 @@ usage endpoints for every profile, so use it once when freshness matters, never 
 ## Usage history
 
 The app keeps every window reading and indexes each profile's Claude Code and Codex logs.
-`switchboard tokens [--days 30] [--by account|model|project|day]` reads what it recorded;
+`switchboard tokens [--days 30] [--by account|repo|model|project|day]` reads what it recorded;
 `switchboard digest` is last week, Monday to Sunday, with each account's value against its plan
 price. Dollars are API-equivalent estimates, not a bill. `switchboard plan-price PROFILE 200`
 sets what a plan costs a month (`none` clears it); never set one the user did not give you.

@@ -3,10 +3,12 @@
 // The app records and indexes; the CLI reads what the app last wrote.
 
 import * as path from 'node:path';
-import { ROOT } from '../store';
+import { HOME, ROOT } from '../store';
 import type { UsageReport } from '../types';
 import { DAY_MS, indexLogs, loadLedger, openLedger, saveLedger, type Ledger, type LedgerProfile } from './ledger';
 import { buildReport, sessionPaths } from './report';
+import { loadPrices, refreshPrices } from './prices';
+import { repoNamer } from './repos';
 import { WindowHistory, type LiveProfile } from './windows';
 
 export const USAGE_DIR = path.join(ROOT, 'usage');
@@ -20,9 +22,23 @@ export class UsageHistory {
   private pass: Promise<boolean> | null = null;
   private lastPass = 0;
   private lastSave = 0;
+  private readonly repoOf = repoNamer(HOME);
 
   constructor(private readonly dir = USAGE_DIR) {
     this.windows = new WindowHistory(dir);
+    loadPrices(this.pricesFile);
+  }
+
+  private get pricesFile(): string {
+    return path.join(this.dir, 'prices.json');
+  }
+
+  // Fetch today's prices if the kept list is a day old (prices.ts). The app
+  // calls this; the CLI only reads what the app kept.
+  // SWITCHBOARD_PRICES=bundled keeps to the bundled table (tests, offline).
+  refreshPrices(): Promise<boolean> {
+    if (process.env.SWITCHBOARD_PRICES === 'bundled') return Promise.resolve(false);
+    return refreshPrices(this.pricesFile);
   }
 
   private get file(): string {
@@ -70,6 +86,7 @@ export class UsageHistory {
       live,
       days,
       now,
+      repoOf: this.repoOf,
     });
   }
 

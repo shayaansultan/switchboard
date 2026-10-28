@@ -70,7 +70,9 @@ bun run cli -- list --human     # the CLI straight from source
 - `src/history/`: usage history. `logs.ts` reads Claude Code and Codex logs,
   `ledger.ts` indexes them incrementally per profile, `windows.ts` keeps every
   window reading, `report.ts` builds what the Usage tab and `switchboard
-tokens` show, `alerts.ts` decides notifications. Main process and CLI only.
+tokens` show, `prices.ts` keeps today's models.dev prices, `repos.ts` names a
+  folder's repository, `alerts.ts` and `digest.ts` decide notifications. Main
+  process and CLI only.
 - `src/buckets/`: proxy buckets, the local proxy and its worker.
 - `src/opencode/`: the `oc` CLI for OpenCode profiles; runs without Electron.
 - `src/remote/`: phone access. `model.ts` is the shared session model,

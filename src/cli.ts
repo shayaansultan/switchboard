@@ -51,7 +51,7 @@ Read
   switchboard show PROFILE                    One profile in full
   switchboard usage [PROFILE...] [--vendor V] [--max-age 15m | --refresh] [--no-renew]
   switchboard pick VENDOR [--window 5h|7d|LABEL] [--max-age 15m] [--min-headroom N]
-  switchboard tokens [--days 30] [--by account|model|project|day]   Usage history the app keeps
+  switchboard tokens [--days 30] [--by account|repo|model|project|day]   Usage history the app keeps
   switchboard digest                          Last week, Monday to Sunday, against plan prices
   switchboard resets PROFILE [--redeem GRANT_ID --yes]
                                             List native grants (spends with --redeem)

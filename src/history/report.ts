@@ -7,7 +7,18 @@
 // crosses to the renderer, so it carries no paths.
 
 import * as path from 'node:path';
-import type { TokenCounts, UsageBlock, UsageReport, UsageSession, UsageTotals } from '../types';
+import type {
+  Measures,
+  Starter,
+  TokenCounts,
+  UsageBlock,
+  UsageOverview,
+  UsageReport,
+  UsageSession,
+  UsageSplit,
+  UsageTotals,
+  Vendor,
+} from '../types';
 import {
   addAgg,
   aggCounts,
@@ -21,7 +32,7 @@ import {
   type Ledger,
   type SessionRecord,
 } from './ledger';
-import { PRICES_AS_OF } from './prices';
+import { pricesAsOf, repriced } from './prices';
 import {
   forecast,
   instances,
@@ -41,6 +52,9 @@ export interface ReportInput {
   live: LiveProfile[];
   days: number;
   now: number;
+  // A session folder's repository name (see repos.ts); its folder name when
+  // not given.
+  repoOf?: (cwd: string | null) => string;
 }
 
 const HEAT_DAYS = 26 * 7;
@@ -159,7 +173,7 @@ function groupingLabel(list: WindowInstance[]): string | null {
   return best;
 }
 
-export function buildReport({ ledger, records, windowsSince, live, days, now }: ReportInput): UsageReport {
+export function buildReport({ ledger, records, windowsSince, live, days, now, repoOf }: ReportInput): UsageReport {
   // Calendar days, not 24-hour steps, so a daylight-saving change does not
   // shift a period by a day.
   const since = startOfDay(now, days - 1);
@@ -189,9 +203,10 @@ export function buildReport({ ledger, records, windowsSince, live, days, now }: 
     const folders = new Set<string>();
     let sessions = 0;
     for (const pl of Object.values(ledger.profiles)) {
-      for (const [key, a] of Object.entries(pl.facts)) {
+      for (const [key, raw] of Object.entries(pl.facts)) {
         const f = factParts(key);
         if (f.day < fromD || f.day > toD) continue;
+        const a = repriced(f.model, raw);
         addAgg(sum, a);
         if (f.cwd) folders.add(f.cwd);
       }
@@ -241,8 +256,9 @@ export function buildReport({ ledger, records, windowsSince, live, days, now }: 
 
   for (const [id, pl] of Object.entries(ledger.profiles)) {
     const acct = emptyAgg();
-    for (const [key, a] of Object.entries(pl.facts)) {
+    for (const [key, raw] of Object.entries(pl.facts)) {
       const f = factParts(key);
+      const a = repriced(f.model, raw);
       heatMs.set(f.day, (heatMs.get(f.day) ?? 0) + a.ms);
       const di = dayIndex.get(f.day);
       if (di === undefined) continue;
@@ -294,11 +310,19 @@ export function buildReport({ ledger, records, windowsSince, live, days, now }: 
   const kinds: (keyof TokenCounts)[] = ['input', 'output', 'cacheRead', 'cacheWrite'];
 
   return {
+    overview: overview(
+      ledger,
+      live,
+      dayList,
+      since,
+      until,
+      repoOf ?? ((cwd) => (cwd ? (names.get(cwd) ?? path.basename(cwd)) : 'Unknown')),
+    ),
     days,
     generatedAt: new Date(now).toISOString(),
     recordedSince,
     indexedAt: ledger.indexedAt,
-    pricesAsOf: PRICES_AS_OF,
+    pricesAsOf: pricesAsOf(),
     totals: current,
     previous,
     // Limit hits come from window history, which may begin later than the logs.
@@ -315,6 +339,93 @@ export function buildReport({ ledger, records, windowsSince, live, days, now }: 
     mix: kinds.map((kind, i) => ({ kind, tokens: mix.t[i], value: mix.v[i] })),
     cacheHit: live.map((p) => ({ profile: p.id, pct: cacheHit(aggCounts(accounts.get(p.id) ?? emptyAgg())) })),
     blocks: blocks(ledger, insts, names, since, until, now),
+  };
+}
+
+const noMeasures = (): Measures => ({ value: 0, tokens: 0, agentMs: 0, sessions: 0 });
+const noSplit = (): UsageSplit => ({
+  claude: { you: noMeasures(), auto: noMeasures() },
+  codex: { you: noMeasures(), auto: noMeasures() },
+});
+const addMeasures = (into: Measures, m: Measures): void => {
+  into.value += m.value;
+  into.tokens += m.tokens;
+  into.agentMs += m.agentMs;
+  into.sessions += m.sessions;
+};
+
+// A session's own measures, its subagents' included, at today's prices.
+function sessionMeasures(s: SessionRecord, mix: Agg): { m: Measures; unpriced: number } {
+  const m = { ...noMeasures(), agentMs: s.ms, sessions: 1 };
+  let unpriced = 0;
+  for (const [model, raw] of [...Object.entries(s.models), ...Object.entries(s.sub)]) {
+    const a = repriced(model, raw);
+    m.value += aggValue(a);
+    m.tokens += aggTokens(a);
+    unpriced += a.u;
+    addAgg(mix, a);
+  }
+  return { m, unpriced };
+}
+
+// The overview: every account together, from the sessions that started in
+// the range, so that value, tokens, hours and sessions count the same work.
+function overview(
+  ledger: Ledger,
+  live: LiveProfile[],
+  dayList: string[],
+  since: number,
+  until: number,
+  repoOf: (cwd: string | null) => string,
+): UsageOverview {
+  const totals = noSplit();
+  const days = dayList.map((day) => ({ day, split: noSplit() }));
+  const dayIndex = new Map(dayList.map((d, i) => [d, i]));
+  const accounts = new Map<string, Measures>(live.map((p) => [p.id, noMeasures()]));
+  // Two checkouts named myApp and myapp are one repository: keyed
+  // by the lower-case name, shown under whichever spelling did the most.
+  const repos = new Map<string, UsageSplit>();
+  const spellings = new Map<string, Map<string, number>>();
+  const mix = emptyAgg();
+  let unpricedTokens = 0;
+  for (const [id, pl] of Object.entries(ledger.profiles)) {
+    const vendor: Vendor = pl.vendor;
+    for (const s of Object.values(pl.sessions)) {
+      if (s.start < since || s.start > until) continue;
+      const who: Starter = s.entry === 'sdk' ? 'auto' : 'you';
+      const { m, unpriced } = sessionMeasures(s, mix);
+      unpricedTokens += unpriced;
+      addMeasures(totals[vendor][who], m);
+      const di = dayIndex.get(dayOf(s.start));
+      if (di !== undefined) addMeasures(days[di].split[vendor][who], m);
+      const acct = accounts.get(id) ?? noMeasures();
+      addMeasures(acct, m);
+      accounts.set(id, acct);
+      const repo = repoOf(s.cwd);
+      const key = repo.toLowerCase();
+      const r = repos.get(key) ?? noSplit();
+      addMeasures(r[vendor][who], m);
+      repos.set(key, r);
+      const names = spellings.get(key) ?? new Map<string, number>();
+      names.set(repo, (names.get(repo) ?? 0) + m.value + m.sessions);
+      spellings.set(key, names);
+    }
+  }
+  const kinds: (keyof TokenCounts)[] = ['input', 'output', 'cacheRead', 'cacheWrite'];
+  const all = (sp: UsageSplit) => sp.claude.you.value + sp.claude.auto.value + sp.codex.you.value + sp.codex.auto.value;
+  return {
+    totals,
+    days,
+    accounts: [...accounts].map(([profile, measures]) => ({ profile, measures })),
+    repos: [...repos]
+      .map(([key, split]) => ({
+        name: [...(spellings.get(key) ?? [])].sort((a, b) => b[1] - a[1])[0]?.[0] ?? key,
+        split,
+      }))
+      .sort((a, b) => all(b.split) - all(a.split))
+      .slice(0, 40),
+    mix: kinds.map((kind, i) => ({ kind, tokens: mix.t[i], value: mix.v[i] })),
+    unpricedTokens,
   };
 }
 
