@@ -68,12 +68,14 @@ test('digest is last week, Monday to Sunday, against the plan price', async () =
     from: string;
     to: string;
     value: number;
-    accounts: { id: string; name: string; value: number; planCost: number; times: number }[];
+    accounts: { id: string; name: string; account: string; value: number; planCost: number; times: number }[];
   }>();
   expect(new Date(`${out.from}T12:00:00`).getDay()).toBe(1);
   expect(new Date(`${out.to}T12:00:00`).getDay()).toBe(0);
   expect(out.value).toBe(10);
-  expect(out.accounts).toEqual([{ id: 'claude-default', name: 'Default', value: 10, planCost: 4.6, times: 2.2 }]);
+  expect(out.accounts).toEqual([
+    { id: 'claude-default', name: 'Default', account: 'Claude · Default', value: 10, planCost: 4.6, times: 2.2 },
+  ]);
   const human = await run('digest', '--human');
   expect(human.out).toContain('$10.00 of value');
   expect(human.out).toContain('2.2x');

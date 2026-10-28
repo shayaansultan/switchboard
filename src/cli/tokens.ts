@@ -6,6 +6,7 @@
 import { sumTokens, UsageHistory, USAGE_DIR } from '../history';
 import { buildDigest, lastWeekEnd } from '../history/digest';
 import { dayOf } from '../history/ledger';
+import { VENDORS } from '../profiles';
 import type { Profile, UsageReport } from '../types';
 import type { Context } from './context';
 import { parse } from './context';
@@ -14,11 +15,17 @@ import { notFound, ref, table, usageError } from './output';
 const BY = ['account', 'model', 'project', 'day'] as const;
 type By = (typeof BY)[number];
 
+// "Claude · Default": a profile's name alone repeats across vendors.
+const accountOf = (profiles: Profile[], id: string): string => {
+  const p = profiles.find((x) => x.id === id);
+  return p ? `${VENDORS[p.vendor].label} · ${p.name}` : id;
+};
+
 const dollars = (v: number | null) => (v === null ? null : Math.round(v * 100) / 100);
 
 // The columns `--human` prints; JSON carries every field.
 const COLUMNS: Record<By, string[]> = {
-  account: ['name', 'value', 'tokens', 'fresh', 'cacheHit'],
+  account: ['account', 'value', 'tokens', 'fresh', 'cacheHit'],
   model: ['model', 'value', 'tokens', 'sessions'],
   project: ['project', 'profiles', 'value', 'sessions', 'agentMinutes'],
   day: ['day', 'value', 'tokens'],
@@ -31,6 +38,7 @@ function rows(report: UsageReport, by: By, profiles: Profile[]): Record<string, 
         const p = profiles.find((x) => x.id === a.profile);
         return {
           ...(p ? ref(p) : { id: a.profile, name: a.profile }),
+          account: accountOf(profiles, a.profile),
           value: dollars(a.value),
           tokens: sumTokens(a.tokens),
           fresh: a.tokens.input + a.tokens.output + a.tokens.cacheWrite,
@@ -136,10 +144,8 @@ export function digestCommand(rest: string[], ctx: Context, dir = USAGE_DIR, now
     end,
   );
   const d = buildDigest(report, Object.fromEntries(ctx.data.profiles.map((p) => [p.id, p.planPrice])));
-  const name = (id: string) => {
-    const p = ctx.data.profiles.find((x) => x.id === id);
-    return p ? ref(p).name : id;
-  };
+  const name = (id: string) => ctx.data.profiles.find((x) => x.id === id)?.name ?? id;
+  const account = (id: string) => accountOf(ctx.data.profiles, id);
   const result = {
     from: d.from,
     to: d.to,
@@ -151,7 +157,7 @@ export function digestCommand(rest: string[], ctx: Context, dir = USAGE_DIR, now
     sessions: d.sessions,
     previous: d.previous && { value: dollars(d.previous.value), agentMinutes: Math.round(d.previous.agentMs / 60000) },
     limitHits: d.limitHits,
-    hits: d.hits.map((h) => ({ ...h, name: name(h.profile) })),
+    hits: d.hits.map((h) => ({ ...h, name: name(h.profile), account: account(h.profile) })),
     waitedMinutes: Math.round(d.waitedMs / 60000),
     busiest: d.busiest && { day: d.busiest.day, value: dollars(d.busiest.value) },
     project: d.project && { name: d.project.name, value: dollars(d.project.value) },
@@ -159,6 +165,7 @@ export function digestCommand(rest: string[], ctx: Context, dir = USAGE_DIR, now
     accounts: d.accounts.map((a) => ({
       id: a.profile,
       name: name(a.profile),
+      account: account(a.profile),
       value: dollars(a.value),
       planCost: dollars(a.planCost),
       times: a.times === null ? null : Math.round(a.times * 10) / 10,
@@ -169,7 +176,7 @@ export function digestCommand(rest: string[], ctx: Context, dir = USAGE_DIR, now
       d.previous && d.previous.value > 0
         ? ` (${signed(Math.round((d.value / d.previous.value - 1) * 100))}% on the week before)`
         : '';
-    const where = d.hits.map((h) => `${name(h.profile)} ${h.label}, ${day(dayOf(Date.parse(h.at)))}`).join('; ');
+    const where = d.hits.map((h) => `${account(h.profile)} ${h.label}, ${day(dayOf(Date.parse(h.at)))}`).join('; ');
     const hits = d.limitHits
       ? `Limits: hit ${d.limitHits === 1 ? 'once' : `${d.limitHits} times`}${where ? ` (${d.hits.length < d.limitHits ? 'including ' : ''}${where})` : ''}, waited ${hm(d.waitedMs)}`
       : 'Limits: none hit';
@@ -182,12 +189,12 @@ export function digestCommand(rest: string[], ctx: Context, dir = USAGE_DIR, now
       '',
       table(
         result.accounts.map((a) => ({
-          name: a.name,
+          account: a.account,
           value: a.value,
           plan: a.planCost === null ? 'not set' : a.planCost,
           times: a.times === null ? '' : `${a.times}x`,
         })),
-        ['name', 'value', 'plan', 'times'],
+        ['account', 'value', 'plan', 'times'],
       ),
       '',
       `estimates at API prices of ${report.pricesAsOf}; plan is the monthly price over these 7 days${
