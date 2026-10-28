@@ -126,6 +126,11 @@ const PLACED: { account: string; start: (now: number) => number; calls: number; 
   },
 ];
 
+// Who starts the demo's sessions: mostly the person, in a terminal or a
+// desktop app, and about one in five a headless run.
+const claudeStarter = (x: number) => (x < 0.65 ? 'cli' : x < 0.8 ? 'claude-desktop' : 'sdk-cli');
+const codexStarter = (x: number) => (x < 0.5 ? 'codex_cli_rs' : x < 0.75 ? 'Codex Desktop' : 'codex_exec');
+
 function claudeLines(
   session: string,
   cwd: string,
@@ -135,7 +140,7 @@ function claudeLines(
   calls: number,
   r: () => number,
 ) {
-  const lines = [claudeUser({ session, at: start, text: title, cwd, entry: r() < 0.8 ? 'cli' : 'claude-desktop' })];
+  const lines = [claudeUser({ session, at: start, text: title, cwd, entry: claudeStarter(r()) })];
   let at = start;
   for (let i = 0; i < calls; i++) {
     at += (20 + r() * 70) * 1000;
@@ -179,7 +184,7 @@ function codexLines(
       id: session,
       session_id: session,
       cwd,
-      originator: r() < 0.7 ? 'codex_cli_rs' : 'Codex Desktop',
+      originator: codexStarter(r()),
     }),
     codexLine(start, 'turn_context', { model, cwd }),
     codexLine(start, 'event_msg', { type: 'user_message', message: title }),

@@ -85,22 +85,24 @@ heading also names the account with the most room left.
 
 ## Where did the usage go?
 
-The **Usage** tab keeps what the bars cannot: a history. It has three views.
+The **Usage** tab keeps what the bars cannot: a history, every account together.
+It has two views.
 
-![The Usage tab: a warning that one window will run out early, each account's fullest window with its pace, and a month of value per day](docs/usage.png)
+![The Usage tab: four totals that switch the chart, each day's value by vendor and by whether you or an automation started the work, the token mix, and value by repository](docs/usage.png)
 
-- **Overview.** A warning when a window is on course to run out before it
-  resets, with a button that opens the desktop app of the account that has the
-  most room (starting it, or bringing its window back if it is running). Each account's fullest window, with a tick where an even pace across
-  the window would be. The API-equivalent value, agent hours and limit hits of
-  the range; value per day split by account; the top projects or models; and
-  six months of days with agent work.
-- **Tokens.** Tokens by kind and what each kind is worth (cache reads are most
-  of the tokens and much less of the value), cache hit per account, each
-  account's value against what its plan cost over the same days, and value per
-  day. Set a plan's monthly price by clicking **Set plan price** beside the
-  account, or with `switchboard plan-price PROFILE 200`; Switchboard never
-  assumes one.
+- **Overview.** Value, tokens, agent hours and sessions across every account,
+  each a tile with a sparkline; pick one and the chart and lists below switch
+  to it. The chart stacks each day by vendor (Claude, Codex) and by who started
+  the work: you, in a desktop app or a terminal, or an automation (a headless
+  `claude -p`, Agent SDK or `codex exec` run), drawn lighter. Then the token
+  mix (share of tokens against share of value, kind by kind), the repositories
+  the work went to (a worktree counts as its repository; temporary folders as
+  Scratch), and every account with all four measures and its fullest window.
+  Set a plan's monthly price with **Set plan price** beside the account, or
+  `switchboard plan-price PROFILE 200`, to see its value as a multiple of what
+  the plan cost; Switchboard never assumes one. A warning at the top says when a
+  window is on course to run out before it resets, with a button that opens the
+  desktop app of the account with the most room.
 - **Sessions.** Agent sessions grouped by the 5-hour window they counted
   against, marked where a window ran out and for how long. Pick one to see its
   share of the window, how the window filled while it ran, the model, tokens and
@@ -112,7 +114,8 @@ a history from the day you update. Tokens come from the logs Claude Code and
 Codex already write in each profile's home: its CLI sessions and the agent
 inside each desktop app, but not ordinary chats in the desktop apps or on the
 web, which only show up in the windows. Dollar figures are what the same tokens
-would cost at API list prices; a subscription is not billed that way. See
+would cost at API list prices, fetched from models.dev once a day so new models
+are priced without an update; a subscription is not billed that way. See
 [Usage history](docs/usage-history.md) for how it is read and kept.
 
 Switchboard can also tell you: **Usage alerts** in Settings (on unless you turn

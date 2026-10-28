@@ -45,9 +45,9 @@ async function newPage(ctxOptions = {}) {
 
 // ---- the Usage tab ----
 {
-  const { ctx, page } = await newPage({ viewport: { width: VIEWPORT.width, height: 1000 } });
+  const { ctx, page } = await newPage({ viewport: { width: VIEWPORT.width, height: 1240 } });
   await page.click('#tab-usage');
-  await page.waitForSelector('.acct-grid');
+  await page.waitForSelector('.metric-tile');
   await page.screenshot({ path: path.join(DOCS, 'usage.png') });
   await ctx.close();
   console.log('wrote docs/usage.png');

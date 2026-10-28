@@ -76,7 +76,8 @@ await fs.writeFile(
     .join('\n') + '\n',
 );
 
-const env = { ...process.env, HOME: home, SWITCHBOARD_ROOT: store };
+// The bundled prices: the app would otherwise fetch today's from models.dev.
+const env = { ...process.env, HOME: home, SWITCHBOARD_ROOT: store, SWITCHBOARD_PRICES: 'bundled' };
 let app;
 async function until(check, what) {
   for (let attempt = 0; attempt < 150; attempt++) {
@@ -92,22 +93,30 @@ try {
 
   // The first report may arrive before the logs are read; the tab is told
   // when the ledger changes and asks again.
-  await until(async () => (await page.locator('.stat .v').first().textContent())?.startsWith('$'), 'the value tile');
-  await until(async () => (await page.locator('.stat .v').first().textContent()) !== '$0.00', 'indexed sessions');
+  const value = page.locator('.metric-tile .mt-value').first();
+  await until(async () => (await value.textContent())?.startsWith('$'), 'the value tile');
+  await until(async () => (await value.textContent()) !== '$0.00', 'indexed sessions');
   const report = await page.evaluate(() => window.sb.usageReport(30));
   // $10 per million output tokens; the repeated first line counts once.
-  assert.equal(Math.round(report.totals.value), 15);
-  assert.equal(report.totals.sessions, 2);
-  assert.deepEqual(report.projects.map((p) => p.name).sort(), ['api', 'switchboard']);
+  const you = report.overview.totals.claude.you;
+  assert.equal(Math.round(you.value), 15);
+  assert.equal(you.sessions, 2);
+  assert.equal(report.overview.totals.claude.auto.sessions, 0);
+  assert.deepEqual(report.overview.repos.map((r) => r.name).sort(), ['api', 'switchboard']);
   assert.equal(JSON.stringify(report).includes('/work/'), false, 'no full paths reach the renderer');
-  assert.equal(await page.locator('.acct-card').count(), 3);
+  assert.equal(await page.locator('.acct-table tbody tr').count(), 3);
   await page.screenshot({ path: path.join(output, 'overview.png'), fullPage: true });
 
-  await page.getByRole('radio', { name: 'Tokens' }).click();
-  await page.locator('table.mix').waitFor();
+  // A tile switches the chart and the lists to its measure.
+  await page.locator('.metric-tile', { hasText: 'Tokens' }).click();
+  await until(
+    async () => (await page.locator('.panel-title', { hasText: 'per day' }).textContent()) === 'Tokens per day',
+    'the tokens chart',
+  );
+  assert.match(await page.locator('.acct-table th.num.on').textContent(), /Tokens/);
   await page.screenshot({ path: path.join(output, 'tokens.png'), fullPage: true });
 
-  await page.getByRole('radio', { name: 'Sessions' }).click();
+  await page.getByRole('radiogroup', { name: 'Usage view' }).getByRole('radio', { name: 'Sessions' }).click();
   const current = page.locator('.block').filter({ hasText: 'Current window' });
   await current.waitFor();
   assert.match(await current.textContent(), /Add a usage tab/);
@@ -134,7 +143,7 @@ try {
     ['claude-sonnet-5'],
   );
   assert.equal(Math.round(cli.totals.value), 15);
-  console.log('Usage tab: indexing, overview, tokens, sessions, inspector and the tokens command passed.');
+  console.log('Usage tab: indexing, overview, the measure switch, sessions, inspector and the tokens command passed.');
 } finally {
   await app?.close().catch(() => {});
   await fs.rm(home, { recursive: true, force: true });

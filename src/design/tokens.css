@@ -119,16 +119,30 @@
   --shadow-2: 0 10px 15px -3px light-dark(rgba(26, 26, 26, 0.1), rgba(0, 0, 0, 0.35)), 0 4px 6px -4px light-dark(rgba(26, 26, 26, 0.1), rgba(0, 0, 0, 0.35));
   --shadow-3: 0 20px 25px -5px light-dark(rgba(26, 26, 26, 0.1), rgba(0, 0, 0, 0.45)), 0 8px 10px -6px light-dark(rgba(26, 26, 26, 0.1), rgba(0, 0, 0, 0.45));
   --backdrop: light-dark(rgba(26, 26, 26, 0.18), rgba(0, 0, 0, 0.5));
-  /* The Usage tab's charts: axis lines, the band under a window's line, and
-     the heatmap's six steps from no agent work to the busiest day. */
+  /* The Usage tab's charts: axis lines and the band under a window's line;
+     each vendor's colour, lighter for work an automation started; ten
+     series colours for accounts that share a profile colour, and the token
+     kinds. They differ in lightness as well as hue. */
   --axis: light-dark(#c5c0b3, #4a4c44);
   --fill-soft: light-dark(rgba(54, 148, 137, 0.14), rgba(143, 199, 181, 0.16));
-  --heat-0: light-dark(#eeebe3, #2a2c27);
-  --heat-1: light-dark(#cfe7e2, #2c4a44);
-  --heat-2: light-dark(#9dd0c7, #3d6f65);
-  --heat-3: light-dark(#62b1a5, #5a9a8c);
-  --heat-4: light-dark(#369489, #8fc7b5);
-  --heat-5: light-dark(#22635b, #c2e6da);
+  --claude: light-dark(#d97757, #e8956f);
+  --claude-soft: light-dark(#f2c3ab, #7a4a36);
+  --codex: light-dark(#3b6fb6, #7fa6e0);
+  --codex-soft: light-dark(#b4c8ea, #34507a);
+  --series-1: light-dark(#d97757, #e8956f);
+  --series-2: light-dark(#3b6fb6, #7fa6e0);
+  --series-3: light-dark(#e0a43a, #ebbf6a);
+  --series-4: light-dark(#7a5cc4, #a68be0);
+  --series-5: light-dark(#2f8f87, #6cc2b8);
+  --series-6: light-dark(#c2566f, #e08aa0);
+  --series-7: light-dark(#9a6b4f, #c49a7e);
+  --series-8: light-dark(#6b7a8f, #9eabbd);
+  --series-9: light-dark(#5a9b4b, #8cc47d);
+  --series-10: light-dark(#a3a19a, #c2bfb4);
+  --mix-read: var(--series-4);
+  --mix-write: var(--series-3);
+  --mix-output: var(--series-6);
+  --mix-input: var(--series-5);
   color-scheme: light dark;
 }
 /* Dark, after hours: the same warm sand, turned down. Raised means lighter,

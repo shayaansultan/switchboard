@@ -1,8 +1,8 @@
-// The Usage tab: what the accounts' windows and agent sessions have used, in
-// three views. Overview answers "which account next, and where did it go";
-// Tokens breaks the tokens and their API-equivalent value down; Sessions
-// groups sessions by the window they counted against, with an inspector for
-// one. Everything comes from one report the main process builds (see
+// The Usage tab: what every account's agent sessions have used, in two
+// views. Overview puts all the accounts together, by vendor and by whether
+// you or an automation started the work, in value, tokens, hours or
+// sessions; Sessions groups sessions by the window they counted against,
+// with an inspector for one. Everything comes from one report the main process builds (see
 // src/history/report.ts), fetched when the range changes, when the main
 // process says there is something new, and once a minute.
 
@@ -30,13 +30,15 @@ import {
   type UsageBlock,
   type UsageReport,
   type UsageSession,
-  type WindowPace,
+  type Measures,
+  type Starter,
+  type UsageSplit,
+  type Vendor,
 } from './lib';
-import { Badge, Btn, Icon, Meter, Note, Panel, Ring, Seg, Skeleton, Track } from './ui/primitives';
+import { Badge, Btn, Icon, Meter, Note, Panel, Ring, Seg, Skeleton } from './ui/primitives';
 import { planCostOver } from '../shared/usage';
-import { useTip } from './ui/overlays';
 
-type View = 'overview' | 'tokens' | 'sessions';
+type View = 'overview' | 'sessions';
 type Days = '7' | '30' | '90';
 
 export function Usage({ state, version }: { state: State; version: number }) {
@@ -72,7 +74,6 @@ export function Usage({ state, version }: { state: State; version: number }) {
           onChange={setView}
           options={[
             { id: 'overview', label: 'Overview' },
-            { id: 'tokens', label: 'Tokens' },
             { id: 'sessions', label: 'Sessions' },
           ]}
         />
@@ -94,8 +95,6 @@ export function Usage({ state, version }: { state: State; version: number }) {
         )
       ) : view === 'overview' ? (
         <Overview state={state} report={report} />
-      ) : view === 'tokens' ? (
-        <Tokens state={state} report={report} />
       ) : (
         <Sessions state={state} report={report} />
       )}
@@ -116,20 +115,6 @@ function Loading() {
 
 const known = (state: State, id: string) => !!profileById(state, id);
 
-// The history keeps a removed profile's work, so a day's values can name
-// profiles the window no longer has. The charts fold those into one muted
-// entry, so a day's bar still adds up to the totals above it.
-const REMOVED = '(removed)';
-const shownValues = (state: State, values: Record<string, number>): Record<string, number> => {
-  const out: Record<string, number> = {};
-  for (const [id, v] of Object.entries(values)) {
-    const k = known(state, id) ? id : REMOVED;
-    out[k] = (out[k] ?? 0) + v;
-  }
-  return out;
-};
-const seriesOrder = (state: State) => [...state.profiles.map((p) => p.id), REMOVED];
-
 function Swatch({ color }: { color: string }) {
   return <span class="key-swatch" style={{ background: color }} />;
 }
@@ -137,68 +122,15 @@ function Swatch({ color }: { color: string }) {
 function Who({ state, id }: { state: State; id: string }) {
   return (
     <span class="who-inline">
-      <Swatch color={id === REMOVED ? 'var(--muted)' : profileColor(state, id)} />
-      {id === REMOVED ? 'Removed profiles' : profileName(state, id)}
+      <Swatch color={profileColor(state, id)} />
+      {profileName(state, id)}
     </span>
   );
 }
 
-function Tile({
-  k,
-  v,
-  sub,
-  delta,
-}: {
-  k: string;
-  v: string;
-  sub: ComponentChildren;
-  delta?: { text: string; tone: 'good' | 'bad' | 'neutral' } | null;
-}) {
-  return (
-    <div class="stat">
-      <span class="k">{k}</span>
-      <span class="v-row">
-        <span class="v">{v}</span>
-        {delta ? <span class={`delta ${delta.tone}`}>{delta.text}</span> : null}
-      </span>
-      <span class="s" title={typeof sub === 'string' ? sub : undefined}>
-        {sub}
-      </span>
-    </div>
-  );
-}
-
-// The change on the previous period, as a percentage.
-function change(cur: number, prev: number | undefined, tone: 'neutral' | 'lower-is-better' = 'neutral') {
-  if (prev === undefined || prev <= 0) return null;
-  const pct = Math.round(((cur - prev) / prev) * 100);
-  if (!pct) return { text: 'same', tone: 'neutral' as const };
-  const good = tone === 'lower-is-better' ? pct < 0 : null;
-  return {
-    text: `${pct > 0 ? '+' : '−'}${Math.abs(pct)}%`,
-    tone: good === null ? 'neutral' : good ? 'good' : 'bad',
-  } as const;
-}
-
-// A ranked list: a name, a bar, the value. The bar is sized against `max`
-// where the rows have a natural whole (a percentage's 100), else against the
-// largest row. `solid` is the taller bar in each row's own colour.
-type RankedRow = { key: string; name: ComponentChildren; share: number; value: ComponentChildren; color?: string };
-function Ranked({ rows, max, solid = false }: { rows: RankedRow[]; max?: number; solid?: boolean }) {
-  if (!rows.length) return <Note>Nothing in this range.</Note>;
-  const top = max ?? (Math.max(...rows.map((r) => r.share), 0) || 1);
-  return (
-    <div class={solid ? 'ranked solid' : 'ranked'}>
-      {rows.map((r) => (
-        <div class="ranked-row" key={r.key}>
-          <span class="name">{r.name}</span>
-          <Meter frac={r.share / top} color={r.color} class={solid ? 'solid' : undefined} />
-          <span class="num">{r.value}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
+// An SVG path through points already in the chart's coordinates.
+const linePath = (points: [number, number][]) =>
+  points.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('');
 
 function Provenance({ report }: { report: UsageReport }) {
   return (
@@ -212,92 +144,384 @@ function Provenance({ report }: { report: UsageReport }) {
 }
 
 // ---------------------------------------------------------------- overview
+// Every account together: four measures to switch between, each day's work by
+// vendor and by who started it, the token mix, and the repositories and
+// accounts it went to. All of it comes from report.overview, which counts
+// the sessions that started in the range, so the four measures agree.
+
+type Metric = keyof Measures;
+const METRICS: { id: Metric; label: string; tile: string; word: string }[] = [
+  { id: 'value', label: 'Value', tile: 'API-equivalent value', word: 'value' },
+  { id: 'tokens', label: 'Tokens', tile: 'Tokens', word: 'tokens' },
+  { id: 'agentMs', label: 'Hours', tile: 'Agent hours', word: 'agent hours' },
+  { id: 'sessions', label: 'Sessions', tile: 'Sessions', word: 'sessions' },
+];
+
+// "424h" past ten hours: minutes stop mattering at that scale.
+// Whole hours, or minutes under one: "190h", "3h", "40m".
+const hours = (ms: number) => (ms >= 3_600_000 ? `${Math.round(ms / 3_600_000)}h` : `${Math.round(ms / 60_000)}m`);
+const shownAs = (metric: Metric, n: number): string =>
+  metric === 'value'
+    ? money(n)
+    : metric === 'tokens'
+      ? count(n)
+      : metric === 'agentMs'
+        ? hours(n)
+        : Math.round(n).toLocaleString('en-US');
+
+// The chart's four series, bottom up: each vendor's own colour, lighter for
+// automations.
+const SERIES: { vendor: Vendor; who: Starter; label: string; color: string }[] = [
+  { vendor: 'claude', who: 'you', label: 'Claude, you', color: 'var(--claude)' },
+  { vendor: 'claude', who: 'auto', label: 'Claude, automations', color: 'var(--claude-soft)' },
+  { vendor: 'codex', who: 'you', label: 'Codex, you', color: 'var(--codex)' },
+  { vendor: 'codex', who: 'auto', label: 'Codex, automations', color: 'var(--codex-soft)' },
+];
+const METRIC_COLOR: Record<Metric, string> = {
+  value: 'var(--claude)',
+  tokens: 'var(--series-4)',
+  agentMs: 'var(--series-5)',
+  sessions: 'var(--codex)',
+};
+
+const splitSum = (sp: UsageSplit, metric: Metric, keep: (vendor: Vendor, who: Starter) => boolean = () => true) =>
+  SERIES.reduce((sum, s) => (keep(s.vendor, s.who) ? sum + sp[s.vendor][s.who][metric] : sum), 0);
+
+// Each account's colour in this tab: the chart palette in the profiles'
+// own order, so it stays put when the sort changes. Not the profile's colour:
+// profiles often share one (a Default per vendor), and here nine accounts
+// sit side by side and must be told apart.
+const SERIES_COLORS = 10;
+function accountColors(state: State): Map<string, string> {
+  return new Map(state.profiles.map((p, i) => [p.id, `var(--series-${(i % SERIES_COLORS) + 1})`]));
+}
 
 function Overview({ state, report }: { state: State; report: UsageReport }) {
-  const t = report.totals;
-  const p = report.previous;
-  const empty = !t.sessions && !report.accounts.some((a) => a.tightest);
+  const [metric, setMetric] = useState<Metric>('value');
+  const o = report.overview;
+  const m = METRICS.find((x) => x.id === metric) as (typeof METRICS)[number];
+  const empty = !splitSum(o.totals, 'sessions');
   return (
     <>
       <Forecast state={state} report={report} />
-      <div class="acct-grid">
-        {report.accounts
-          .filter((a) => known(state, a.profile))
-          .map((a) => (
-            <AccountCard key={a.profile} state={state} id={a.profile} t={a.tightest} />
-          ))}
-      </div>
       {empty ? (
         <div class="empty">
           No agent sessions in this range yet. Switchboard reads the logs Claude Code and Codex keep in each profile,
           and records every usage reading from now on.
         </div>
       ) : null}
-      <div class="stats">
-        <Tile
-          k="API-equivalent value"
-          v={money(t.value)}
-          sub={
-            t.unpricedTokens
-              ? `${count(t.unpricedTokens)} tokens of unpriced models`
-              : 'what these tokens cost on the API'
-          }
-          delta={change(t.value, p?.value)}
-        />
-        <Tile
-          k="Agent hours"
-          v={duration(t.agentMs)}
-          sub={`${t.sessions} sessions in ${t.projects} projects`}
-          delta={change(t.agentMs, p?.agentMs)}
-        />
-        <Tile
-          k="Limit hits"
-          v={String(t.limitHits)}
-          sub={t.limitHits ? `waited ${duration(t.waitedMs)} in total` : 'no window ran out'}
-          delta={
-            p && report.previousHasLimits && (t.limitHits || p.limitHits) ? limitChange(t.limitHits, p.limitHits) : null
-          }
-        />
+      <div class="metric-tiles" role="radiogroup" aria-label="Measure">
+        {METRICS.map((x) => (
+          <MetricTile key={x.id} report={report} metric={x.id} on={x.id === metric} onPick={() => setMetric(x.id)} />
+        ))}
       </div>
-      <Panel title="Value per day, by account" actions={<Legend state={state} ids={activeIds(state, report)} />}>
-        <DailyBars state={state} report={report} />
+      <Panel
+        title={`${m.label === 'Hours' ? 'Agent hours' : m.label} per day`}
+        actions={
+          <Seg
+            label="Measure"
+            value={metric}
+            onChange={setMetric}
+            options={METRICS.map((x) => ({ id: x.id, label: x.label }))}
+          />
+        }
+      >
+        <DayChart report={report} metric={metric} />
       </Panel>
-      <div class="usage-cols">
-        <WhereItWent state={state} report={report} />
-        <Panel
-          title="Every day with agent work"
-          meta={report.recordedSince ? `since ${dayWord(report.recordedSince)}` : null}
-        >
-          <Heat report={report} />
+      <div class="usage-cols top">
+        <TokenMix report={report} />
+        <Panel title="By repository" meta={`${m.word} · temporary folders as Scratch`}>
+          <Repos report={report} metric={metric} />
         </Panel>
       </div>
+      <Panel title="By account" meta={`sorted by ${m.word}`}>
+        <AccountTable state={state} report={report} metric={metric} />
+      </Panel>
       <Provenance report={report} />
     </>
   );
 }
 
-function limitChange(cur: number, prev: number) {
-  const d = cur - prev;
-  if (!d) return { text: 'same', tone: 'neutral' as const };
-  return { text: `${d > 0 ? '+' : '−'}${Math.abs(d)}`, tone: d > 0 ? ('bad' as const) : ('good' as const) };
+// A measure's total, what it is made of, and its days as a sparkline. The
+// tile is also the switch for the chart and the lists below.
+function MetricTile({
+  report,
+  metric,
+  on,
+  onPick,
+}: {
+  report: UsageReport;
+  metric: Metric;
+  on: boolean;
+  onPick: () => void;
+}) {
+  const o = report.overview;
+  const x = METRICS.find((d) => d.id === metric) as (typeof METRICS)[number];
+  const total = splitSum(o.totals, metric);
+  const you = splitSum(o.totals, metric, (_, who) => who === 'you');
+  const kind = (k: keyof TokenCounts) => o.mix.find((e) => e.kind === k)?.tokens ?? 0;
+  const sub =
+    metric === 'value'
+      ? `Claude ${money(splitSum(o.totals, metric, (v) => v === 'claude'))} · Codex ${money(splitSum(o.totals, metric, (v) => v === 'codex'))}`
+      : metric === 'tokens'
+        ? `${count(kind('input') + kind('output') + kind('cacheWrite'))} fresh · ${count(kind('cacheRead'))} cache reads`
+        : `You ${shownAs(metric, you)} · automations ${shownAs(metric, total - you)}`;
+  const days = o.days.map((d) => splitSum(d.split, metric));
+  const max = Math.max(...days, 0) || 1;
+  return (
+    <button type="button" role="radio" aria-checked={on} class={on ? 'metric-tile on' : 'metric-tile'} onClick={onPick}>
+      <span class="mt-head">
+        {x.tile}
+        <Swatch color={METRIC_COLOR[metric]} />
+      </span>
+      <span class="mt-value">{shownAs(metric, total)}</span>
+      <span class="mt-spark" aria-hidden="true">
+        {days.map((v, i) => (
+          // Square-root heights, so a quiet day still shows beside a big one.
+          <i
+            key={i}
+            style={{
+              height: `${v > 0 ? Math.max(8, Math.sqrt(v / max) * 100) : 4}%`,
+              background: v > 0 ? METRIC_COLOR[metric] : undefined,
+            }}
+          />
+        ))}
+      </span>
+      <span class="mt-sub">{sub}</span>
+    </button>
+  );
 }
 
-const activeIds = (state: State, report: UsageReport): string[] => {
-  const ids = new Set<string>();
-  for (const d of report.daily)
-    for (const [id, v] of Object.entries(shownValues(state, d.value))) if (v > 0) ids.add(id);
-  return [...ids];
-};
-
-function Legend({ state, ids }: { state: State; ids: string[] }) {
+// Each day's bar, stacked by vendor and starter. One day far above the rest
+// (a single long session) is cut at twice the next and labelled, so it does
+// not flatten every other day.
+function DayChart({ report, metric }: { report: UsageReport; metric: Metric }) {
+  const days = report.overview.days;
+  const totals = days.map((d) => splitSum(d.split, metric));
+  const sorted = [...totals].sort((a, b) => b - a);
+  const cap = sorted[0] > 2 * (sorted[1] || 0) && sorted[1] > 0 ? 2 * sorted[1] : sorted[0] || 1;
+  const every = days.length <= 7 ? 1 : days.length <= 30 ? 5 : 15;
+  const seriesTotals = SERIES.map((s) => days.reduce((sum, d) => sum + d.split[s.vendor][s.who][metric], 0));
   return (
-    <span class="legend">
-      {seriesOrder(state)
-        .filter((id) => ids.includes(id))
-        .map((id) => (
-          <Who key={id} state={state} id={id} />
+    <div class="day-chart">
+      <div class="dc-legend">
+        {SERIES.map((s, i) => (
+          <span key={s.label}>
+            <Swatch color={s.color} />
+            {s.label} <b>{shownAs(metric, seriesTotals[i])}</b>
+          </span>
         ))}
-    </span>
+      </div>
+      <div
+        class="dc-plot"
+        role="img"
+        aria-label={`${METRICS.find((x) => x.id === metric)?.word} per day, from ${shortDay(days[0]?.day ?? '')}: ${totals.map((t) => shownAs(metric, t)).join(', ')}`}
+      >
+        {days.map((d, i) => {
+          const scale = totals[i] > cap ? cap / totals[i] : 1;
+          return (
+            <div class="dc-day" key={d.day} title={`${dayWord(d.day)}: ${shownAs(metric, totals[i])}`}>
+              {totals[i] > cap ? <span class="dc-clip">{shownAs(metric, totals[i])} ↑</span> : null}
+              {SERIES.map((s) => {
+                const v = d.split[s.vendor][s.who][metric];
+                return v > 0 ? (
+                  <i
+                    key={s.label}
+                    style={{ height: `${Math.max(1, ((v * scale) / cap) * 100)}%`, background: s.color }}
+                  />
+                ) : null;
+              })}
+            </div>
+          );
+        })}
+      </div>
+      <div class="dc-axis">
+        {days.map((d, i) => (
+          <span key={d.day}>{i % every === 0 || i === days.length - 1 ? shortDay(d.day) : ''}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const MIX: { kind: keyof TokenCounts; label: string; color: string; note: string }[] = [
+  { kind: 'cacheRead', label: 'Cache reads', color: 'var(--mix-read)', note: 'cheapest per token' },
+  { kind: 'cacheWrite', label: 'Cache writes', color: 'var(--mix-write)', note: 'about 1.25× input' },
+  { kind: 'output', label: 'Output', color: 'var(--mix-output)', note: 'dearest per token' },
+  { kind: 'input', label: 'Input', color: 'var(--mix-input)', note: 'not from cache' },
+];
+
+// Share of tokens against share of value, kind by kind: cache reads are most
+// of the tokens and much less of the value.
+function TokenMix({ report }: { report: UsageReport }) {
+  const mix = MIX.map((k) => ({
+    ...k,
+    ...(report.overview.mix.find((e) => e.kind === k.kind) ?? { tokens: 0, value: 0 }),
+  }));
+  const tokens = mix.reduce((s, k) => s + k.tokens, 0);
+  const value = mix.reduce((s, k) => s + k.value, 0);
+  const read = mix[0].tokens;
+  const input = read + mix[1].tokens + mix[3].tokens;
+  const hit = input ? Math.round((read / input) * 1000) / 10 : null;
+  return (
+    <Panel title="Token mix" meta={`${count(tokens)} tokens${hit === null ? '' : ` · ${hit}% of input from cache`}`}>
+      <div class="token-mix">
+        {(['tokens', 'value'] as const).map((by) => (
+          <div class="tm-row" key={by}>
+            <span class="muted">Share of {by}</span>
+            <div
+              class="tm-bar"
+              role="img"
+              aria-label={`Share of ${by}: ${mix.map((k) => `${k.label} ${Math.round(((by === 'tokens' ? k.tokens / tokens : k.value / value) || 0) * 100)}%`).join(', ')}`}
+            >
+              {mix.map((k) => (
+                <i
+                  key={k.kind}
+                  style={{
+                    flexGrow: Math.max(by === 'tokens' ? k.tokens / (tokens || 1) : k.value / (value || 1), 0.004),
+                    background: k.color,
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+        <div class="tm-keys">
+          {mix.map((k) => (
+            <span key={k.kind}>
+              <Swatch color={k.color} />
+              <span>
+                <b>{k.label}</b>
+                <span class="muted">
+                  {count(k.tokens)} tokens · {money(k.value)} · {k.note}
+                </span>
+              </span>
+            </span>
+          ))}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+const TOP_REPOS = 8;
+
+function Repos({ report, metric }: { report: UsageReport; metric: Metric }) {
+  const rows = report.overview.repos
+    .map((r) => ({
+      name: r.name,
+      claude: splitSum(r.split, metric, (v) => v === 'claude'),
+      codex: splitSum(r.split, metric, (v) => v === 'codex'),
+      sessions: splitSum(r.split, 'sessions'),
+      auto: splitSum(r.split, 'sessions', (_, who) => who === 'auto'),
+    }))
+    .map((r) => ({ ...r, total: r.claude + r.codex }))
+    .filter((r) => r.total > 0)
+    .sort((a, b) => b.total - a.total);
+  if (!rows.length) return <Note>Nothing in this range.</Note>;
+  const top = rows.slice(0, TOP_REPOS);
+  const max = top[0].total || 1;
+  return (
+    <div class="repo-rows">
+      {top.map((r) => (
+        <div class="repo-row" key={r.name}>
+          <span class="rr-name">
+            <b>{r.name}</b>
+            <span class="muted">
+              {r.sessions.toLocaleString('en-US')} sessions
+              {r.auto ? ` · ${Math.round((r.auto / r.sessions) * 100)}% automations` : ''}
+            </span>
+          </span>
+          <span
+            class="rr-bar"
+            role="img"
+            aria-label={`Claude ${shownAs(metric, r.claude)}, Codex ${shownAs(metric, r.codex)}`}
+          >
+            <i style={{ width: `${(r.claude / max) * 100}%`, background: 'var(--claude)' }} />
+            <i style={{ width: `${(r.codex / max) * 100}%`, background: 'var(--codex)' }} />
+          </span>
+          <span class="num">{shownAs(metric, r.total)}</span>
+        </div>
+      ))}
+      {rows.length > TOP_REPOS ? <Note>and {rows.length - TOP_REPOS} more</Note> : null}
+    </div>
+  );
+}
+
+// Every account with all four measures, its share of the chosen one, its
+// plan against its value, and its fullest window now.
+function AccountTable({ state, report, metric }: { state: State; report: UsageReport; metric: Metric }) {
+  const colors = accountColors(state);
+  const remaining = state.settings.usageMode === 'remaining';
+  const rows = report.overview.accounts
+    .filter((a) => known(state, a.profile))
+    .sort((a, b) => b.measures[metric] - a.measures[metric]);
+  const max = Math.max(...rows.map((r) => r.measures[metric]), 0) || 1;
+  return (
+    <div class="table-scroll">
+      <table class="acct-table">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th class="share">Share of {METRICS.find((x) => x.id === metric)?.word}</th>
+            {METRICS.map((x) => (
+              <th class={x.id === metric ? 'num on' : 'num'} key={x.id}>
+                {x.label}
+              </th>
+            ))}
+            <th class="window">Fullest window</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const p = profileById(state, r.profile);
+            const plan = p ? planOf(p) : undefined;
+            const t = report.accounts.find((a) => a.profile === r.profile)?.tightest ?? null;
+            const color = colors.get(r.profile) ?? profileColor(state, r.profile);
+            const cost = p?.planPrice === undefined ? null : planCostOver(p.planPrice, report.days);
+            return (
+              <tr key={r.profile}>
+                <td>
+                  <span class="at-who">
+                    <Swatch color={color} />
+                    <span>
+                      <b>{profileName(state, r.profile)}</b>
+                      <span class="at-plan">
+                        {plan ? <span class="muted">{plan}</span> : null}
+                        <PlanPrice id={r.profile} monthly={p?.planPrice} />
+                        {cost ? (
+                          <b title="Value against the plan's price over these days">{times(r.measures.value / cost)}</b>
+                        ) : null}
+                      </span>
+                    </span>
+                  </span>
+                </td>
+                <td class="share">
+                  <Meter frac={r.measures[metric] / max} color={color} />
+                </td>
+                {METRICS.map((x) => (
+                  <td class={x.id === metric ? 'num on' : 'num'} key={x.id}>
+                    {shownAs(x.id, r.measures[x.id])}
+                  </td>
+                ))}
+                <td class="window">
+                  {t ? (
+                    <span class="at-window" title={`${t.label} window, ${relTime(t.resetsAt)}`}>
+                      <Meter frac={shownPct(t.pct, remaining) / 100} tone={severityClass(t) || undefined} />
+                      <span class="num">
+                        {t.label} {shownPct(t.pct, remaining)}%
+                      </span>
+                    </span>
+                  ) : (
+                    <span class="muted">—</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -369,406 +593,6 @@ function paceWords(pace: number | null, early: boolean): string {
   return pace > 0 ? `${pace} points ahead of an even pace` : `${-pace} points behind an even pace`;
 }
 
-// An account's fullest window, with a tick where an even pace would be.
-function AccountCard({ state, id, t }: { state: State; id: string; t: WindowPace | null }) {
-  const p = profileById(state, id);
-  const plan = p ? planOf(p) : undefined;
-  const remaining = state.settings.usageMode === 'remaining';
-  const shown = (pct: number) => shownPct(pct, remaining);
-  const tipLines =
-    t && t.pace !== null
-      ? [paceWords(t.pace, !!t.runsOutAt), `The tick is where an even burn across the ${t.label} window would be now.`]
-      : null;
-  const tip = useTip(tipLines);
-  return (
-    <div class="acct-card">
-      <div class="ac-head">
-        <Swatch color={profileColor(state, id)} />
-        <b>{profileName(state, id)}</b>
-        {plan ? <Badge>{plan}</Badge> : null}
-      </div>
-      {t ? (
-        <>
-          <div class="ac-row">
-            <span>
-              {t.label} window{remaining ? ', left' : ''}
-            </span>
-            <b>{shown(t.pct)}%</b>
-          </div>
-          <Track
-            class="big"
-            w={t}
-            shown={shown(t.pct)}
-            tick={t.pace !== null ? shown(t.pct - t.pace) : null}
-            {...(tipLines
-              ? { tabIndex: 0, role: 'img', 'aria-label': `${t.label} window ${t.pct}% used. ${tipLines.join(' ')}` }
-              : {})}
-            {...tip}
-          />
-          <div class="ac-foot">
-            <span>{relTime(t.resetsAt)}</span>
-            <PaceChip t={t} />
-          </div>
-        </>
-      ) : (
-        <Note>No usage reading yet.</Note>
-      )}
-    </div>
-  );
-}
-
-// Warns exactly when the shared pace says the window runs out before it
-// resets, as the profile band and the phone do.
-function PaceChip({ t }: { t: WindowPace }) {
-  if (t.pace === null) return null;
-  if (t.runsOutAt) return <Badge tone="warn">{Math.max(1, t.pace)} ahead</Badge>;
-  if (t.pace <= -5) return <Badge tone="ok">In reserve</Badge>;
-  return <Badge tone="mute">On pace</Badge>;
-}
-
-// A scale's dollars, without cents on round numbers.
-const axisMoney = (v: number) => money(v).replace(/\.00$/, '');
-
-// A tidy upper bound for a chart's scale.
-function niceMax(v: number): number {
-  if (v <= 0) return 1;
-  const step = 10 ** Math.floor(Math.log10(v));
-  return [1, 2, 2.5, 5, 10].map((m) => m * step).find((m) => m >= v) ?? v;
-}
-
-function DailyBars({ state, report }: { state: State; report: UsageReport }) {
-  const order = seriesOrder(state);
-  const days = report.daily.map((d) => shownValues(state, d.value));
-  const totals = days.map((v) => Object.values(v).reduce((a, b) => a + b, 0));
-  const max = niceMax(Math.max(...totals, 0));
-  const every = Math.ceil(report.daily.length / 6);
-  return (
-    <div class="dbars">
-      <div class="dbars-plot">
-        {[0, 0.5, 1].map((f) => (
-          <div class="gl" key={f} style={{ bottom: `${f * 100}%` }}>
-            <span>{axisMoney(max * f)}</span>
-          </div>
-        ))}
-        <div class="dbars-cols" style={{ gridTemplateColumns: `repeat(${report.daily.length}, minmax(0, 1fr))` }}>
-          {report.daily.map((d, i) => (
-            <DayColumn
-              key={d.day}
-              state={state}
-              day={d.day}
-              values={days[i]}
-              order={order}
-              max={max}
-              total={totals[i]}
-            />
-          ))}
-        </div>
-      </div>
-      <div class="dbars-x" style={{ gridTemplateColumns: `repeat(${report.daily.length}, minmax(0, 1fr))` }}>
-        {report.daily.map((d, i) => (
-          <span key={d.day}>{(report.daily.length - 1 - i) % every === 0 ? shortDay(d.day) : ''}</span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function DayColumn({
-  state,
-  day,
-  values,
-  order,
-  max,
-  total,
-}: {
-  state: State;
-  day: string;
-  values: Record<string, number>;
-  order: string[];
-  max: number;
-  total: number;
-}) {
-  const ids = order.filter((id) => (values[id] ?? 0) > 0);
-  const lines = [
-    `${dayWord(day)} · ${money(total)}`,
-    ...ids.map((id) => `${id === REMOVED ? 'Removed profiles' : profileName(state, id)}: ${money(values[id])}`),
-  ];
-  const tip = useTip(lines);
-  return (
-    <div class="dcol" tabIndex={0} role="img" aria-label={lines.join(', ')} {...tip}>
-      {ids.map((id) => (
-        <span
-          key={id}
-          style={{
-            height: `${(values[id] / max) * 100}%`,
-            background: id === REMOVED ? 'var(--muted)' : profileColor(state, id),
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function WhereItWent({ state, report }: { state: State; report: UsageReport }) {
-  const [by, setBy] = useState<'projects' | 'models'>('projects');
-  // One unit per list: dollars where any project has a price, else agent
-  // time. Mixed, a project of unpriced models would be sized in
-  // milliseconds against the others' dollars.
-  const top = report.projects.slice(0, 5);
-  const priced = top.some((p) => p.value > 0);
-  const rows =
-    by === 'projects'
-      ? top.map((p) => ({
-          key: p.name,
-          name: (
-            <>
-              {p.profiles.map((id) => (
-                <Swatch key={id} color={profileColor(state, id)} />
-              ))}
-              <code>{p.name}</code>
-            </>
-          ),
-          share: priced ? p.value : p.agentMs,
-          value: p.value ? money(p.value) : duration(p.agentMs),
-        }))
-      : report.models.slice(0, 5).map((m) => ({
-          key: m.model,
-          name: <code>{m.model}</code>,
-          share: m.value ?? 0,
-          value: m.value === null ? `${count(m.tokens)} tokens` : money(m.value),
-        }));
-  return (
-    <Panel
-      title="Where it went"
-      actions={
-        <Seg
-          label="Show"
-          value={by}
-          onChange={setBy}
-          options={[
-            { id: 'projects', label: 'Projects' },
-            { id: 'models', label: 'Models' },
-          ]}
-        />
-      }
-    >
-      <Ranked rows={rows} />
-    </Panel>
-  );
-}
-
-// 26 weeks of days, Monday at the top; days before recording began are
-// drawn as not recorded rather than as idle.
-function Heat({ report }: { report: UsageReport }) {
-  const days = report.heat;
-  const max = Math.max(...days.map((d) => d.agentMs ?? 0), 1);
-  const lead = days[0] ? (new Date(`${days[0].day}T12:00:00`).getDay() + 6) % 7 : 0;
-  const level = (ms: number | null) =>
-    ms === null ? 'n' : ms === 0 ? '0' : String(1 + Math.min(4, Math.floor((ms / max) * 5)));
-  return (
-    <div class="heat-wrap">
-      <div class="heat" role="img" aria-label="Agent work per day, 26 weeks">
-        {Array.from({ length: lead }, (_, i) => (
-          <span key={`pad${i}`} class="cell pad" />
-        ))}
-        {days.map((d) => (
-          <HeatCell key={d.day} day={d.day} ms={d.agentMs} level={level(d.agentMs)} />
-        ))}
-      </div>
-      <div class="heat-legend">
-        Less
-        {['0', '1', '2', '3', '4', '5'].map((l) => (
-          <span key={l} class={`cell l${l}`} />
-        ))}
-        More
-        <span class="cell ln" />
-        Not recorded
-      </div>
-    </div>
-  );
-}
-
-function HeatCell({ day, ms, level }: { day: string; ms: number | null; level: string }) {
-  const tip = useTip([
-    dayWord(day),
-    ms === null ? 'Not recorded' : ms ? `${duration(ms)} of agent work` : 'No agent work',
-  ]);
-  return <span class={`cell l${level}`} {...tip} />;
-}
-
-// ---------------------------------------------------------------- tokens
-
-const KINDS: Record<keyof TokenCounts, string> = {
-  cacheRead: 'Cache reads',
-  cacheWrite: 'Cache writes',
-  output: 'Output, with reasoning',
-  input: 'Uncached input',
-};
-
-function Tokens({ state, report }: { state: State; report: UsageReport }) {
-  const t = report.totals;
-  const p = report.previous;
-  const tokens = tokenSum(t.tokens);
-  const hit = tokens
-    ? Math.round((t.tokens.cacheRead / (t.tokens.input + t.tokens.cacheRead + t.tokens.cacheWrite || 1)) * 100)
-    : null;
-  // Removed profiles are in the total but in no vendor's account.
-  const removed = report.daily.reduce((sum, d) => sum + (shownValues(state, d.value)[REMOVED] ?? 0), 0);
-  const byVendor = (vendor: string) =>
-    report.accounts.filter((a) => profileById(state, a.profile)?.vendor === vendor).reduce((s, a) => s + a.value, 0);
-  const mix = [...report.mix].sort((a, b) => b.tokens - a.tokens);
-  const reads = report.mix.find((m) => m.kind === 'cacheRead');
-  const readLine =
-    reads && tokens && t.value
-      ? `cache reads are ${Math.round((reads.tokens / tokens) * 100)}% of tokens but ${Math.round((reads.value / t.value) * 100)}% of value`
-      : null;
-  const accounts = report.accounts.filter((a) => known(state, a.profile) && (a.value || tokenSum(a.tokens)));
-  // One scale for the accounts drawn, not for profiles no longer listed.
-  const scale = niceMax(Math.max(...accounts.flatMap((a) => report.daily.map((d) => d.value[a.profile] ?? 0)), 0));
-  return (
-    <>
-      <div class="stats four">
-        <Tile
-          k="Tokens"
-          v={count(tokens)}
-          sub="input, output and cache"
-          delta={change(tokens, p ? tokenSum(p.tokens) : undefined)}
-        />
-        <Tile
-          k="Fresh tokens"
-          v={count(freshTokens(t.tokens))}
-          sub="without cache reads"
-          delta={change(freshTokens(t.tokens), p ? freshTokens(p.tokens) : undefined)}
-        />
-        <Tile k="Cache hit" v={hit === null ? '—' : `${hit}%`} sub="of input served from cache" />
-        <Tile
-          k="API-equivalent value"
-          v={money(t.value)}
-          sub={`Claude ${money(byVendor('claude'))} · Codex ${money(byVendor('codex'))}${removed >= 0.005 ? ` · removed ${money(removed)}` : ''}`}
-          delta={change(t.value, p?.value)}
-        />
-      </div>
-      <div class="usage-cols wide-first">
-        <Panel title="Token mix" meta={readLine}>
-          <table class="mix">
-            <thead>
-              <tr>
-                <th>Kind</th>
-                <th>Share of tokens</th>
-                <th class="num">Tokens</th>
-                <th>Share of value</th>
-                <th class="num">Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {mix.map((m) => (
-                <tr key={m.kind}>
-                  <td>{KINDS[m.kind]}</td>
-                  <td>
-                    <Meter frac={tokens ? m.tokens / tokens : 0} />
-                  </td>
-                  <td class="num">{count(m.tokens)}</td>
-                  <td>
-                    <Meter class="quiet" frac={t.value ? m.value / t.value : 0} />
-                  </td>
-                  <td class="num">{money(m.value)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Panel>
-        <Panel title="Cache hit by account" meta="higher is cheaper">
-          <Ranked
-            max={100}
-            rows={report.cacheHit
-              .filter((c) => c.pct !== null && known(state, c.profile))
-              .map((c) => ({
-                key: c.profile,
-                name: <Who state={state} id={c.profile} />,
-                share: c.pct ?? 0,
-                value: `${c.pct}%`,
-              }))}
-          />
-        </Panel>
-      </div>
-      <Panel title="Value against plan price" meta={`last ${report.days} days`}>
-        <PlanValue state={state} report={report} accounts={accounts} />
-      </Panel>
-      <Panel title="Daily value per account" meta={accounts.length ? `same scale, $0 – ${axisMoney(scale)}` : null}>
-        {accounts.length ? (
-          <div class="multiples">
-            {accounts.map((a) => (
-              <div class="multiple" key={a.profile}>
-                <span class="multiple-head">
-                  <Who state={state} id={a.profile} />
-                  <span class="muted">{money(a.value)}</span>
-                </span>
-                <Spark
-                  values={report.daily.map((d) => d.value[a.profile] ?? 0)}
-                  max={scale}
-                  color={profileColor(state, a.profile)}
-                />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <Note>Nothing in this range.</Note>
-        )}
-      </Panel>
-      <Provenance report={report} />
-    </>
-  );
-}
-
-// Each account's value in the range against what its plan cost for the same
-// days: the bar is the value, the tick the plan's price, and the multiple how
-// many times over the plan would have cost at API prices. The price is the
-// owner's to set, here or with `switchboard plan-price`; none is assumed.
-function PlanValue({
-  state,
-  report,
-  accounts,
-}: {
-  state: State;
-  report: UsageReport;
-  accounts: UsageReport['accounts'];
-}) {
-  if (!accounts.length) return <Note>Nothing in this range.</Note>;
-  const rows = accounts.map((a) => {
-    const monthly = profileById(state, a.profile)?.planPrice;
-    return { a, monthly, cost: monthly === undefined ? null : planCostOver(monthly, report.days) };
-  });
-  const top = Math.max(...rows.map((r) => Math.max(r.a.value, r.cost ?? 0)), 0) || 1;
-  return (
-    <>
-      <div class="ranked solid plan-rows">
-        {rows.map(({ a, monthly, cost }) => (
-          <div class="ranked-row" key={a.profile}>
-            <span class="name">
-              <Who state={state} id={a.profile} />
-            </span>
-            <Meter
-              class="solid"
-              frac={a.value / top}
-              tick={cost === null ? null : cost / top}
-              color={profileColor(state, a.profile)}
-            />
-            <span class="num">{money(a.value)}</span>
-            <b class="num">{cost ? times(a.value / cost) : ''}</b>
-            <span class="plan-cell">
-              <PlanPrice id={a.profile} monthly={monthly} />
-            </span>
-          </div>
-        ))}
-      </div>
-      <Note>
-        The tick is the plan&apos;s price over these {report.days} days. Set it per account; Switchboard never assumes
-        one.
-      </Note>
-    </>
-  );
-}
-
 // "2.6×", "12×": how many times over a plan its value came to.
 const times = (x: number) => `${x >= 10 ? Math.round(x) : x.toFixed(1)}×`;
 
@@ -812,25 +636,6 @@ function PlanPrice({ id, monthly }: { id: string; monthly: number | undefined })
       }}
       onBlur={(e) => finish(e.currentTarget)}
     />
-  );
-}
-
-// An SVG path through points already in the chart's coordinates.
-const linePath = (points: [number, number][]) =>
-  points.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('');
-
-function Spark({ values, max, color }: { values: number[]; max: number; color: string }) {
-  const W = 240;
-  const H = 56;
-  const x = (i: number) => 1 + (i / Math.max(1, values.length - 1)) * (W - 6);
-  const y = (v: number) => H - 2 - (v / (max || 1)) * (H - 6);
-  const d = linePath(values.map((v, i) => [x(i), y(v)]));
-  return (
-    <svg class="spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ color }} aria-hidden="true">
-      <line x1="0" x2={W} y1={H - 2} y2={H - 2} class="axis" />
-      <path d={`${d}L${x(values.length - 1)},${H - 2}L${x(0)},${H - 2}Z`} class="area" />
-      <path d={d} class="line" />
-    </svg>
   );
 }
 
