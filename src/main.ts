@@ -878,7 +878,10 @@ function createTray(): void {
   rebuildTray();
 }
 
+// A checkout's executable is the bare Electron.app, which at login would open
+// Electron's own default window instead of Switchboard.
 function applyLoginItem(): void {
+  if (!app.isPackaged) return;
   app.setLoginItemSettings({ openAtLogin: !!data.settings.openAtLogin });
 }
 
