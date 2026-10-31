@@ -169,6 +169,8 @@ which that test also reads.
 - Renderer changes need `bun run build` and a restart of the dev instance.
 - `SWITCHBOARD_ROOT` points the store somewhere other than `~/.switchboard`
   for experiments.
+- "Open at login" only registers from a packaged build, so changing it in a
+  checkout saves the setting and leaves macOS's login items alone.
 
 ## Commits and pull requests
 
