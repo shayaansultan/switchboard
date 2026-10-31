@@ -31,12 +31,21 @@ export function fullest<W extends WindowLike>(windows: readonly W[] | undefined)
 }
 
 const HOUR = 3600_000;
-// How long each kind of window is, by the labels the vendors use.
-export const WINDOW_MS: Record<string, number> = {
-  '5h': 5 * HOUR,
-  '7d': 7 * 24 * HOUR,
-  Weekly: 7 * 24 * HOUR,
-};
+
+// A monthly plan price spread over `days` days, so a range's value can be
+// set against what the plan cost for the same days.
+export function planCostOver(monthly: number, days: number): number {
+  return (monthly * days) / (365.25 / 12);
+}
+
+// How long a window is, by its label: "5h", "7d" and "Weekly", or one that
+// names its length beside a model ("7d Opus", "Spark 5h"). Null when the
+// label does not say.
+export function windowMs(label: string): number | null {
+  if (label === 'Weekly') return 7 * 24 * HOUR;
+  const m = /(\d+)\s*([hd])\b/.exec(label);
+  return m ? Number(m[1]) * (m[2] === 'd' ? 24 : 1) * HOUR : null;
+}
 
 // Whether a window lasts to its reset at the rate it has been used so far:
 // 'ok' when it does, the moment it would run out when it does not, null when
@@ -49,13 +58,29 @@ export function pace(
   resetsAt: string | null | undefined,
   now: number,
 ): 'ok' | { runsOutAt: number } | null {
-  const windowMs = WINDOW_MS[label];
+  const span = windowMs(label);
   const at = resetsAt ? Date.parse(resetsAt) : NaN;
-  if (!windowMs || Number.isNaN(at) || at <= now || remaining <= 0) return null;
+  if (!span || Number.isNaN(at) || at <= now || remaining <= 0) return null;
   const timeLeft = at - now;
-  const elapsed = windowMs - timeLeft;
-  if (elapsed < windowMs / 10) return null;
+  const elapsed = span - timeLeft;
+  if (elapsed < span / 10) return null;
   const used = 100 - remaining;
   if (used <= 0 || remaining * elapsed >= used * timeLeft) return 'ok';
   return { runsOutAt: now + (remaining * elapsed) / used };
+}
+
+// How far a window is ahead of an even burn across it, in points: 60% used
+// halfway through is 10 ahead. Derived from the same reading as `pace`, and
+// null exactly when it is, so a positive number always means `pace` says the
+// window runs out before it resets.
+export function pointsAhead(
+  label: string,
+  remaining: number,
+  resetsAt: string | null | undefined,
+  now: number,
+): number | null {
+  if (pace(label, remaining, resetsAt, now) === null) return null;
+  const span = windowMs(label) as number;
+  const elapsed = 1 - (Date.parse(resetsAt as string) - now) / span;
+  return Math.round(100 - remaining - elapsed * 100);
 }

@@ -64,6 +64,58 @@ A rate-limit window of an account: the 5-hour or 7-day allowance, sometimes
 scoped to one model. A window has a percentage used and a time at which it
 resets. The ring on a profile shows its fullest window.
 
+## Session
+
+One agent conversation: a Claude Code session or a Codex thread, in a
+terminal or inside a desktop app. Not a window: a session counts against
+whichever windows were open while it ran. Subagents belong to the session
+that started them.
+
+## Usage history
+
+What Switchboard keeps so the Usage tab can look back: the **window history**
+(every reading of every window, from the day recording began) and the **token
+ledger** (tokens, models, folders and sessions read from each profile's own
+agent logs). Say "recorded since", never "lifetime": Claude Code deletes its
+logs after 30 days, so nothing older than the ledger exists.
+
+## API-equivalent value
+
+What an account's tokens would cost at API list prices, in dollars. An
+estimate, and not a bill: a subscription does not charge per token. Always
+labelled as such; never added to a window percentage.
+
+## Automation
+
+A session no one typed into: a headless `claude -p`, Agent SDK or `codex exec`
+run, as the logs record how it started. Everything else is "you". The Usage
+tab draws automations lighter and counts them apart.
+
+## Repository
+
+Where the Usage tab files a session: the git repository its folder belongs to,
+a worktree's being the repository it was made from. Temporary folders are
+"Scratch". Not the same as a profile's folder or a project.
+
+## Plan price
+
+What an account's plan costs a month, in dollars, as its owner set it. Never
+filled in from a list: the Usage tab sets API-equivalent value against it and
+says nothing where it is not set.
+
+## Weekly digest
+
+Last week, Monday to Sunday, summed up from the usage history: in
+`switchboard digest`, and as a Monday notification once two weeks are
+recorded.
+
+## Pace
+
+How far a window is ahead of or behind an even burn across it, in points: a
+5-hour window 60% used halfway through is 10 ahead, and on course to run out
+before it resets. Every surface takes it from `src/shared/usage.ts` and says
+nothing in a window's first tenth.
+
 ## Profile band
 
 The bar in a profile's colour that Switchboard has every Code session of a

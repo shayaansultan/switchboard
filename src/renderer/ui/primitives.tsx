@@ -1,9 +1,10 @@
 // The design's vocabulary as components: an icon, a button, a badge, a usage
-// bar, the ring, a switch, a segmented control, a duration picker. Their looks live in
+// bar and its track, a meter, the ring, a switch, a segmented control, a
+// duration picker. Their looks live in
 // style.css; these only fix the markup so every view draws them the same way.
 
 import type { ComponentChildren, JSX } from 'preact';
-import { severityClass, relShort, relTime, type UsageWindow } from '../lib';
+import { severityClass, relShort, relTime, shownPct, type UsageWindow } from '../lib';
 import { useTip } from './overlays';
 
 // Stroke icons in Lucide's style, coloured by the surrounding text.
@@ -45,6 +46,8 @@ const PATHS = {
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
   fan: '<path d="M10.83 8.41a4.5 4.5 0 1 1 6.33 3.12"/><path d="M15.59 10.83a4.5 4.5 0 1 1-3.12 6.33"/><path d="M13.17 15.59a4.5 4.5 0 1 1-6.33-3.12"/><path d="M8.41 13.17a4.5 4.5 0 1 1 3.12-6.33"/><circle cx="12" cy="12" r="1.5"/>',
   window: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 8h20"/><path d="M6 4v4"/><path d="M10 4v4"/>',
+  chart:
+    '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
 };
 export type IconName = keyof typeof PATHS;
 
@@ -68,12 +71,16 @@ export function Icon({ name, size, class: cls }: { name: IconName; size?: number
 type ButtonProps = JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'icon';
   icon?: IconName;
+  // 'sm' is the 30 px button for a row of actions inside a card.
+  size?: 'sm';
   children?: ComponentChildren;
 };
-export function Btn({ variant = 'outline', icon, class: cls, children, type = 'button', ...rest }: ButtonProps) {
-  const classes = [variant === 'outline' ? '' : variant === 'icon' ? 'icon-btn ghost' : variant, cls ?? ''].join(' ');
+export function Btn({ variant = 'outline', icon, size, class: cls, children, type = 'button', ...rest }: ButtonProps) {
+  const classes = [variant === 'outline' ? '' : variant === 'icon' ? 'icon-btn ghost' : variant, size ?? '', cls ?? '']
+    .filter(Boolean)
+    .join(' ');
   return (
-    <button type={type} class={classes.trim()} {...rest}>
+    <button type={type} class={classes} {...rest}>
       {icon ? <Icon name={icon} /> : null}
       {children}
     </button>
@@ -188,7 +195,7 @@ export function Bar({
   was?: number;
 }) {
   const pct = w.pct ?? 0;
-  const shown = remaining ? 100 - pct : pct;
+  const shown = shownPct(pct, remaining);
   const passed = stale && !!w.resetsAt && Date.parse(w.resetsAt) <= Date.now();
   const reset = passed ? 'reset passed' : relShort(w.resetsAt);
   const hint = passed ? 'Reset time passed; awaiting updated usage' : relTime(w.resetsAt);
@@ -198,9 +205,7 @@ export function Bar({
         {w.label}
         {reset ? <span class="reset"> · {reset}</span> : null}
       </span>
-      <div class="track">
-        <div class={`fill ${severityClass(w)}`} style={{ width: `${shown}%` }} />
-      </div>
+      <Track w={w} shown={shown} />
       <span class="pct" title={remaining ? `${pct}% used` : `${100 - pct}% left`}>
         {was === undefined ? null : <s class="was">{remaining ? 100 - was : was}%</s>}
         {shown}%
@@ -209,27 +214,67 @@ export function Bar({
   );
 }
 
-// The account's fullest window at a glance, coloured like that window's bar.
-// Hollow while nothing is known, so the column still lines up.
-export function Ring({ w }: { w: UsageWindow | null }) {
-  if (!w) return <span class="empty-ring" />;
-  const pct = w.pct ?? 0;
-  const r = 12.5;
+// A window's track: the fill at the percentage shown, coloured by how close
+// the window is to running out, and an optional tick (where an even pace
+// would be). `big` is the Usage tab's taller one.
+export function Track({
+  w,
+  shown,
+  tick = null,
+  class: cls,
+  ...rest
+}: { w: UsageWindow; shown: number; tick?: number | null } & JSX.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div class={['track', cls].filter(Boolean).join(' ')} {...rest}>
+      <div class={`fill ${severityClass(w)}`} style={{ width: `${shown}%` }} />
+      {tick !== null ? <span class="tick" style={{ left: `${tick}%` }} /> : null}
+    </div>
+  );
+}
+
+// A share as a thin bar, `frac` of the way along. `tone` colours it like a
+// window (warn, bad), `color` paints it a profile's colour, and `tick` marks
+// a point along it (a plan's price).
+export function Meter({
+  frac,
+  tone,
+  color,
+  tick = null,
+  class: cls,
+}: {
+  frac: number;
+  tone?: string;
+  color?: string;
+  tick?: number | null;
+  class?: string;
+}) {
+  const clamp = (n: number) => (Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
+  return (
+    <span class={['meter', cls].filter(Boolean).join(' ')}>
+      <span class={tone || undefined} style={{ width: `${clamp(frac) * 100}%`, background: color }} />
+      {tick !== null ? <i class="tick" style={{ left: `${clamp(tick) * 100}%` }} /> : null}
+    </span>
+  );
+}
+
+// A percentage as a ring with the number in it, for the forecast warning.
+export function Ring({ pct, tone = 'warn' }: { pct: number; tone?: 'warn' | 'bad' }) {
+  const r = 22;
   const c = 2 * Math.PI * r;
   return (
-    <svg viewBox="0 0 28 28" aria-label={`${w.label}: ${pct}% used`}>
-      <circle cx="14" cy="14" r={r} fill="none" stroke-width="3" stroke="var(--track)" />
+    <svg class="pct-ring" viewBox="0 0 54 54" aria-hidden="true">
+      <circle cx="27" cy="27" r={r} class="ring-track" />
       <circle
-        cx="14"
-        cy="14"
+        cx="27"
+        cy="27"
         r={r}
-        fill="none"
-        stroke-width="3"
-        class={`ring-fill ${severityClass(w)}`}
-        stroke-linecap="round"
-        stroke-dasharray={c.toFixed(1)}
-        stroke-dashoffset={(c * (1 - pct / 100)).toFixed(1)}
+        class={`ring-value ${tone}`}
+        stroke-dasharray={`${((c * Math.max(0, Math.min(100, pct))) / 100).toFixed(1)} ${c.toFixed(1)}`}
+        transform="rotate(-90 27 27)"
       />
+      <text x="27" y="31" text-anchor="middle">
+        {pct}%
+      </text>
     </svg>
   );
 }

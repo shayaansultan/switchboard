@@ -37,6 +37,16 @@ below a floor. Numbers come from the app's cache, which it refreshes on its own;
 `--max-age 15m` to fetch live only for entries older than that. `--refresh` hits the vendors'
 usage endpoints for every profile, so use it once when freshness matters, never in a loop.
 
+## Usage history
+
+The app keeps every window reading and indexes each profile's Claude Code and Codex logs.
+`switchboard tokens [--days 30] [--by account|repo|model|project|day]` reads what it recorded;
+`switchboard digest` is last week, Monday to Sunday, with each account's value against its plan
+price. Dollars are API-equivalent estimates, not a bill. `switchboard plan-price PROFILE 200`
+sets what a plan costs a month (`none` clears it); never set one the user did not give you.
+Both read only what the app last wrote: `no-usage-history` means the app has not run since an
+update.
+
 ## Running inside an account
 
 `switchboard exec PROFILE -- claude -p "…"` runs any command with that profile's home in its

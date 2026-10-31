@@ -27,7 +27,17 @@ export interface Profile {
   color: string;
   proxyBucket?: string;
   createdAt?: string;
+  // What the account's plan costs a month, in US dollars, as its owner set
+  // it; the Usage tab sets API-equivalent value against it. Never guessed.
+  planPrice?: number;
   setup?: { from: string; items: string[]; mode: BringMode; at: string };
+}
+
+// What a profile's owner can change about it; a null plan price clears it.
+export interface ProfilePatch {
+  name?: string;
+  color?: string;
+  planPrice?: number | null;
 }
 
 export type UsageMode = 'used' | 'remaining';
@@ -47,6 +57,12 @@ export interface Settings {
   // Tell an app running with its window closed from one in use. Needs
   // Accessibility permission; see src/native/app-events.swift.
   noticeClosedWindows?: boolean;
+  // Notify when a window reaches 90% and when a full one resets. On unless
+  // switched off.
+  usageAlerts?: boolean;
+  // A Monday notification summing up last week, once two weeks are
+  // recorded. On unless switched off.
+  weeklyDigest?: boolean;
   // Serve the phone app to paired phones on 127.0.0.1:phonePort, for
   // `tailscale serve` to publish on the tailnet. See src/remote/hub.ts.
   phoneAccess?: boolean;
@@ -188,6 +204,153 @@ export interface BucketView {
   error?: string;
 }
 
+// ---- usage history (see src/history/) ----
+
+// Tokens in the four kinds the vendors bill. `input` is input that was not
+// served from cache; `output` includes reasoning.
+export interface TokenCounts {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+// Where an agent session ran: the CLI in a terminal, a desktop app's own
+// agent, a script through an SDK or `codex exec`, or anything else.
+export type SessionEntry = 'cli' | 'desktop' | 'sdk' | 'other';
+
+// A period's totals. Value is the API-equivalent estimate in dollars; tokens
+// of models the price table does not know are counted in `unpricedTokens`.
+export interface UsageTotals {
+  value: number;
+  tokens: TokenCounts;
+  agentMs: number;
+  sessions: number;
+  projects: number;
+  limitHits: number;
+  waitedMs: number;
+  unpricedTokens: number;
+}
+
+// A live window with its pace: how many points ahead (+) or behind (−) of
+// an even burn across the window it is, or null while too little of the
+// window has passed to say.
+export interface WindowPace {
+  label: string;
+  pct: number;
+  resetsAt: string;
+  // Points ahead of an even burn (negative: behind), and when the window
+  // runs out if it will before it resets; src/shared/usage.ts decides both.
+  pace: number | null;
+  runsOutAt: string | null;
+}
+
+// A window on course to run out before it resets, and the same vendor's
+// account with the most room.
+export interface UsageForecast {
+  profile: string;
+  label: string;
+  pct: number;
+  resetsAt: string;
+  fullAt: string;
+  pace: number | null;
+  alternative: { profile: string; label: string; pct: number } | null;
+}
+
+// One agent session, as the Sessions view lists it. The project is the
+// folder's name only; the full path stays in the main process.
+export interface UsageSession {
+  id: string;
+  profile: string;
+  title: string;
+  project: string;
+  entry: SessionEntry;
+  start: string;
+  end: string;
+  prompts: number;
+  agentMs: number;
+  model: string | null;
+  value: number | null;
+  tokens: TokenCounts;
+  cacheHit: number | null;
+  tools: [string, number][];
+  files: string[];
+  fileCount: number;
+  subagents: { calls: number; value: number | null; model: string | null } | null;
+  // Estimated share of its window, in percentage points of that window.
+  share: number | null;
+}
+
+// Sessions grouped by the window they counted against, or by day where no
+// window history covers them. `points` are the window's recorded
+// percentages, [time in ms, pct], for the chart of how it filled.
+export interface UsageBlock {
+  profile: string;
+  kind: 'window' | 'day';
+  label: string;
+  start: string;
+  end: string;
+  peak: number | null;
+  hitAt: string | null;
+  waitedMs: number;
+  current: boolean;
+  value: number | null;
+  points: [number, number][];
+  sessions: UsageSession[];
+}
+
+// Everything the Usage tab draws, for one range of days. Never a token, a
+// credential or a full path.
+// The four measures the Usage overview switches between, for one slice.
+export interface Measures {
+  value: number;
+  tokens: number;
+  agentMs: number;
+  sessions: number;
+}
+
+// Who started a session: you, in a desktop app or a terminal, or an
+// automation (a headless SDK or `codex exec` run).
+export type Starter = 'you' | 'auto';
+export type UsageSplit = Record<Vendor, Record<Starter, Measures>>;
+
+// Every account together for the range, from the sessions that started in
+// it: by day, account and repository, each split by vendor and starter.
+export interface UsageOverview {
+  totals: UsageSplit;
+  days: { day: string; split: UsageSplit }[];
+  accounts: { profile: string; measures: Measures }[];
+  repos: { name: string; split: UsageSplit }[];
+  mix: { kind: keyof TokenCounts; tokens: number; value: number }[];
+  // Tokens of models with no price yet, left out of every value.
+  unpricedTokens: number;
+}
+
+export interface UsageReport {
+  overview: UsageOverview;
+  days: number;
+  generatedAt: string;
+  // When Switchboard began keeping usage history, if it has.
+  recordedSince: string | null;
+  indexedAt: string | null;
+  pricesAsOf: string;
+  totals: UsageTotals;
+  previous: UsageTotals | null;
+  // Whether the previous period's limit hits were recorded, and so worth
+  // comparing with.
+  previousHasLimits: boolean;
+  accounts: { profile: string; tightest: WindowPace | null; value: number; tokens: TokenCounts }[];
+  forecast: UsageForecast | null;
+  daily: { day: string; value: Record<string, number>; tokens: Record<string, number> }[];
+  // One entry per day for 26 weeks; null where nothing was recorded yet.
+  heat: { day: string; agentMs: number | null }[];
+  projects: { name: string; profiles: string[]; value: number; sessions: number; agentMs: number }[];
+  models: { model: string; value: number | null; tokens: number; sessions: number }[];
+  mix: { kind: keyof TokenCounts; tokens: number; value: number }[];
+  cacheHit: { profile: string; pct: number | null }[];
+  blocks: UsageBlock[];
+}
+
 // Whether the `switchboard` command is installed, and where.
 export interface CliStatus {
   file: string;
@@ -285,7 +448,7 @@ export interface SwitchboardApi {
   closeResets(token: string): Promise<void>;
   addProfile(p: AddOptions): Promise<{ profile: Profile; result: BringResult }>;
   removeProfile(id: string): Promise<boolean>;
-  updateProfile(id: string, patch: { name?: string; color?: string }): Promise<void>;
+  updateProfile(id: string, patch: ProfilePatch): Promise<void>;
   moveProfile(id: string, delta: number): Promise<boolean>;
   bringOver(id: string, sourceId: string, opts: BringOptions): Promise<BringResult>;
   saveSettings(s: Partial<Settings>): Promise<void>;
@@ -293,6 +456,8 @@ export interface SwitchboardApi {
   quit(id: string): Promise<void>;
   forceQuit(id: string): Promise<void>;
   showWindow(id: string): Promise<void>;
+  // Start the profile's desktop app, or bring it forward if it is running.
+  openApp(id: string): Promise<void>;
   // Whether Switchboard has Accessibility permission. 'request' also asks
   // macOS to show its dialog; 'open' opens that pane of System Settings.
   accessibility(action: 'check' | 'request' | 'open'): Promise<boolean>;
@@ -308,6 +473,12 @@ export interface SwitchboardApi {
   relaunchForPhone(profileId: string): Promise<void>;
   publishPhone(): Promise<PhonePublish>;
   onState(fn: (s: State) => void): void;
+  // The Usage tab: a report for the last `days` days, a signal that there
+  // is a newer one, and opening a listed session.
+  usageReport(days: number): Promise<UsageReport>;
+  onUsageChanged(fn: () => void): void;
+  resumeSession(profile: string, id: string): Promise<void>;
+  openSession(profile: string, id: string, what: 'folder' | 'transcript'): Promise<void>;
 }
 
 // Phone access as the Settings dialog and `switchboard remote status` show it.

@@ -81,6 +81,16 @@ test('rename, recolor and move write through to the store', async () => {
   expect(store.readStore().profiles.find((p) => p.id === 'claude-one')?.name).toBe('Uno');
 });
 
+test('plan-price sets, rounds and clears the price the Usage tab compares value with', async () => {
+  await run('add', 'claude', 'Work');
+  expect((await run('plan-price', 'claude-work', '$149.999')).json()).toMatchObject({ profile: { planPrice: 150 } });
+  expect(store.readStore().profiles.find((p) => p.id === 'claude-work')?.planPrice).toBe(150);
+  for (const bad of ['-5', 'lots', '', '20000']) expect((await run('plan-price', 'claude-work', bad)).code).toBe(2);
+  expect(store.readStore().profiles.find((p) => p.id === 'claude-work')?.planPrice).toBe(150);
+  expect((await run('plan-price', 'claude-work', 'none')).json().profile).not.toHaveProperty('planPrice');
+  expect(store.readStore().profiles.find((p) => p.id === 'claude-work')).not.toHaveProperty('planPrice');
+});
+
 test('remove needs --yes, refuses the Default profile, and deletes the directory', async () => {
   await run('add', 'codex', 'Temp');
   const dir = path.join(store.ROOT, 'codex', 'codex-temp');

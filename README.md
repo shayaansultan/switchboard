@@ -80,7 +80,50 @@ model-specific pools for Codex. Each shows how much is used, or how much is
 left if you prefer, with the time until it resets. They turn amber and then red
 as a window runs out.
 
-You can read them in the menu bar without opening the window.
+You can read them in the menu bar without opening the window, where each app's
+heading also names the account with the most room left.
+
+## Where did the usage go?
+
+The **Usage** tab keeps what the bars cannot: a history, every account together.
+It has two views.
+
+![The Usage tab: four totals that switch the chart, each day's value by vendor and by whether you or an automation started the work, the token mix, and value by repository](docs/usage.png)
+
+- **Overview.** Value, tokens, agent hours and sessions across every account,
+  each a tile with a sparkline; pick one and the chart and lists below switch
+  to it. The chart stacks each day by vendor (Claude, Codex) and by who started
+  the work: you, in a desktop app or a terminal, or an automation (a headless
+  `claude -p`, Agent SDK or `codex exec` run), drawn lighter. Then the token
+  mix (share of tokens against share of value, kind by kind), the repositories
+  the work went to (a worktree counts as its repository; temporary folders as
+  Scratch), and every account with all four measures and its fullest window.
+  Set a plan's monthly price with **Set plan price** beside the account, or
+  `switchboard plan-price PROFILE 200`, to see its value as a multiple of what
+  the plan cost; Switchboard never assumes one. A warning at the top says when a
+  window is on course to run out before it resets, with a button that opens the
+  desktop app of the account with the most room.
+- **Sessions.** Agent sessions grouped by the 5-hour window they counted
+  against, marked where a window ran out and for how long. Pick one to see its
+  share of the window, how the window filled while it ran, the model, tokens and
+  value, the tools it used and the files it edited, and to resume it in a
+  terminal inside the right profile.
+
+The numbers come from two places. Every usage reading is kept, so windows have
+a history from the day you update. Tokens come from the logs Claude Code and
+Codex already write in each profile's home: its CLI sessions and the agent
+inside each desktop app, but not ordinary chats in the desktop apps or on the
+web, which only show up in the windows. Dollar figures are what the same tokens
+would cost at API list prices, fetched from models.dev once a day so new models
+are priced without an update; a subscription is not billed that way. See
+[Usage history](docs/usage-history.md) for how it is read and kept.
+
+Switchboard can also tell you: **Usage alerts** in Settings (on unless you turn
+it off) sends a notification when a window reaches 90%, naming the account with
+the most room, and when a full one resets. **Weekly digest** (also on) sends one
+on Monday morning with last week's agent hours, value, limits hit and value
+against plan prices, once two weeks are recorded; `switchboard digest` prints
+the same week in full.
 
 ## Can I use a saved usage reset?
 
@@ -252,6 +295,12 @@ find-generic-password` for the entry the Claude Code CLI already created.
   helper then counts the Claude and ChatGPT windows each profile has open,
   through the Accessibility API and an undocumented macOS call that says which
   desktop a window is on. It reads counts, not window contents.
+- **Your agents' own logs.** The Usage tab reads the session logs Claude Code
+  (`projects/` in its config home) and Codex (`sessions/` in its home) write in
+  each profile, for token counts, models, folders, tool names and the first
+  line of each prompt. What it keeps is under `~/.switchboard/usage/` on this
+  Mac; nothing is sent anywhere. The window only receives folder names, never
+  full paths.
 - **Fans and lid-closed Caffeinate, only if you use them.** The system bridge
   reads fan speeds, CPU temperature, the battery and the sleep setting, which
   needs no permission. A boost or a lid-closed session installs a root system
@@ -367,6 +416,8 @@ common questions have one-line answers:
 switchboard list                      # profiles, running state, signed-in account
 switchboard usage --max-age 15m       # rate-limit windows, refreshed if older than 15 minutes
 switchboard pick claude               # the Claude profile with the most quota left
+switchboard tokens --by project       # what the last 30 days of agent work cost, by folder
+switchboard digest --human            # last week, Monday to Sunday, against plan prices
 switchboard exec work -- claude -p "…"   # run anything inside a profile's account
 eval "$(switchboard env work)"        # put the current shell into a profile
 switchboard launch work               # open its desktop window

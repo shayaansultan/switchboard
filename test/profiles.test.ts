@@ -404,6 +404,16 @@ test('a Default profile is launched untouched, with no redirection', () => {
   expect(launch.launchArgs(claudeSource(), true)).toEqual(['-a', profiles.VENDORS.claude.appPath]);
 });
 
+test('resuming a session runs the vendor CLI inside the profile', () => {
+  const data = profiles.load();
+  const claude = profiles.add(data, { vendor: 'claude', name: 'Resume' }).profile;
+  const codex = profiles.add(data, { vendor: 'codex', name: 'Resume' }).profile;
+  expect(launch.shellScript(claude, launch.resumeArgs(claude, "abc'1"))).toBe(
+    `export CLAUDE_CONFIG_DIR='${profiles.dirs(claude).home}'; claude --resume 'abc'\\''1'`,
+  );
+  expect(launch.resumeArgs(codex, 'thread-1')).toBe("resume 'thread-1'");
+});
+
 // ---- the profile band ----
 // A non-default Claude profile's app is launched with the band's plugin and
 // the name and colour it draws; the Default profile and Codex get none of it.
@@ -677,4 +687,14 @@ test('the Default Codex home is never written to when it is the target of nothin
   const data = profiles.load();
   profiles.add(data, { vendor: 'codex', name: 'Work', sourceId: 'codex-default', items: ['history'], mode: 'copy' });
   expect(fs.readFileSync(path.join(CODEX_HOME, GS), 'utf8')).toBe(before);
+});
+
+test('a bad plan price from the window changes nothing about the profile', () => {
+  const data = profiles.load();
+  const p = profiles.add(data, { vendor: 'claude', name: 'Priced' }).profile;
+  for (const bad of [NaN, -1, 20_000, 'abc' as unknown as number])
+    expect(() => profiles.update(data, p.id, { name: 'Renamed', planPrice: bad })).toThrow();
+  expect(p.name).toBe('Priced');
+  expect(profiles.update(data, p.id, { planPrice: 19.999 }).planPrice).toBe(20);
+  expect(profiles.update(data, p.id, { planPrice: null })).not.toHaveProperty('planPrice');
 });
