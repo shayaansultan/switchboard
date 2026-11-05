@@ -154,6 +154,7 @@ bun run test
 bun run test:buckets-ui
 bun run test:model-labels
 node demo/test-claude-models.mjs
+SWITCHBOARD_LIVE_TESTS=1 bun test test/bucket-worker-live.test.ts
 SWITCHBOARD_LIVE_TESTS=1 bun test test/claude-live.test.ts
 SWITCHBOARD_LIVE_TESTS=1 bun test test/claude-context-live.test.ts
 bun run dist
@@ -163,9 +164,10 @@ node demo/test-model-labels.mjs --packaged
 
 The UI test uses an isolated home and an empty real worker, and checks assignment
 persistence, worker reuse across app restarts, native reset and fail-closed launches.
-The opt-in binary test sends only local fixture traffic through the real proxy. It
-checks a quota-error failover, streaming and restart/resume with the installed
-desktop Codex binary.
+The opt-in worker test (`test/bucket-worker-live.test.ts`) sends only local
+fixture traffic through the real proxy. It checks that a bucket's worker is reused
+and refuses a second owner, then a quota-error failover, streaming and resume with
+the installed desktop Codex binary.
 Screenshots are saved under `docs/.work/buckets/`.
 
 The Claude fixture test exercises the actual Codex binary and CLIProxyAPI against

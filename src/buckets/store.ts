@@ -6,6 +6,7 @@ import { ProfileId as BucketId, Secrets, root, readJson, writeJson } from '../st
 export { ProfileId as BucketId, root, readJson, writeJson } from '../storage';
 
 import { Upstream } from './upstream';
+import { STORE_FILE, parseStore } from '../store';
 const Bucket = z.object({ id: BucketId, name: z.string().min(1), upstream: Upstream.optional() });
 export function paths(value: string) {
   const base = path.join(root(), 'buckets', BucketId.parse(value));
@@ -41,6 +42,13 @@ export function create(name: string, upstream?: Upstream) {
       .replace(/^-|-$/g, '')
       .slice(0, 64),
   );
+  // A profile still assigned to this ID, left from a bucket that no longer
+  // exists, would otherwise route through the new one without being asked.
+  const routed = routedProfiles(id);
+  if (routed.length)
+    throw new Error(
+      `${routed.join(', ')} still route through "${id}". Unassign them before creating a bucket with that name.`,
+    );
   const directory = paths(id);
   fs.mkdirSync(path.dirname(directory.base), { recursive: true, mode: 0o700 });
   // Non-recursive, so a second bucket with the same name fails here.
@@ -57,6 +65,18 @@ export function create(name: string, upstream?: Upstream) {
     fs.rmSync(directory.base, { recursive: true, force: true });
     throw error;
   }
+}
+function routedProfiles(id: string): string[] {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(STORE_FILE, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
+  return parseStore(raw)
+    .profiles.filter((p) => p.proxyBucket === id)
+    .map((p) => p.id);
 }
 // Deletes everything the bucket owns: its accounts' sign-ins, secrets and
 // logs. The caller stops the worker first.
