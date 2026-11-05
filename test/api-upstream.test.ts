@@ -7,9 +7,6 @@ import { Upstream, readCredential, inspectUpstream } from '../src/buckets/upstre
 import { create, load, paths, readJson, writeJson } from '../src/buckets/store';
 import { proxyConfig } from '../src/buckets/proxy';
 import { run } from './cli-helpers';
-import * as profiles from '../src/opencode/profiles';
-import { runtimeConfig } from '../src/opencode/launch';
-import { main as oc } from '../src/opencode/cli';
 import { sandboxHome } from './setup';
 
 test('literal export parser rejects execution, duplicate keys and loose permissions', () => {
@@ -101,23 +98,11 @@ test('API bucket persists only references; discovery preserves aliases, redacts 
       'responses',
       '--model',
       upstream.defaultModel,
-      '--opencode',
     );
     expect(resultCli.code).toBe(0);
     expect(resultCli.out).not.toContain('fixture-secret');
     const bucket = load('api-fixture');
-    const profile = profiles.load(bucket.id);
-    await expect(oc(['effort', bucket.id, 'high'])).rejects.toThrow('not supported');
-    expect(profiles.load(bucket.id).reasoningEffort).toBe(profile.reasoningEffort);
-    await expect(oc(['model', bucket.id, 'rolling'])).rejects.toThrow('mutable');
-    await expect(oc(['small-model', bucket.id, 'x-test-1'])).rejects.toThrow('mutable');
-    expect(profiles.load(bucket.id).model).toBe(profile.model);
-    profiles.update(bucket.id, (p) => {
-      p.name = 'Renamed API';
-    });
-    expect(load(bucket.id).upstream).toEqual(upstream);
-    expect(runtimeConfig(profile, 12345, sandboxHome).enabled_providers).toEqual(['switchboard-chatgpt']);
-    await expect(oc(['login', bucket.id])).rejects.toThrow('not OAuth');
+    expect((await run('bucket', 'model', bucket.id, 'rolling')).code).not.toBe(0);
     expect(fs.readFileSync(paths(oauth.id).manifest, 'utf8')).toBe(before);
     expect(load(bucket.id).upstream).toEqual(upstream);
     expect(JSON.stringify(readJson(paths(bucket.id).manifest))).not.toContain('fixture-secret');
@@ -149,7 +134,6 @@ test('API bucket persists only references; discovery preserves aliases, redacts 
     const rotated = path.join(sandboxHome, 'rotated.env');
     status = 200;
     retired = true;
-    await oc(['model', bucket.id, 'replacement:1']);
     expect((await run('bucket', 'model', bucket.id, 'replacement:1')).code).toBe(0);
     expect(load(bucket.id).upstream?.defaultModel).toBe('replacement:1');
     expect(() =>
@@ -186,8 +170,8 @@ test('API bucket persists only references; discovery preserves aliases, redacts 
     expect((await run('bucket', 'credential', bucket.id, rotated, 'ROTATED')).code).toBe(0);
     expect(fs.existsSync(receiptFile)).toBe(false);
     expect(fs.existsSync(leaseFile)).toBe(false);
-    expect(profiles.load(bucket.id).upstream?.credential.file).toBe(rotated);
-    expect(profiles.load(bucket.id).name).toBe('Renamed API');
+    expect(load(bucket.id).upstream?.credential.file).toBe(rotated);
+    expect(load(bucket.id).name).toBe('API fixture');
     expect((await inspectUpstream(upstream)).discovery.status).toBe('missing-credential');
   } finally {
     server.stop(true);

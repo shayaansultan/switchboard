@@ -6,23 +6,15 @@ import { ProfileId as BucketId, Secrets, root, readJson, writeJson } from '../st
 export { ProfileId as BucketId, root, readJson, writeJson } from '../storage';
 
 import { Upstream } from './upstream';
-import { holdLaunch } from '../opencode/lifecycle';
 const Bucket = z.object({ id: BucketId, name: z.string().min(1), upstream: Upstream.optional() });
-// Existing pools keep their files and worker leases in place. No token copies,
-// symlink migration, or second controller for an already-running OpenCode pool.
 export function paths(value: string) {
-  const id = BucketId.parse(value);
-  const legacy = path.join(root(), 'opencode', id);
-  const shared = path.join(root(), 'buckets', id);
-  const existing = fs.existsSync(path.join(legacy, 'profile.json'));
-  if (existing && fs.existsSync(shared)) throw new Error(`Ambiguous bucket storage: ${id}`);
-  const base = existing ? legacy : shared;
+  const base = path.join(root(), 'buckets', BucketId.parse(value));
   return {
     base,
     runtime: path.join(base, 'runtime'),
     proxy: path.join(base, 'proxy'),
     auth: path.join(base, 'proxy', 'auth'),
-    manifest: path.join(base, existing ? 'profile.json' : 'bucket.json'),
+    manifest: path.join(base, 'bucket.json'),
   };
 }
 export function load(id: string) {
@@ -31,18 +23,13 @@ export function load(id: string) {
   return bucket;
 }
 export function list() {
-  const ids = new Set<string>();
-  for (const [directory, manifest] of [
-    ['opencode', 'profile.json'],
-    ['buckets', 'bucket.json'],
-  ]) {
-    const base = path.join(root(), directory);
-    if (!fs.existsSync(base)) continue;
-    for (const id of fs.readdirSync(base)) {
-      if (BucketId.safeParse(id).success && fs.existsSync(path.join(base, id, manifest))) ids.add(id);
-    }
-  }
-  return [...ids].sort().map(load);
+  const base = path.join(root(), 'buckets');
+  if (!fs.existsSync(base)) return [];
+  return fs
+    .readdirSync(base)
+    .filter((id) => BucketId.safeParse(id).success && fs.existsSync(path.join(base, id, 'bucket.json')))
+    .sort()
+    .map(load);
 }
 export function create(name: string, upstream?: Upstream) {
   if (upstream) upstream = Upstream.parse(upstream);
@@ -54,37 +41,25 @@ export function create(name: string, upstream?: Upstream) {
       .replace(/^-|-$/g, '')
       .slice(0, 64),
   );
-  const release = holdLaunch(id);
+  const directory = paths(id);
+  fs.mkdirSync(path.dirname(directory.base), { recursive: true, mode: 0o700 });
+  // Non-recursive, so a second bucket with the same name fails here.
+  fs.mkdirSync(directory.base, { mode: 0o700 });
   try {
-    if (fs.existsSync(path.join(root(), 'opencode', id)))
-      throw new Error('A profile or bucket with that name already exists');
-    const directory = paths(id);
-    fs.mkdirSync(path.dirname(directory.base), { recursive: true, mode: 0o700 });
-    fs.mkdirSync(directory.base, { mode: 0o700 });
-    try {
-      for (const p of [directory.runtime, directory.auth]) fs.mkdirSync(p, { recursive: true, mode: 0o700 });
-      writeJson(path.join(directory.base, 'secrets.json'), {
-        apiKey: randomBytes(32).toString('hex'),
-        managementKey: randomBytes(32).toString('hex'),
-      });
-      writeJson(directory.manifest, { id, name: clean, upstream });
-      return load(id);
-    } catch (error) {
-      fs.rmSync(directory.base, { recursive: true, force: true });
-      throw error;
-    }
-  } finally {
-    release();
+    for (const p of [directory.runtime, directory.auth]) fs.mkdirSync(p, { recursive: true, mode: 0o700 });
+    writeJson(path.join(directory.base, 'secrets.json'), {
+      apiKey: randomBytes(32).toString('hex'),
+      managementKey: randomBytes(32).toString('hex'),
+    });
+    writeJson(directory.manifest, { id, name: clean, upstream });
+    return load(id);
+  } catch (error) {
+    fs.rmSync(directory.base, { recursive: true, force: true });
+    throw error;
   }
 }
-// A bucket stored with an OpenCode profile is that profile's directory, so
-// deleting the bucket deletes the profile too.
-export function withOpenCode(id: string): boolean {
-  return path.basename(paths(id).manifest) === 'profile.json';
-}
-// Deletes everything the bucket owns: its accounts' sign-ins, secrets, logs
-// and, for an OpenCode-backed bucket, the OpenCode profile. The caller stops
-// the worker first.
+// Deletes everything the bucket owns: its accounts' sign-ins, secrets and
+// logs. The caller stops the worker first.
 export function remove(id: string): void {
   load(id);
   fs.rmSync(paths(id).base, { recursive: true, force: true });
@@ -94,7 +69,7 @@ export function secrets(id: string) {
 }
 
 // A stopped API bucket may move its credential reference without becoming an
-// OAuth pool. Preserve OpenCode fields in legacy shared manifests.
+// OAuth pool. Other manifest fields are kept as they are.
 export function setCredential(id: string, credential: Upstream['credential']): void {
   editUpstream(id, (upstream) => ({ ...upstream, credential }));
 }

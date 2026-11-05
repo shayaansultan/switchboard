@@ -136,7 +136,7 @@ The CLI tab's **Copy agent prompt** button copies that file, and `switchboard gu
 prints the same Markdown from the installed app. Packaging includes the guide,
 so instructions and executable commands update together.
 
-Agentfiles and other skill managers can use a short entrypoint that tells the
+Skill managers can use a short entrypoint that tells the
 agent to run `switchboard guide` before operating Switchboard, rather than
 maintaining a separate copy of the operating instructions. For older installations
 without `guide`, update Switchboard; `switchboard --help` can identify the available commands.
@@ -479,27 +479,5 @@ bun run icons     # re-render the icon PNGs from build/icon.svg
 The screenshot is produced by rendering the app's own UI against
 [`demo/fixture.js`](demo/fixture.js), so it never contains anyone's real
 accounts and stays current when the interface changes.
-
-## OpenCode terminal profiles
-
-`oc remove PROFILE --keep-bucket|--delete-bucket --dry-run` previews removal.
-Both choices delete OpenCode settings, sessions, history and connections, and
-require confirmation or `--yes`. Keeping the bucket moves its accounts, keys
-and upstream settings to a standalone bucket of the same name and leaves
-Codex profiles routed through it. Its worker stops, so routed clients must
-reconnect. Deleting the bucket also deletes its sign-ins and returns routed
-profiles to their native accounts. External Codex homes and native sign-ins
-referenced by OpenCode connections stay untouched. Quit its OpenCode tools
-and routed desktop apps first; active launches and incomplete process scans
-block removal. Retry an interrupted keep with the same command; its dry run
-can inspect the pending removal without changing files. If removal stops before
-the migration starts, the next launch or edit reclaims its dead lock without
-deleting the profile. A same-name bucket cannot be created during migration;
-recovery refuses conflicting buckets instead of discarding preserved sign-ins.
-
-The terminal-first `oc` CLI adds isolated OpenCode profiles with separate service
-connections and per-profile ChatGPT account pools. It runs without the Electron
-app. See [OpenCode profiles](docs/opencode-profiles.md) for installation, selective
-imports, the six service adapters, routing behaviour, and verification.
 
 MIT licensed. See [LICENSE](LICENSE).

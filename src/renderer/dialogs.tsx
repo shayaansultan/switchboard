@@ -471,7 +471,7 @@ export function BucketDialog({ open, onClose }: { open: boolean; onClose: () => 
             </label>
             <p class="hint">
               Enter a file reference only. The key stays outside the app window. Discovery checks the model before
-              creation. Use the CLI's --opencode option to also create an isolated OpenCode profile.
+              creation.
             </p>
           </>
         ) : (

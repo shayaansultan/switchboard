@@ -7,8 +7,7 @@ description: Operate Switchboard from the terminal. It keeps Claude and Codex ac
 
 A **profile** is one signed-in Claude or Codex account with its own isolated home under
 `~/.switchboard`. The `switchboard` command is the agent surface for all of it; `switchboard
---help` lists every command, so this file only carries what `--help` cannot tell you. OpenCode
-profiles are a separate thing with their own `oc` command.
+--help` lists every command, so this file only carries what `--help` cannot tell you.
 
 ## Reading results
 
@@ -88,14 +87,6 @@ colour and the actual home path. It never writes T3 settings. Proxy-routed
 Codex export refuses rather than exporting the native account. Use a native
 profile for export or `routed` for requests through a bucket.
 
-`oc remove PROFILE --keep-bucket|--delete-bucket --dry-run` previews removal.
-Either mode deletes OpenCode settings, sessions, history and connections, so
-both need confirmation or `--yes`. Keep preserves the bucket's accounts,
-keys, upstream settings and Codex routing as a standalone bucket; it stops
-the worker and clients must reconnect. Delete also removes the bucket and
-unassigns its routed profiles. External homes and sign-ins referenced by
-connections are untouched. Quit OpenCode tools and routed desktop apps first.
-
 ## Phone access
 
 `switchboard remote sessions --working` lists the sessions in progress across every profile
@@ -148,8 +139,7 @@ vendor's Usage page before retrying; Switchboard retains its pending request ID.
 An API bucket uses one Responses-compatible service and a credential-file reference,
 with its own loopback API key. It has no subscription accounts or provider fallback.
 Use `bucket create-api` with the exact upstream URL, literal credential variable,
-and an advertised model ID; `--opencode` creates the dedicated isolated OpenCode
-profile at the same time. `bucket inspect-api` refreshes the full model catalogue
+and an advertised model ID. `bucket inspect-api` refreshes the full model catalogue
 and key-specific accounting without starting a worker. The UI can create API
 buckets and refresh their observations, and never asks for the key itself.
 
@@ -165,8 +155,7 @@ routing catalogue until restart. Refresh updates observations; it does not rotat
 keys or reload routing. A missing key or failed discovery prevents a fresh start.
 Existing clients must relaunch after a restart because the loopback port changes.
 If a bucket's original default model is retired, stop the bucket and use
-`bucket model BUCKET ID` to set an advertised replacement. The OpenCode default
-is selected separately with `oc model PROFILE ID`; neither needs state-file edits.
+`bucket model BUCKET ID` to set an advertised replacement; it needs no state-file edits.
 
 Model IDs are opaque. Preserve colons, slashes and aliases exactly. Discovery keeps
 all service metadata; coding clients list chat models. Capability metadata is not
@@ -191,6 +180,5 @@ edit. Preserve existing logins and default routing unless explicitly asked.
 
 API profile rows report API health, not the native OAuth login. Missing accounting
 limits mean “not reported”, never zero usage or unlimited access.
-The API adapter currently advertises no reasoning-effort choices; `oc effort`
-rejects API profiles. A generic Codex “Medium” label is not evidence of upstream
+The API adapter currently advertises no reasoning-effort choices. A generic Codex “Medium” label is not evidence of upstream
 thinking control. Verify capabilities before adding choices.

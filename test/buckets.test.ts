@@ -6,29 +6,23 @@ import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import * as http from 'node:http';
 import * as buckets from '../src/buckets/store';
-import * as profiles from '../src/opencode/profiles';
 import { codexBinary, desktopEnvironment, wrapperScript } from '../src/buckets/desktop';
 import { desktopCatalog } from '../src/buckets/models';
 import { desktopRouting, writeFileAtomic } from '../src/storage';
 
-test('shared buckets reuse existing pool storage and credentials without adopting collisions', () => {
+test('buckets live under buckets/, refuse a duplicate name and reject path escapes', () => {
   const original = process.env.SWITCHBOARD_ROOT;
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-buckets-'));
   process.env.SWITCHBOARD_ROOT = temporary;
   try {
-    const legacy = profiles.create('Acme');
-    const key = profiles.secrets(legacy.id);
-    expect(buckets.paths(legacy.id).auth).toBe(profiles.paths(legacy.id).auth);
-    expect(buckets.paths(legacy.id).runtime).toBe(profiles.paths(legacy.id).runtime);
-    expect(buckets.secrets(legacy.id)).toEqual(key);
-    expect(() => buckets.create('Acme')).toThrow();
     const shared = buckets.create('Shared');
     expect(buckets.paths(shared.id).base).toBe(path.join(temporary, 'buckets', 'shared'));
-    expect(() => profiles.create('Shared')).toThrow();
+    const key = buckets.secrets(shared.id);
+    expect(() => buckets.create('Shared')).toThrow();
+    expect(buckets.secrets(shared.id)).toEqual(key);
+    buckets.create('Acme');
     expect(buckets.list().map((b) => b.id)).toEqual<string[]>(['acme', 'shared']);
     expect(() => buckets.paths('../escape')).toThrow();
-    fs.mkdirSync(path.join(temporary, 'buckets', legacy.id));
-    expect(() => buckets.paths(legacy.id)).toThrow('Ambiguous');
   } finally {
     if (original === undefined) delete process.env.SWITCHBOARD_ROOT;
     else process.env.SWITCHBOARD_ROOT = original;

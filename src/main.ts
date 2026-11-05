@@ -1032,16 +1032,12 @@ ipcMain.handle('buckets:remove', async (event, id: string) => {
   const bucket = buckets.load(id);
   const users = data.profiles.filter((p) => p.proxyBucket === id);
   assertRoutedQuit(id, bucket.name);
-  const withOpenCode = buckets.withOpenCode(id);
   const detail = [
     `This stops its worker, interrupting every client routed through it, and deletes ${buckets.paths(id).base} with the sign-ins of its accounts.`,
-    withOpenCode
-      ? `It is also the OpenCode profile "${bucket.name}": its sessions, settings and connections go too.`
-      : '',
     users.length ? `${users.map((p) => p.name).join(', ')} will use its own sign-in again.` : '',
     'It cannot be undone.',
   ];
-  const message = `Remove "${bucket.name}"${withOpenCode ? ' and its OpenCode profile' : ''}?`;
+  const message = `Remove "${bucket.name}"?`;
   if (!(await confirmRemove(message, detail.filter(Boolean).join(' ')))) return false;
   // A profile may have been launched while the dialog was open.
   assertRoutedQuit(id, bucket.name);
