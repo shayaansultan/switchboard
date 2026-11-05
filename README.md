@@ -221,6 +221,14 @@ works in an install signed with a certificate (see [Install](#install)); an
 ad-hoc build hides Fans. It is hidden on a Mac with no fans. Read
 [Fan control](docs/fan-control.md) for how it works.
 
+## Light or dark
+
+The window follows the Mac's light or dark mode. The button after Fans in
+the title bar pins it instead: each click moves from **System** (a monitor)
+to **Light** (a sun) to **Dark** (a moon) and back, and its tooltip names the
+current one. It is the same choice as **Appearance** in Settings and
+`switchboard settings set appearance light`, so all three stay in step.
+
 ## Requirements
 
 - A macOS whose `open` supports `--env`, which is how a profile's config home

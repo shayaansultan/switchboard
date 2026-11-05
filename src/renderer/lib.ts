@@ -12,6 +12,7 @@ export type Vendor = import('../types').Vendor;
 export type AppState = import('../types').AppState;
 export type BringMode = import('../types').BringMode;
 export type Settings = import('../types').Settings;
+export type Appearance = import('../types').Appearance;
 export type ProfilesView = import('../types').ProfilesView;
 export type BucketView = import('../types').BucketView;
 export type BucketAccount = BucketView['accounts'][number];
