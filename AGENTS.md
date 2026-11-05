@@ -67,7 +67,6 @@ bun run cli -- list --human     # the CLI straight from source
 - `src/cli.ts` and `src/cli/`: the `switchboard` command. JSON on stdout by
   default, `--human` for prose; `src/cli/output.ts` is the contract.
 - `src/buckets/`: proxy buckets, the local proxy and its worker.
-- `src/opencode/`: the `oc` CLI for OpenCode profiles; runs without Electron.
 - `src/remote/`: phone access. `model.ts` is the shared session model,
   `claude.ts` and `codex.ts` read each app's session files into it,
   `sessions.ts` lists, pages and watches them, `api.ts` is the tRPC router,

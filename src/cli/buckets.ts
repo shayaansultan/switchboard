@@ -16,7 +16,6 @@ import { loadBucket } from './profiles';
 import { confirm, mutateStore } from './resolve';
 import { resetsCommand } from './resets';
 import { Upstream, inspectUpstream, assertDefaultModel } from '../buckets/upstream';
-import * as opencode from '../opencode/profiles';
 
 const SUBCOMMANDS = z.enum([
   'model',
@@ -80,7 +79,6 @@ export async function bucketCommand(rest: string[], ctx: Context): Promise<numbe
         'budget-url': { type: 'string' },
         adapter: { type: 'string' },
         model: { type: 'string' },
-        opencode: { type: 'boolean' },
         'allow-mutable-default': { type: 'boolean' },
       });
       const upstream = Upstream.parse({
@@ -96,7 +94,7 @@ export async function bucketCommand(rest: string[], ctx: Context): Promise<numbe
       if (observation.discovery.status !== 'ok') throw new Error('API discovery: ' + observation.discovery.status);
       assertDefaultModel(upstream, observation.models);
       const name = required(positionals[0], 'Name');
-      const bucket = values.opencode ? opencode.create(name, upstream) : buckets.create(name, upstream);
+      const bucket = buckets.create(name, upstream);
       await buckets.inspect(bucket.id);
       ctx.out.result(await view(bucket.id));
       return;
@@ -154,10 +152,9 @@ export async function bucketCommand(rest: string[], ctx: Context): Promise<numbe
       };
       await assertRoutedQuit();
       const deleted = buckets.paths(id).base;
-      const what = buckets.withOpenCode(id) ? `bucket ${id} and its OpenCode profile` : `bucket ${id}`;
       await confirm(
         ctx.flags,
-        `Remove ${what}? Its worker stops, interrupting every client routed through it, and everything under ${deleted} is deleted, with its accounts' sign-ins.`,
+        `Remove bucket ${id}? Its worker stops, interrupting every client routed through it, and everything under ${deleted} is deleted, with its accounts' sign-ins.`,
       );
       // A profile may have been launched while the prompt was open.
       await assertRoutedQuit();

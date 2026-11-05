@@ -106,23 +106,6 @@ try {
       },
     },
   });
-  const oc = async (...args) => {
-    const { stdout } = await execute('node', [path.join(checkout, 'out/opencode/cli.js'), ...args], {
-      env,
-      timeout: 15000,
-    });
-    return JSON.parse(stdout);
-  };
-  await oc('create', 'Keep fixture');
-  const preview = await oc('remove', 'keep-fixture', '--keep-bucket', '--dry-run');
-  assert.equal(preview.stopsWorker, true);
-  const originalKeys = await fs.readFile(path.join(root, 'opencode/keep-fixture/secrets.json'), 'utf8');
-  const kept = await oc('remove', 'keep-fixture', '--keep-bucket', '--yes');
-  assert.equal(await fs.readFile(path.join(root, 'buckets/keep-fixture/secrets.json'), 'utf8'), originalKeys);
-  await oc('create', 'Delete fixture');
-  const deleted = await oc('remove', 'delete-fixture', '--delete-bucket', '--yes');
-  assert.equal(deleted.bucket, 'delete');
-  assert.deepEqual(await oc('list'), []);
   console.log(
     JSON.stringify(
       {
@@ -133,9 +116,6 @@ try {
         focused,
         quit,
         exported,
-        preview,
-        kept,
-        deleted,
       },
       null,
       2,

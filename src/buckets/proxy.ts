@@ -366,7 +366,7 @@ export async function control(
   return value;
 }
 
-export function processAlive(pid: number): boolean {
+function processAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -459,7 +459,7 @@ export async function ensureWorker(id: string, worker: Command = workerCommand()
   const upstream = load(id).upstream;
   if (upstream) readCredential(upstream.credential);
 
-  if (!fs.existsSync(binary())) throw new Error('Install the routing worker first: oc proxy-install');
+  if (!fs.existsSync(binary())) throw new Error('Install the routing worker first: switchboard bucket install-proxy');
   const lock = path.join(paths(id).runtime, 'starting.lock');
   let owner = false;
   try {

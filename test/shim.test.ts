@@ -17,12 +17,6 @@ test('installShim writes an executable, rewrites an identical one, and refuses a
   expect(() => installShim('t', launcherScript('Other', ['/usr/bin/false']))).toThrow(/differently installed/);
 });
 
-test('the oc shim content is unchanged by the shared writer', () => {
-  expect(launcherScript('Switchboard OpenCode launcher', ['/r/node', '/c/out/opencode/cli.js'])).toBe(
-    `#!/bin/sh\n# Switchboard OpenCode launcher\nexec '/r/node' '/c/out/opencode/cli.js' "$@"\n`,
-  );
-});
-
 test('install-cli --dev refuses a source run, and the app shim needs the installed app', async () => {
   // Under bun test the entry is src/cli.ts, which must never be what a shim points at.
   const dev = await run('install-cli', '--dev');

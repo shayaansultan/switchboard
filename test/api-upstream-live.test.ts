@@ -5,11 +5,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { create, paths, secrets } from '../src/opencode/profiles';
+import { create, paths, secrets } from '../src/buckets/store';
 import { Upstream } from '../src/buckets/upstream';
 import { ensureWorker, control } from '../src/buckets/proxy';
 import { stop } from '../src/buckets';
-import { launchEnv } from '../src/opencode/launch';
 import { wrapperScript, codexBinary } from '../src/buckets/desktop';
 import { apiCatalog } from '../src/buckets/models';
 import { run } from './cli-helpers';
@@ -171,15 +170,6 @@ live(
         })
       ).text();
       expect(JSON.stringify(seen.at(-1)?.body)).toContain('function_call_output');
-      const env = launchEnv(profile, running.receipt.proxyPort, sandboxHome);
-      const oc = execute('opencode', ['run', '--format', 'json', 'Reply briefly.'], {
-        env,
-        cwd: sandboxHome,
-        timeout: 45000,
-        maxBuffer: 2 * 1024 * 1024,
-      });
-      oc.child.stdin?.end();
-      expect((await oc).stdout).toContain('fixture-ok');
       const home = path.join(sandboxHome, 'codex-api-home');
       fs.mkdirSync(home);
       const catalog = apiCatalog(running.upstream!.models, path.join(home, 'models.json'));

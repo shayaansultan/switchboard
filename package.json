@@ -7,7 +7,6 @@
   "author": "Shayaan Sultan",
   "main": "out/main.js",
   "scripts": {
-    "oc": "bun src/opencode/cli.ts",
     "cli": "bun src/cli.ts",
     "start": "bun run build && electron .",
     "icons": "electron build/render-icons.js",
@@ -33,7 +32,6 @@
   },
   "dependencies": {
     "@trpc/server": "^11.19.0",
-    "jsonc-parser": "^3.3.1",
     "preact": "^10.29.8",
     "web-push": "3.6.7",
     "zod": "^4.6.5"

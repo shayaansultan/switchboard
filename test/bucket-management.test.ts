@@ -240,27 +240,6 @@ test('an unreachable worker keeps its bucket', async () => {
   });
 });
 
-test('a bucket stored with an OpenCode profile is removed with it', () => {
-  const previous = process.env.SWITCHBOARD_ROOT;
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-bucket-remove-'));
-  process.env.SWITCHBOARD_ROOT = temporary;
-  try {
-    const base = path.join(temporary, 'opencode', 'legacy');
-    fs.mkdirSync(path.join(base, 'data'), { recursive: true });
-    store.writeJson(path.join(base, 'profile.json'), { id: 'legacy', name: 'Legacy' });
-    const plain = store.create('Plain');
-    expect(store.withOpenCode('legacy')).toBe(true);
-    expect(store.withOpenCode(plain.id)).toBe(false);
-    store.remove('legacy');
-    expect(fs.existsSync(base)).toBe(false);
-    expect(store.list().map((b) => b.id)).toEqual<string[]>(['plain']);
-  } finally {
-    if (previous === undefined) delete process.env.SWITCHBOARD_ROOT;
-    else process.env.SWITCHBOARD_ROOT = previous;
-    fs.rmSync(temporary, { recursive: true, force: true });
-  }
-});
-
 test("the proxy's reason is reported, and a new sign-in ends a usage cooldown", async () => {
   await fixture(async (id, actions, port) => {
     vendorStatus = 429;

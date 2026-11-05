@@ -1,6 +1,6 @@
 // Launcher shims: a tiny sh script in ~/.local/bin that execs a runtime on
-// an entry file, so `oc` and `switchboard` work from any shell without
-// touching rc files. Both CLIs install theirs through here.
+// an entry file, so `switchboard` works from any shell without touching rc
+// files. The app and the CLI install it through here.
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';

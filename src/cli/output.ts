@@ -64,6 +64,7 @@ const CLASSIFIED: [RegExp, string, Exit][] = [
     'bucket-unreachable',
     4,
   ],
+  [/ still routes? through "[^"]+"\. Unassign /, 'bucket-still-assigned', 4],
   [/^Install the routing worker first/, 'proxy-not-installed', 4],
   [/^Proxy already installed/, 'proxy-installed', 4],
   [/^Account is not in this bucket$/, 'no-such-account', 3],

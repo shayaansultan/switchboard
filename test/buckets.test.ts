@@ -6,30 +6,47 @@ import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import * as http from 'node:http';
 import * as buckets from '../src/buckets/store';
-import * as profiles from '../src/opencode/profiles';
+import * as profileStore from '../src/store';
 import { codexBinary, desktopEnvironment, wrapperScript } from '../src/buckets/desktop';
 import { desktopCatalog } from '../src/buckets/models';
 import { desktopRouting, writeFileAtomic } from '../src/storage';
 
-test('shared buckets reuse existing pool storage and credentials without adopting collisions', () => {
+test('buckets live under buckets/, refuse a duplicate name and reject path escapes', () => {
   const original = process.env.SWITCHBOARD_ROOT;
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-buckets-'));
   process.env.SWITCHBOARD_ROOT = temporary;
   try {
-    const legacy = profiles.create('Acme');
-    const key = profiles.secrets(legacy.id);
-    expect(buckets.paths(legacy.id).auth).toBe(profiles.paths(legacy.id).auth);
-    expect(buckets.paths(legacy.id).runtime).toBe(profiles.paths(legacy.id).runtime);
-    expect(buckets.secrets(legacy.id)).toEqual(key);
-    expect(() => buckets.create('Acme')).toThrow();
     const shared = buckets.create('Shared');
     expect(buckets.paths(shared.id).base).toBe(path.join(temporary, 'buckets', 'shared'));
-    expect(() => profiles.create('Shared')).toThrow();
+    const key = buckets.secrets(shared.id);
+    expect(() => buckets.create('Shared')).toThrow();
+    expect(buckets.secrets(shared.id)).toEqual(key);
+    buckets.create('Acme');
     expect(buckets.list().map((b) => b.id)).toEqual<string[]>(['acme', 'shared']);
     expect(() => buckets.paths('../escape')).toThrow();
-    fs.mkdirSync(path.join(temporary, 'buckets', legacy.id));
-    expect(() => buckets.paths(legacy.id)).toThrow('Ambiguous');
   } finally {
+    if (original === undefined) delete process.env.SWITCHBOARD_ROOT;
+    else process.env.SWITCHBOARD_ROOT = original;
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test('a bucket name a profile is still assigned to is refused, so the profile is not silently rebound', () => {
+  const original = process.env.SWITCHBOARD_ROOT;
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-buckets-'));
+  process.env.SWITCHBOARD_ROOT = temporary;
+  const data = profileStore.load();
+  const routed = profileStore.create(data, { vendor: 'codex', name: 'Leftover route' });
+  profileStore.setProxyBucket(data, routed.id, 'gone');
+  profileStore.save(data);
+  try {
+    expect(() => buckets.create('Gone')).toThrow(`${routed.id} still routes through "gone"`);
+    expect(fs.existsSync(path.join(temporary, 'buckets', 'gone'))).toBe(false);
+    expect<string>(buckets.create('Other').id).toBe('other');
+  } finally {
+    const after = profileStore.load();
+    profileStore.remove(after, routed.id);
+    profileStore.save(after);
     if (original === undefined) delete process.env.SWITCHBOARD_ROOT;
     else process.env.SWITCHBOARD_ROOT = original;
     fs.rmSync(temporary, { recursive: true, force: true });
