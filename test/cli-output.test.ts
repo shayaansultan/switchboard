@@ -15,6 +15,16 @@ const cases: [string, string, Exit][] = [
   ['Bucket worker is unreachable', 'bucket-unreachable', 4],
   ['Profile x has a listener on an old worker port. Inspect /r before recovery.', 'bucket-unreachable', 4],
   ['Bucket x has a worker lease without a receipt. Inspect /r before restarting.', 'bucket-unreachable', 4],
+  [
+    'codex-x still routes through "gone". Unassign it before creating a bucket with that name.',
+    'bucket-still-assigned',
+    4,
+  ],
+  [
+    'codex-x, codex-y still route through "gone". Unassign them before creating a bucket with that name.',
+    'bucket-still-assigned',
+    4,
+  ],
   ['Install the routing worker first: switchboard bucket install-proxy', 'proxy-not-installed', 4],
   ['Proxy already installed: /x', 'proxy-installed', 4],
   ['Account is not in this bucket', 'no-such-account', 3],
