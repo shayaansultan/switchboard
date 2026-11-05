@@ -40,7 +40,7 @@ test('a bucket name a profile is still assigned to is refused, so the profile is
   profileStore.setProxyBucket(data, routed.id, 'gone');
   profileStore.save(data);
   try {
-    expect(() => buckets.create('Gone')).toThrow(`${routed.id} still route through "gone"`);
+    expect(() => buckets.create('Gone')).toThrow(`${routed.id} still routes through "gone"`);
     expect(fs.existsSync(path.join(temporary, 'buckets', 'gone'))).toBe(false);
     expect<string>(buckets.create('Other').id).toBe('other');
   } finally {

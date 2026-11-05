@@ -47,7 +47,7 @@ export function create(name: string, upstream?: Upstream) {
   const routed = routedProfiles(id);
   if (routed.length)
     throw new Error(
-      `${routed.join(', ')} still route through "${id}". Unassign them before creating a bucket with that name.`,
+      `${routed.join(', ')} still ${routed.length === 1 ? 'routes' : 'route'} through "${id}". Unassign ${routed.length === 1 ? 'it' : 'them'} before creating a bucket with that name.`,
     );
   const directory = paths(id);
   fs.mkdirSync(path.dirname(directory.base), { recursive: true, mode: 0o700 });
