@@ -1,6 +1,7 @@
 // The window. Everything renders from one State snapshot pushed by the main
 // process through `window.sb`; the rest is which tab is open, which view the
-// accounts use, and which dialog is up.
+// accounts use, and which dialog is up. The title bar's appearance button is
+// a shortcut for the Appearance setting, not a second preference.
 
 import { useEffect, useState } from 'preact/hooks';
 import { Profiles } from './profiles';
@@ -11,7 +12,15 @@ import { Cli } from './cli';
 import { PhoneTab } from './phone';
 import { AddDialog, BucketDialog, SettingsDialog, type SetupRequest } from './dialogs';
 import { ResetsDialog } from './resets';
-import { act, type ProfilesView, type ProfileView, type ResetTarget, type State, type Vendor } from './lib';
+import {
+  act,
+  type Appearance,
+  type ProfilesView,
+  type ProfileView,
+  type ResetTarget,
+  type State,
+  type Vendor,
+} from './lib';
 import { ActionsCtx } from './ui/actions';
 import { OverlayProvider, useOverlays } from './ui/overlays';
 import { Icon, TipBtn, type IconName } from './ui/primitives';
@@ -65,6 +74,7 @@ function Shell({ state }: { state: State | null }) {
         <div class="actions">
           <Caffeinate />
           <FanControl />
+          <AppearanceToggle appearance={state?.settings.appearance ?? 'system'} />
           <TipBtn
             variant="icon"
             icon="refresh"
@@ -130,6 +140,42 @@ function Shell({ state }: { state: State | null }) {
         </>
       ) : null}
     </ActionsCtx.Provider>
+  );
+}
+
+// System, then Light, then Dark, then back. The icon shows the current one;
+// the tooltip names it and the one a click moves to.
+const APPEARANCES: { id: Appearance; label: string; icon: IconName }[] = [
+  { id: 'system', label: 'System', icon: 'monitor' },
+  { id: 'light', label: 'Light', icon: 'sun' },
+  { id: 'dark', label: 'Dark', icon: 'moon' },
+];
+
+function AppearanceToggle({ appearance }: { appearance: Appearance }) {
+  const { showTip } = useOverlays();
+  const at = Math.max(
+    0,
+    APPEARANCES.findIndex((a) => a.id === appearance),
+  );
+  const next = (at + 1) % APPEARANCES.length;
+  const tipAt = (i: number) => [
+    `Appearance: ${APPEARANCES[i].label}`,
+    `Click for ${APPEARANCES[(i + 1) % APPEARANCES.length].label}`,
+  ];
+  return (
+    <TipBtn
+      variant="icon"
+      icon={APPEARANCES[at].icon}
+      id="appearance"
+      aria-label={tipAt(at).join('. ')}
+      tip={tipAt(at)}
+      onClick={(e) => {
+        const btn = e.currentTarget;
+        // The tooltip already on screen holds the old lines; show the new ones.
+        showTip(btn, tipAt(next));
+        void act(() => window.sb.saveSettings({ appearance: APPEARANCES[next].id }), btn);
+      }}
+    />
   );
 }
 

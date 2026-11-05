@@ -45,6 +45,11 @@ const PATHS = {
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
   fan: '<path d="M10.83 8.41a4.5 4.5 0 1 1 6.33 3.12"/><path d="M15.59 10.83a4.5 4.5 0 1 1-3.12 6.33"/><path d="M13.17 15.59a4.5 4.5 0 1 1-6.33-3.12"/><path d="M8.41 13.17a4.5 4.5 0 1 1 3.12-6.33"/><circle cx="12" cy="12" r="1.5"/>',
   window: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 8h20"/><path d="M6 4v4"/><path d="M10 4v4"/>',
+  // The Appearance setting: following the Mac, pinned light, pinned dark.
+  monitor:
+    '<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+  moon: '<path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/>',
 };
 export type IconName = keyof typeof PATHS;
 
