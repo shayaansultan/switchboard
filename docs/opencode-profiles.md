@@ -105,20 +105,19 @@ Supported service IDs:
 - `wispr-flow`
 
 Each is a separate MCP registration and process, backed by a service adapter in
-the private `agentfiles/integrations/codex-apps-bridge` checkout. The shared
+a Codex Apps bridge, a separate program that Switchboard does not ship. The shared
 transport handles Codex App Server communication. Google retains its existing
 file and Drive helpers. Other services do not load those helpers or expose Google tools.
 
 ```sh
-oc probe slack --codex-home /absolute/codex/home --account work@example.com
-oc connect work slack --codex-home /absolute/codex/home --account work@example.com
-oc connect work linear --codex-home /another/codex/home --account other@example.com
+oc probe slack --codex-home /absolute/codex/home --account work@example.com --bridge /absolute/bridge/main.ts
+oc connect work slack --codex-home /absolute/codex/home --account work@example.com --bridge /absolute/bridge/main.ts
+oc connect work linear --codex-home /another/codex/home --account other@example.com --bridge /absolute/bridge/main.ts
 oc disconnect work slack
 ```
 
-Use `--bridge /absolute/path/to/src/main.ts` if agentfiles is elsewhere. The default
-is `~/Developer/agentfiles/integrations/codex-apps-bridge/src/main.ts`.
-`SWITCHBOARD_BRIDGE` supplies the same default. `--access read-only` filters out
+`--bridge` names the bridge's entrypoint; `SWITCHBOARD_BRIDGE` can supply it instead.
+A saved connection keeps the path it was connected with. `--access read-only` filters out
 tools not explicitly annotated as reads; the default is `read-write`, subject to
 the calling agent's authorization and permissions.
 
@@ -163,7 +162,7 @@ oc import work /absolute/source/directory --items 2 --mode link
 ```
 
 The source can be an OpenCode config directory, a Claude/Codex profile home, or
-an agentfiles checkout. The numbered inventory includes available skills,
+a skills repository checkout. The numbered inventory includes available skills,
 instructions, TUI settings, plain plugin specifiers, and OpenCode MCP definitions.
 OpenCode preferences support JSON and JSONC. Imports from vendor homes currently
 cover portable files, not conversion of vendor plugin runtimes or configuration languages.
@@ -278,6 +277,6 @@ override of a legacy pool default, switching providers while resuming a session,
 profile-local credentials, and successful inference with a missing or unreachable
 pool. It generates no external model traffic.
 
-Bridge tests live in agentfiles. Live `probe` checks exercise existing hosted
+Bridge tests live with the bridge. Live `probe` checks exercise existing hosted
 connections. A complete subscription acceptance run still requires fresh OAuth
 logins, real inference, and token-refresh/continuation checks with those accounts.

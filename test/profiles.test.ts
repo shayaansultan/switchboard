@@ -499,7 +499,7 @@ test('a checkout finds the band plugin it ships', () => {
 
 const GS = profiles.CODEX_GLOBAL_STATE;
 const ANSWER = { id: 'p-answer', name: 'acmeWork', rootPaths: ['/w/acmeWork'], createdAt: 1, updatedAt: 1 };
-const AGENTS = { id: 'p-agents', name: 'agentfiles', rootPaths: ['/w/agentfiles'], createdAt: 2, updatedAt: 2 };
+const AGENTS = { id: 'p-agents', name: 'skills', rootPaths: ['/w/skills'], createdAt: 2, updatedAt: 2 };
 const SOURCE_STATE = {
   'local-projects': { 'p-answer': ANSWER, 'p-agents': AGENTS },
   'project-order': ['p-agents', 'p-answer'],

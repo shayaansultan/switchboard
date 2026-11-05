@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import { execFile } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs, promisify } from 'node:util';
@@ -46,10 +45,11 @@ const help = `Switchboard OpenCode profiles
   oc show PROFILE                 Show profile settings, without credentials
   oc import PROFILE SOURCE        Choose specific skills/settings to copy or link
   oc connect PROFILE SERVICE      Configure one hosted service connection
-       --codex-home PATH --account EMAIL [--bridge PATH] [--access read-write]
+       --codex-home PATH --account EMAIL --bridge PATH [--access read-write]
   oc disconnect PROFILE SERVICE   Remove a connection from this profile
   oc bridge PROFILE SERVICE ...   Run the bound bridge CLI (tools/call/doctor)
   oc native PROFILE AGENT ...     Run claude or codex-computer with the profile's login
+                                  codex-computer runs the script CODEX_COMPUTER_SCRIPT names
   oc probe SERVICE                Inspect a service, using the same connection flags
   oc model PROFILE MODEL          Save a provider/model default (bare names use the pool)
   oc models PROFILE [PROVIDER]     List this profile's available models
@@ -159,10 +159,7 @@ interface ConnectionFlags {
 }
 
 function connectionInput(flags: ConnectionFlags): Connection {
-  const bridge =
-    flags.bridge ??
-    process.env.SWITCHBOARD_BRIDGE ??
-    path.join(os.homedir(), 'Developer', 'agentfiles', 'integrations', 'codex-apps-bridge', 'src', 'main.ts');
+  const bridge = required(flags.bridge ?? process.env.SWITCHBOARD_BRIDGE, '--bridge (or SWITCHBOARD_BRIDGE)');
 
   return Connection.parse({
     backend: 'codex-hosted',
@@ -549,17 +546,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
             break;
           case 'codex-computer': {
             if (!profile.nativeAgents?.codex) throw new Error('This profile has no Codex Computer account binding');
-            const script =
-              process.env.CODEX_COMPUTER_SCRIPT ??
-              path.join(
-                os.homedir(),
-                'Developer',
-                'agentfiles',
-                'skills',
-                'codex-computer',
-                'scripts',
-                'codex-computer',
-              );
+            const script = required(process.env.CODEX_COMPUTER_SCRIPT, 'CODEX_COMPUTER_SCRIPT');
             process.exitCode = await terminal('python3', [script, ...rest.slice(2)], { env });
             break;
           }

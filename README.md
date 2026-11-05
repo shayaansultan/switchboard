@@ -136,7 +136,7 @@ The CLI tab's **Copy agent prompt** button copies that file, and `switchboard gu
 prints the same Markdown from the installed app. Packaging includes the guide,
 so instructions and executable commands update together.
 
-Agentfiles and other skill managers can use a short entrypoint that tells the
+Skill managers can use a short entrypoint that tells the
 agent to run `switchboard guide` before operating Switchboard, rather than
 maintaining a separate copy of the operating instructions. For older installations
 without `guide`, update Switchboard; `switchboard --help` can identify the available commands.
