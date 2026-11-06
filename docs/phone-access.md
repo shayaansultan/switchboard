@@ -278,3 +278,11 @@ its `env` block.
   it to end.
 - Session file formats belong to Anthropic and OpenAI and can change. The
   reader skips lines it does not understand rather than failing.
+
+## Codex app tools
+
+Codex launches use ChatGPT's bundled Node runtime for the phone and proxy-bucket adapters when available. Older ChatGPT builds
+without that runtime retain the legacy launch path. This
+keeps ChatGPT's app tools, including automation setup, available while phone
+access is enabled. After installing an updated Switchboard, quit and relaunch
+the Codex profile from Switchboard to replace its launch wrapper.

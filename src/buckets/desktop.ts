@@ -7,7 +7,7 @@ import { VENDORS } from '../store';
 import { ensureWorker, accounts } from './proxy';
 import type { Profile } from '../types';
 import { desktopCatalog, apiCatalog } from './models';
-import { runtime } from './runtime';
+import { desktopAdapter } from './runtime';
 import { shellQuote } from '../shell';
 
 // Only the layout this was written against is followed; another could change
@@ -46,13 +46,13 @@ function providerOverrides(endpoint: string): string[] {
 export function wrapperScript(
   binary: string,
   endpoint: string,
-  label?: { bucket: string; runtime: string; adapter: string; catalog?: string; model?: string },
+  label?: { bucket: string; runtime: string; adapter: string; catalog?: string; model?: string; electron?: boolean },
 ): string {
   const overrides = providerOverrides(endpoint);
   if (label?.model) overrides.push('model=' + JSON.stringify(label.model));
   if (label?.catalog) overrides.push(`model_catalog_json=${JSON.stringify(label.catalog)}`);
   const command = label
-    ? `env ELECTRON_RUN_AS_NODE=1 ${[label.runtime, label.adapter, label.bucket, binary].map(shellQuote).join(' ')}`
+    ? `${label.electron ? 'env ELECTRON_RUN_AS_NODE=1 ' : ''}${[label.runtime, label.adapter, label.bucket, binary].map(shellQuote).join(' ')}`
     : shellQuote(binary);
   // The app passes its own -c flags after app-server. Codex treats that as a
   // separate override list, replacing flags before the subcommand. Append ours
@@ -68,15 +68,16 @@ export function wrapperScript(
 // read-only from the phone, rather than not at all.
 export function remoteWrapper(profile: Profile, find: () => string = codexBinary): string | null {
   let binary: string;
+  let adapter: ReturnType<typeof desktopAdapter>;
   try {
     binary = find();
+    adapter = desktopAdapter('desktop-remote');
   } catch {
     return null;
   }
   if (!fs.existsSync(binary)) return null;
-  const adapter = runtime();
   const file = desktopRouting(profile.id).wrapper;
-  const command = `env ELECTRON_RUN_AS_NODE=1 ${[adapter.execPath, adapter.script('desktop-remote'), binary].map(shellQuote).join(' ')}`;
+  const command = `${adapter.electron ? 'env ELECTRON_RUN_AS_NODE=1 ' : ''}${[adapter.execPath, adapter.script, binary].map(shellQuote).join(' ')}`;
   writeFileAtomic(file, `#!/bin/sh\nexec ${command} "$@"\n`, 0o700);
   return file;
 }
@@ -95,13 +96,14 @@ export async function desktopEnvironment(profile: Profile, codexHome: string): P
   if (!bucket.upstream && !members.some((member) => !member.disabled))
     throw new Error('This bucket has no enabled accounts. Add an account in Proxy buckets.');
   const endpoint = `http://127.0.0.1:${worker.receipt.proxyPort}/v1`;
-  const adapter = runtime();
+  const adapter = desktopAdapter('desktop-stdio');
   const files = desktopRouting(profile.id);
   const content = wrapperScript(binary, endpoint, {
     bucket: bucket.name,
     model: bucket.upstream?.defaultModel,
     runtime: adapter.execPath,
-    adapter: adapter.script('desktop-stdio'),
+    electron: adapter.electron,
+    adapter: adapter.script,
     catalog: bucket.upstream
       ? apiCatalog(worker.upstream?.models ?? [], files.catalog)
       : await desktopCatalog(

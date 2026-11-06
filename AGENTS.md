@@ -15,7 +15,9 @@ bun run check
 ```
 
 This is exactly what CI runs on Ubuntu and macOS: `oxfmt --check`, then
-`oxlint`, the type check, the unit tests, then a build. The formatter runs
+a build, `oxlint`, the type check, and the unit tests. The build comes before
+tests because Codex desktop adapters run as compiled JavaScript under ChatGPT’s
+bundled Node. The formatter runs
 first, so an unformatted file fails CI before any test executes, and
 `bun run test` alone will not catch it. `bun run format` fixes formatting in
 place. Push only when `bun run check` exits clean.
